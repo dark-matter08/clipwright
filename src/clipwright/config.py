@@ -34,6 +34,8 @@ class ProjectConfig:
     split_gap: float = 3.0
     lead: float = 0.4
     tail: float = 0.3
+    mobile: bool = False
+    user_agent: str = ""
     extra: dict = field(default_factory=dict)
 
     @property

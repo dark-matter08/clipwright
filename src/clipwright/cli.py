@@ -86,7 +86,12 @@ def record(
     cfg = _load_cfg(root)
     script = (script_path or root / cfg.demo_script).resolve()
     out_dir = cfg.resolve_out(root)
-    video, moments = record_impl(cfg.url, script, out_dir, size=cfg.resolution)
+    video, moments = record_impl(
+        cfg.url, script, out_dir,
+        size=cfg.resolution,
+        mobile=cfg.mobile,
+        user_agent=cfg.user_agent,
+    )
     rprint(f"[green]Recorded[/green] {video} + {moments}")
 
 

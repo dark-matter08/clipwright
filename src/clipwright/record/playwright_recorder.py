@@ -74,22 +74,39 @@ async def _call_user_run(user_run, page, mark) -> None:
         await user_run(page)
 
 
+DEFAULT_MOBILE_UA = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
+)
+
+
 async def _run(
     url: str,
     user_run,
     video_dir: Path,
     size: tuple[int, int],
     recorder: _MarkRecorder,
+    *,
+    mobile: bool = False,
+    user_agent: str = "",
 ) -> None:
     from playwright.async_api import async_playwright
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            viewport={"width": size[0], "height": size[1]},
-            record_video_dir=str(video_dir),
-            record_video_size={"width": size[0], "height": size[1]},
-        )
+        ctx_kwargs: dict[str, Any] = {
+            "viewport": {"width": size[0], "height": size[1]},
+            "record_video_dir": str(video_dir),
+            "record_video_size": {"width": size[0], "height": size[1]},
+        }
+        if mobile:
+            ctx_kwargs["is_mobile"] = True
+            ctx_kwargs["has_touch"] = True
+            ctx_kwargs["device_scale_factor"] = 3
+            ctx_kwargs["user_agent"] = user_agent or DEFAULT_MOBILE_UA
+        elif user_agent:
+            ctx_kwargs["user_agent"] = user_agent
+        context = await browser.new_context(**ctx_kwargs)
         page = await context.new_page()
         recorder.start()
         if url:
@@ -106,6 +123,8 @@ def record(
     out_dir: Path,
     *,
     size: tuple[int, int] = (1080, 1920),
+    mobile: bool = False,
+    user_agent: str = "",
 ) -> tuple[Path, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     video_dir = out_dir / "_raw_video"
@@ -113,7 +132,7 @@ def record(
 
     user_run = _load_user_script(script_path)
     recorder = _MarkRecorder()
-    asyncio.run(_run(url, user_run, video_dir, size, recorder))
+    asyncio.run(_run(url, user_run, video_dir, size, recorder, mobile=mobile, user_agent=user_agent))
 
     webms = sorted(video_dir.glob("*.webm"))
     if not webms:
