@@ -10,11 +10,15 @@ from rich import print as rprint
 from . import __version__, config
 from .captions.chunker import chars_to_words, chunk_words
 from .captions.png_renderer import CaptionStyle, render_all
+from .edit import keyframes as keyframes_mod
+from .edit import segments as segments_mod
 from .edit.trim import trim as trim_impl
-from .ffmpeg import probe_duration, require
+from .ffmpeg import probe_duration, require, stretch_audio
 from .outro.brand import BrandConfig
 from .outro.render import render_outro
+from .plan import script_skeleton
 from .record.playwright_recorder import record as record_impl
+from .render import remotion_backend
 from .render.composer import Segment, SubtitleChunk, render
 from .tts import get_provider
 
@@ -52,25 +56,39 @@ def init(
     )
     config.write(directory, cfg)
 
-    (directory / "demo.py").write_text(
-        '"""Playwright user script. Clipwright calls `run(page, mark)`.\n\n'
-        'Call `await mark("action", **data)` to record timestamped moments that\n'
-        'drive dead-time trimming and camera keyframes.\n"""\n\n\n'
-        "async def run(page, mark):\n"
-        '    await page.wait_for_load_state("networkidle")\n'
-        "    await page.wait_for_timeout(800)\n"
-        '    await mark("settle")\n'
-    )
-    (directory / "script.json").write_text(
+    (directory / "browse-plan.json").write_text(
         json.dumps(
             {
-                "clips": [
-                    {"id": "01_intro", "text": "Hello world. This is a Clipwright demo."}
-                ]
+                "viewport": {"width": 540, "height": 960, "mobile": True},
+                "base_url": url,
+                "actions": [
+                    {
+                        "type": "navigate",
+                        "label": "Open the landing page",
+                        "fields": {"url": "/"},
+                        "wait": 1.5,
+                    },
+                    {
+                        "type": "scroll",
+                        "label": "Browse what's on offer",
+                        "fields": {"by_y": 600},
+                        "wait": 1.2,
+                    },
+                ],
             },
             indent=2,
         )
         + "\n"
+    )
+    # Legacy demo.py — still supported, but `browse-plan.json` is preferred.
+    (directory / "demo.py").write_text(
+        '"""Legacy Playwright user script. Prefer browse-plan.json.\n\n'
+        'Run: clipwright record   (reads demo.py)\n'
+        'Or:  clipwright record --plan browse-plan.json\n"""\n\n\n'
+        "async def run(page, mark):\n"
+        '    await page.wait_for_load_state("networkidle")\n'
+        "    await page.wait_for_timeout(800)\n"
+        '    await mark("settle")\n'
     )
     rprint(f"[green]Initialized[/green] {directory}")
 
@@ -79,19 +97,30 @@ def init(
 def record(
     script_path: Path = typer.Argument(None, help="Playwright script (defaults to config.demo_script)."),
     project: Path = typer.Option(None, "--project", help="Project root (defaults to cwd)."),
+    plan: Path = typer.Option(None, "--plan", help="browse-plan.json to execute instead of a Python script."),
 ) -> None:
     """Record the browser session -> video.mp4 + moments.json."""
     require()
     root = _root(project)
     cfg = _load_cfg(root)
-    script = (script_path or root / cfg.demo_script).resolve()
     out_dir = cfg.resolve_out(root)
-    video, moments = record_impl(
-        cfg.url, script, out_dir,
-        size=cfg.resolution,
-        mobile=cfg.mobile,
-        user_agent=cfg.user_agent,
-    )
+    if plan is not None:
+        plan_path = plan.resolve()
+        video, moments = record_impl(
+            cfg.url, None, out_dir,
+            size=cfg.resolution,
+            mobile=cfg.mobile,
+            user_agent=cfg.user_agent,
+            plan_path=plan_path,
+        )
+    else:
+        script = (script_path or root / cfg.demo_script).resolve()
+        video, moments = record_impl(
+            cfg.url, script, out_dir,
+            size=cfg.resolution,
+            mobile=cfg.mobile,
+            user_agent=cfg.user_agent,
+        )
     rprint(f"[green]Recorded[/green] {video} + {moments}")
 
 
@@ -117,6 +146,108 @@ def trim(
 
 
 @app.command()
+def segments(
+    project: Path = typer.Option(None, "--project"),
+) -> None:
+    """Build segments.json from moments.json (replacement for `trim`)."""
+    require()
+    root = _root(project)
+    cfg = _load_cfg(root)
+    out_dir = cfg.resolve_out(root)
+    segs = segments_mod.run(
+        out_dir / "video.mp4",
+        out_dir / "moments.json",
+        out_dir / "segments.json",
+        lead=cfg.pre_roll,
+        trail=cfg.post_roll,
+        merge_gap=cfg.merge_gap,
+        split_gap=cfg.split_gap,
+    )
+    rprint(f"[green]Segments[/green] {len(segs)} -> {out_dir / 'segments.json'}")
+
+
+@app.command()
+def keyframes(
+    project: Path = typer.Option(None, "--project"),
+) -> None:
+    """Build camera.json (output-timeline keyframes) from segments.json."""
+    root = _root(project)
+    cfg = _load_cfg(root)
+    out_dir = cfg.resolve_out(root)
+    plan = keyframes_mod.run(
+        out_dir / "segments.json",
+        out_dir / "camera.json",
+        fps=cfg.fps,
+    )
+    rprint(
+        f"[green]Keyframes[/green] {len(plan.keyframes)} over "
+        f"{plan.total_duration:.2f}s -> {out_dir / 'camera.json'}"
+    )
+
+
+script_app = typer.Typer(no_args_is_help=True, help="Voiceover script utilities.")
+app.add_typer(script_app, name="script")
+
+
+@script_app.command("init")
+def script_init(
+    project: Path = typer.Option(None, "--project"),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Discard any existing text."),
+) -> None:
+    """Generate a script.json skeleton from segments.json.
+
+    Writes one clip per segment with `target_seconds` + `hint` (from moment
+    labels). Claude Code fills each clip's `text` field next — the CLI
+    never calls an LLM.
+    """
+    root = _root(project)
+    cfg = _load_cfg(root)
+    out_dir = cfg.resolve_out(root)
+    segments_path = out_dir / "segments.json"
+    if not segments_path.exists():
+        raise typer.BadParameter(f"missing {segments_path} — run `clipwright segments` first")
+    script_path = (root / cfg.voice_script).resolve()
+    skeleton = script_skeleton.run(segments_path, script_path, overwrite=overwrite)
+    clips = skeleton.get("clips") or []
+    missing = [c["id"] for c in clips if not c.get("text")]
+    rprint(
+        f"[green]Script skeleton[/green] {len(clips)} clips -> {script_path}"
+        + (f"\n[yellow]Fill text for:[/yellow] {', '.join(missing)}" if missing else "")
+    )
+
+
+@app.command("edit-plan")
+def edit_plan(
+    project: Path = typer.Option(None, "--project"),
+) -> None:
+    """Print segments + keyframes + total output duration for review."""
+    root = _root(project)
+    cfg = _load_cfg(root)
+    out_dir = cfg.resolve_out(root)
+    segs_path = out_dir / "segments.json"
+    cam_path = out_dir / "camera.json"
+    if not segs_path.exists():
+        raise typer.BadParameter(f"missing {segs_path} — run `clipwright segments` first")
+    segs = json.loads(segs_path.read_text())
+    rprint(f"[bold]Video:[/bold] {segs['video']} ({segs['duration']:.2f}s)")
+    rprint(f"[bold]{len(segs['segments'])} segments[/bold]")
+    total = 0.0
+    for i, s in enumerate(segs["segments"]):
+        mtypes = ", ".join(m["type"] for m in s.get("moments") or []) or "—"
+        total += float(s["duration"])
+        rprint(
+            f"  [{i:02d}] src [{s['source_start']:6.2f} → {s['source_end']:6.2f}] "
+            f"dur {s['duration']:5.2f}s  actions: {mtypes}"
+        )
+    rprint(f"[bold]Total output duration:[/bold] {total:.2f}s")
+    if cam_path.exists():
+        cam = json.loads(cam_path.read_text())
+        rprint(f"[bold]Camera keyframes:[/bold] {len(cam['keyframes'])} (fps={cam['fps']})")
+    else:
+        rprint("[yellow]No camera.json — run `clipwright keyframes`.[/yellow]")
+
+
+@app.command()
 def tts(
     script_path: Path = typer.Argument(None, help="Voiceover script JSON (defaults to config.voice_script)."),
     project: Path = typer.Option(None, "--project"),
@@ -134,13 +265,35 @@ def tts(
     data = json.loads(script.read_text())
     for clip in data["clips"]:
         cid = clip["id"]
+        if not clip.get("text"):
+            rprint(f"[yellow]Skip[/yellow] {cid}: empty text")
+            continue
         voice = clip.get("voice") or clip.get("voice_id") or (cfg.voice_id or None)
-        tts_provider.synthesize(
-            clip["text"],
-            out_mp3=audio_dir / f"{cid}.mp3",
-            out_timestamps=audio_dir / f"{cid}.timestamps.json",
-            voice=voice,
-        )
+        mp3 = audio_dir / f"{cid}.mp3"
+        ts = audio_dir / f"{cid}.timestamps.json"
+        tts_provider.synthesize(clip["text"], out_mp3=mp3, out_timestamps=ts, voice=voice)
+
+        target = clip.get("target_seconds")
+        if target:
+            cur = probe_duration(mp3)
+            # Only speed up if audio is longer than the segment — never slow
+            # it down. Stretching a fast TTS to fit a long segment makes the
+            # narration sound drawn-out and robotic; trailing silence is fine.
+            if cur > float(target) * 1.03:
+                stretched = audio_dir / f"{cid}.stretched.mp3"
+                ratio = stretch_audio(mp3, stretched, float(target))
+                stretched.replace(mp3)
+                # Rescale timestamps to match the stretched audio.
+                align = json.loads(ts.read_text())
+                for key in ("character_start_times_seconds", "character_end_times_seconds"):
+                    if key in align:
+                        align[key] = [round(t / ratio, 4) for t in align[key]]
+                ts.write_text(json.dumps(align))
+                rprint(
+                    f"[green]TTS[/green] ({provider_name}) {cid}: "
+                    f"{cur:.2f}s → {float(target):.2f}s (ratio {ratio:.3f})"
+                )
+                continue
         rprint(f"[green]TTS[/green] ({provider_name}) {cid}")
 
 
@@ -193,9 +346,19 @@ def outro(
     rprint(f"[green]Outro[/green] -> {out_path}")
 
 
+@app.command()
+def assets(
+    gradient: str = typer.Option("dark", "--gradient", help="dark | light | <path to .jpg>"),
+) -> None:
+    """Copy the chosen gradient to remotion/public/gradient.jpg."""
+    dst = remotion_backend.copy_gradient(gradient)
+    rprint(f"[green]Gradient[/green] {gradient} -> {dst}")
+
+
 @app.command("render")
 def render_cmd(
     project: Path = typer.Option(None, "--project"),
+    backend: str = typer.Option("ffmpeg", "--backend", help="ffmpeg | remotion"),
     no_captions: bool = typer.Option(False, "--no-captions"),
     no_outro: bool = typer.Option(False, "--no-outro"),
     beat_map: Path = typer.Option(
@@ -210,6 +373,11 @@ def render_cmd(
     root = _root(project)
     cfg = _load_cfg(root)
     out_dir = cfg.resolve_out(root)
+    if backend == "remotion":
+        _render_remotion(root, cfg, out_dir, no_outro=no_outro)
+        return
+    if backend != "ffmpeg":
+        raise typer.BadParameter(f"unknown backend {backend!r} (ffmpeg | remotion)")
     edl = json.loads((out_dir / "edl.json").read_text())
     source = Path(edl["video"])
 
@@ -288,6 +456,39 @@ def render_cmd(
         outro=outro_final,
     )
     rprint(f"[green]Rendered[/green] {out_dir / 'final.mp4'}")
+
+
+def _render_remotion(
+    root: Path,
+    cfg: config.ProjectConfig,
+    out_dir: Path,
+    *,
+    no_outro: bool,
+) -> None:
+    segs_path = out_dir / "segments.json"
+    cam_path = out_dir / "camera.json"
+    if not segs_path.exists() or not cam_path.exists():
+        raise typer.BadParameter(
+            "remotion backend requires segments.json and camera.json "
+            "(run `clipwright segments && clipwright keyframes`)"
+        )
+    segs_doc = json.loads(segs_path.read_text())
+    source = Path(segs_doc["video"])
+    outro_path = out_dir / "outro.mp4"
+    outro_final = outro_path if (not no_outro and outro_path.exists()) else None
+    outro_dur = probe_duration(outro_final) if outro_final else 0.0
+    out_final = out_dir / "final.mp4"
+    remotion_backend.render(
+        out_dir=out_dir,
+        source_video=source,
+        fps=cfg.fps,
+        width=cfg.resolution[0],
+        height=cfg.resolution[1],
+        outro=outro_final,
+        outro_duration=outro_dur,
+        out=out_final,
+    )
+    rprint(f"[green]Rendered (remotion)[/green] {out_final}")
 
 
 if __name__ == "__main__":

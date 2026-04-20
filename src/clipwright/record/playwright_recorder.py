@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any
 
 from ..ffmpeg import VCODEC, run
+from ..plan.executor import execute_plan
+from ..plan.schema import BrowsePlan, load_plan
 
 
 @dataclass
@@ -89,9 +91,15 @@ async def _run(
     *,
     mobile: bool = False,
     user_agent: str = "",
+    plan: BrowsePlan | None = None,
+    plan_dir: Path | None = None,
 ) -> None:
     from playwright.async_api import async_playwright
 
+    # Plan overrides explicit mobile/size when viewport is set.
+    if plan is not None:
+        mobile = plan.viewport.mobile
+        # Keep output aspect from `size`, use plan viewport.width as CSS width.
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         if mobile:
@@ -121,32 +129,52 @@ async def _run(
         context = await browser.new_context(**ctx_kwargs)
         page = await context.new_page()
         recorder.start()
-        if url:
-            await page.goto(url)
-            await recorder("nav", url=url)
-        await _call_user_run(user_run, page, recorder)
+        if plan is not None:
+            # Plan drives everything — no auto-nav, auth comes from plan.auth.
+            assert plan_dir is not None
+            await execute_plan(page, plan, recorder, plan_dir)
+        else:
+            if url:
+                await page.goto(url)
+                await recorder("nav", url=url)
+            await _call_user_run(user_run, page, recorder)
         await context.close()
         await browser.close()
 
 
 def record(
     url: str,
-    script_path: Path,
+    script_path: Path | None,
     out_dir: Path,
     *,
     size: tuple[int, int] = (1080, 1920),
     mobile: bool = False,
     user_agent: str = "",
+    plan_path: Path | None = None,
 ) -> tuple[Path, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     video_dir = out_dir / "_raw_video"
     video_dir.mkdir(exist_ok=True)
 
-    user_run = _load_user_script(script_path)
-    recorder = _MarkRecorder()
-    asyncio.run(_run(url, user_run, video_dir, size, recorder, mobile=mobile, user_agent=user_agent))
+    plan: BrowsePlan | None = None
+    plan_dir: Path | None = None
+    user_run = None
+    if plan_path is not None:
+        plan = load_plan(plan_path)
+        plan_dir = plan_path.parent
+    else:
+        if script_path is None:
+            raise ValueError("record requires either plan_path or script_path")
+        user_run = _load_user_script(script_path)
 
-    webms = sorted(video_dir.glob("*.webm"))
+    recorder = _MarkRecorder()
+    asyncio.run(_run(
+        url, user_run, video_dir, size, recorder,
+        mobile=mobile, user_agent=user_agent,
+        plan=plan, plan_dir=plan_dir,
+    ))
+
+    webms = sorted(video_dir.glob("*.webm"), key=lambda p: p.stat().st_mtime)
     if not webms:
         raise RuntimeError("Playwright produced no video (check record_video_dir permissions)")
     webm = webms[-1]

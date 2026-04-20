@@ -28,10 +28,10 @@ class ProjectConfig:
     outro_preset: str = "cyberpunk"
     caption_preset: str = "bold-overlay"
     out_dir: str = "out"
-    pre_roll: float = 0.5
-    post_roll: float = 1.0
-    merge_gap: float = 2.0
-    split_gap: float = 3.0
+    pre_roll: float = 0.8
+    post_roll: float = 2.0
+    merge_gap: float = 5.0
+    split_gap: float = 15.0
     lead: float = 0.4
     tail: float = 0.3
     mobile: bool = False

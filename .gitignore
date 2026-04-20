@@ -34,3 +34,4 @@ htmlcov/
 
 # Fonts fetched by install.sh (OFL-licensed DejaVu)
 templates/fonts/*.ttf
+vertex-reader-demo/*

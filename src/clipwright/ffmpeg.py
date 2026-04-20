@@ -32,6 +32,42 @@ def run(cmd: list[str | Path], *, echo: bool = True) -> None:
         raise FFmpegError(f"ffmpeg failed (exit {r.returncode}):\n{tail}")
 
 
+def atempo_chain(ratio: float) -> str:
+    """Build an ffmpeg filtergraph string stretching audio by `ratio`.
+
+    ffmpeg's `atempo` accepts 0.5..2.0; chain multiple for wider ratios.
+    ratio > 1 speeds up; ratio < 1 slows down. Pitch is preserved.
+    """
+    if ratio <= 0:
+        raise ValueError(f"ratio must be positive, got {ratio}")
+    parts: list[str] = []
+    r = ratio
+    while r > 2.0:
+        parts.append("atempo=2.0")
+        r /= 2.0
+    while r < 0.5:
+        parts.append("atempo=0.5")
+        r /= 0.5
+    parts.append(f"atempo={r:.6f}")
+    return ",".join(parts)
+
+
+def stretch_audio(src: Path, dst: Path, target_seconds: float) -> float:
+    """Re-encode `src` so its duration matches `target_seconds`. Returns ratio used."""
+    cur = probe_duration(src)
+    if cur <= 0 or target_seconds <= 0:
+        raise ValueError(f"invalid durations: cur={cur}, target={target_seconds}")
+    ratio = cur / target_seconds  # atempo ratio: >1 speeds up, shortens
+    chain = atempo_chain(ratio)
+    run([
+        "ffmpeg", "-y", "-i", str(src),
+        "-filter:a", chain,
+        "-c:a", "libmp3lame", "-b:a", "160k",
+        str(dst),
+    ])
+    return ratio
+
+
 def probe_duration(path: Path) -> float:
     r = subprocess.run(
         [
