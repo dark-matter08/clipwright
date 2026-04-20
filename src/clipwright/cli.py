@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import typer
@@ -152,7 +151,11 @@ def caption(
     audio_dir = out_dir / "audio"
     subs_dir = out_dir / "subs"
     subs_dir.mkdir(exist_ok=True)
-    style = CaptionStyle.from_json(style_path) if style_path else CaptionStyle(width=cfg.resolution[0], height=cfg.resolution[1])
+    style = (
+        CaptionStyle.from_json(style_path)
+        if style_path
+        else CaptionStyle(width=cfg.resolution[0], height=cfg.resolution[1])
+    )
     for ts_path in sorted(audio_dir.glob("*.timestamps.json")):
         cid = ts_path.name.removesuffix(".timestamps.json")
         align = json.loads(ts_path.read_text())

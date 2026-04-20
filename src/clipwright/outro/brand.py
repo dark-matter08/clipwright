@@ -33,7 +33,7 @@ class BrandConfig:
     show_brackets: bool = True
 
     @classmethod
-    def from_json(cls, path: Path) -> "BrandConfig":
+    def from_json(cls, path: Path) -> BrandConfig:
         data = json.loads(path.read_text())
         for k in ("bg_rgb", "accent_rgb", "secondary_rgb", "text_rgb", "dim_rgb", "grid_rgb"):
             if k in data and isinstance(data[k], list):

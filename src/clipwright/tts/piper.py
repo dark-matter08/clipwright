@@ -8,7 +8,6 @@ Voice models (.onnx) are downloaded on first use from the piper-voices hub.
 """
 from __future__ import annotations
 
-import json
 import tempfile
 import urllib.request
 from pathlib import Path

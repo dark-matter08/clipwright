@@ -68,7 +68,7 @@ def words_to_alignment(text: str, words: list[Word]) -> dict:
     # words (spaces, punctuation) get interpolated timings from the gap.
     cursor = 0
     prev_end = 0.0
-    for wi, w in enumerate(words):
+    for w in words:
         # Find this word in the remaining text (case-insensitive, whitespace-tolerant).
         target = w.text
         idx = text.lower().find(target.lower(), cursor)

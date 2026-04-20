@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -28,7 +28,7 @@ class CaptionStyle:
     y_ratio: float = 0.62
 
     @classmethod
-    def from_json(cls, path: Path) -> "CaptionStyle":
+    def from_json(cls, path: Path) -> CaptionStyle:
         data = json.loads(path.read_text())
         for k in ("text_rgba", "stroke_rgba", "pill_rgba"):
             if k in data and isinstance(data[k], list):
