@@ -10,7 +10,7 @@ from pathlib import Path
 class BrandConfig:
     title_lines: list[str] = field(default_factory=lambda: ["CLIP", "WRIGHT"])
     tagline: str = "// SHIP THE DEMO."
-    url: str = "github.com/DarkMatter/clipwright"
+    url: str = "github.com/dark-matter08/clipwright"
     status_pill: str = "● SYSTEM.ONLINE"
     bg_rgb: tuple[int, int, int] = (8, 12, 22)
     accent_rgb: tuple[int, int, int] = (0, 245, 229)

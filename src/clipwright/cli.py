@@ -17,7 +17,7 @@ from .outro.brand import BrandConfig
 from .outro.render import render_outro
 from .record.playwright_recorder import record as record_impl
 from .render.composer import Segment, SubtitleChunk, render
-from .tts.elevenlabs import synthesize
+from .tts import get_provider
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help="Clipwright: short-form how-to video pipeline.")
 
@@ -116,29 +116,28 @@ def trim(
 def tts(
     script_path: Path = typer.Argument(None, help="Voiceover script JSON (defaults to config.voice_script)."),
     project: Path = typer.Option(None, "--project"),
+    provider: str = typer.Option(None, "--provider", help="Override tts_provider (kokoro | piper | elevenlabs)."),
 ) -> None:
-    """Synthesize voiceover per beat with ElevenLabs /with-timestamps."""
+    """Synthesize voiceover per beat, emitting audio + char-level timestamps."""
     root = _root(project)
     cfg = _load_cfg(root)
     script = (script_path or root / cfg.voice_script).resolve()
-    api_key = os.environ.get("ELEVENLABS_API_KEY")
-    if not api_key:
-        raise typer.BadParameter("ELEVENLABS_API_KEY not set")
+    provider_name = provider or cfg.tts_provider
+    tts_provider = get_provider(provider_name)
     out_dir = cfg.resolve_out(root)
     audio_dir = out_dir / "audio"
     audio_dir.mkdir(exist_ok=True)
     data = json.loads(script.read_text())
     for clip in data["clips"]:
         cid = clip["id"]
-        synthesize(
+        voice = clip.get("voice") or clip.get("voice_id") or (cfg.voice_id or None)
+        tts_provider.synthesize(
             clip["text"],
-            voice_id=clip.get("voice_id", cfg.voice_id),
-            api_key=api_key,
             out_mp3=audio_dir / f"{cid}.mp3",
             out_timestamps=audio_dir / f"{cid}.timestamps.json",
-            model_id=cfg.tts_model,
+            voice=voice,
         )
-        rprint(f"[green]TTS[/green] {cid}")
+        rprint(f"[green]TTS[/green] ({provider_name}) {cid}")
 
 
 @app.command()

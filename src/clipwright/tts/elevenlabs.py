@@ -3,25 +3,32 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import urllib.request
 from pathlib import Path
 
 ENDPOINT = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps"
+DEFAULT_VOICE = "21m00Tcm4TlvDq8ikWAP"  # "Rachel"
 
 
 def synthesize(
     text: str,
-    voice_id: str,
-    api_key: str,
     out_mp3: Path,
     out_timestamps: Path,
     *,
+    voice: str | None = None,
+    api_key: str | None = None,
     model_id: str = "eleven_turbo_v2_5",
     output_format: str = "mp3_44100_128",
     stability: float = 0.45,
     similarity_boost: float = 0.75,
     style: float = 0.0,
 ) -> None:
+    key = api_key or os.environ.get("ELEVENLABS_API_KEY")
+    if not key:
+        raise RuntimeError("ELEVENLABS_API_KEY not set")
+    voice_id = voice or DEFAULT_VOICE
+
     body = {
         "text": text,
         "model_id": model_id,
@@ -36,7 +43,7 @@ def synthesize(
         ENDPOINT.format(voice_id=voice_id),
         data=json.dumps(body).encode("utf-8"),
         headers={
-            "xi-api-key": api_key,
+            "xi-api-key": key,
             "Content-Type": "application/json",
             "Accept": "application/json",
         },
@@ -56,3 +63,17 @@ def synthesize(
         raise RuntimeError("ElevenLabs response missing alignment")
     out_timestamps.parent.mkdir(parents=True, exist_ok=True)
     out_timestamps.write_text(json.dumps(alignment, indent=2))
+
+
+class ElevenLabsProvider:
+    name = "elevenlabs"
+
+    def synthesize(
+        self,
+        text: str,
+        out_mp3: Path,
+        out_timestamps: Path,
+        *,
+        voice: str | None = None,
+    ) -> None:
+        synthesize(text, out_mp3, out_timestamps, voice=voice)

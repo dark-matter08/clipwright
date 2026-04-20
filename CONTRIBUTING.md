@@ -17,7 +17,7 @@ Pull requests with unsigned commits will fail CI.
 ## Dev setup
 
 ```
-git clone https://github.com/DarkMatter/clipwright
+git clone https://github.com/dark-matter08/clipwright
 cd clipwright
 ./install.sh
 source .venv/bin/activate

@@ -33,13 +33,25 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.5",
 ]
+kokoro = [
+    "kokoro>=0.9",
+    "soundfile>=0.12",
+    "numpy>=1.26",
+]
+piper = [
+    "piper-tts>=1.2",
+    "faster-whisper>=1.0",
+]
+all-tts = [
+    "clipwright[kokoro,piper]",
+]
 
 [project.scripts]
 clipwright = "clipwright.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/DarkMatter/clipwright"
-Issues = "https://github.com/DarkMatter/clipwright/issues"
+Homepage = "https://github.com/dark-matter08/clipwright"
+Issues = "https://github.com/dark-matter08/clipwright/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -13,8 +13,10 @@ It exists as two things in one repository:
 Clipwright was extracted from a real production pipeline built for
 [Vertex Reader](https://vertexreader.site) and then generalized. The browser
 recorder is Playwright-based; captions are PIL-generated transparent PNG
-overlays composited with ffmpeg (no libass required); voiceover uses
-ElevenLabs' character-level `with-timestamps` endpoint.
+overlays composited with ffmpeg (no libass required); voiceover runs through
+a pluggable TTS backend — **Kokoro** (Apache-2.0, near-human, default),
+**Piper** (MIT, tiny, offline forever), or **ElevenLabs** (paid, highest
+quality) — all emitting the same character-level alignment format.
 
 ## Features
 
@@ -23,7 +25,7 @@ ElevenLabs' character-level `with-timestamps` endpoint.
 - Dead-time trimming driven by the action log (pre-roll, post-roll, gap merge,
   gap split)
 - Per-segment extract -> lossless concat -> subtitle overlay LAST render pipeline
-- ElevenLabs TTS with `with-timestamps` alignment
+- Pluggable TTS: Kokoro (default, free, Apache-2.0), Piper (free, MIT, offline), or ElevenLabs (paid)
 - 2-word UPPERCASE caption chunking with word-boundary snapping
 - Transparent PNG subtitle overlays (works on any ffmpeg build)
 - PIL-rendered branded outro card with cyberpunk / minimal presets
@@ -34,7 +36,7 @@ ElevenLabs' character-level `with-timestamps` endpoint.
 Requires Python 3.10+, ffmpeg/ffprobe on PATH, and a POSIX shell.
 
 ```
-git clone https://github.com/DarkMatter/clipwright
+git clone https://github.com/dark-matter08/clipwright
 cd clipwright
 ./install.sh
 ```
@@ -77,9 +79,25 @@ Output: `out/final.mp4`.
 Each project has a `.clipwright.json` at its root. See
 [`examples/hello-world/.clipwright.json`](./examples/hello-world/.clipwright.json).
 
-Environment:
+### TTS providers
 
-- `ELEVENLABS_API_KEY` for the TTS step
+Select the voice engine via `tts_provider` in `.clipwright.json` or
+`clipwright tts --provider <name>`:
+
+| Provider | License | Cost | Quality | Install |
+|---|---|---|---|---|
+| `kokoro` *(default)* | Apache-2.0 | Free | Near-human | `pip install 'clipwright[kokoro]'` (~2 GB incl. PyTorch) |
+| `piper` | MIT | Free, offline | Natural | `pip install 'clipwright[piper]'` (~200 MB incl. faster-whisper) |
+| `elevenlabs` | Proprietary API | Free tier + paid | Highest | Requires `ELEVENLABS_API_KEY` |
+
+Piper has no native word timestamps, so the backend forced-aligns its own
+output with a small `faster-whisper` model (tiny.en, ~39 MB). Kokoro emits
+token timings natively. All three providers write the same alignment shape
+downstream.
+
+### Environment
+
+- `ELEVENLABS_API_KEY` — required only when `tts_provider = "elevenlabs"`
 
 ## Using Clipwright with Claude Code
 

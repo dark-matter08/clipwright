@@ -22,8 +22,9 @@ class ProjectConfig:
     url: str = "https://example.com"
     demo_script: str = "demo.py"
     voice_script: str = "script.json"
-    voice_id: str = "21m00Tcm4TlvDq8ikWAP"
-    tts_model: str = "eleven_turbo_v2_5"
+    tts_provider: str = "kokoro"  # kokoro | piper | elevenlabs
+    voice_id: str = ""  # empty -> provider default
+    tts_model: str = "eleven_turbo_v2_5"  # ElevenLabs-only; ignored by other providers
     outro_preset: str = "cyberpunk"
     caption_preset: str = "bold-overlay"
     out_dir: str = "out"
