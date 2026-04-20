@@ -1,0 +1,15 @@
+{
+  "width": 1080,
+  "height": 1920,
+  "font_path": "/System/Library/Fonts/Helvetica.ttc",
+  "font_index": 1,
+  "font_size": 60,
+  "text_rgba": [255, 255, 255, 255],
+  "stroke_rgba": [0, 0, 0, 255],
+  "stroke_width": 4,
+  "pill_rgba": [0, 0, 0, 180],
+  "pill_pad_x": 36,
+  "pill_pad_y": 20,
+  "pill_radius": 8,
+  "y_ratio": 0.62
+}

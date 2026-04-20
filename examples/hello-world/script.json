@@ -1,0 +1,13 @@
+{
+  "title": "Hello Clipwright",
+  "clips": [
+    {
+      "id": "01_intro",
+      "text": "Clipwright turns any scripted browser session into a short-form video."
+    },
+    {
+      "id": "02_outro",
+      "text": "One command records, trims, captions, and renders. Ship the demo."
+    }
+  ]
+}

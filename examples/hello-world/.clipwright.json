@@ -1,0 +1,19 @@
+{
+  "name": "hello-world",
+  "aspect": "9:16",
+  "fps": 60,
+  "url": "https://example.com",
+  "demo_script": "demo.py",
+  "voice_script": "script.json",
+  "voice_id": "21m00Tcm4TlvDq8ikWAP",
+  "tts_model": "eleven_turbo_v2_5",
+  "outro_preset": "cyberpunk",
+  "caption_preset": "bold-overlay",
+  "out_dir": "out",
+  "pre_roll": 0.5,
+  "post_roll": 1.0,
+  "merge_gap": 2.0,
+  "split_gap": 3.0,
+  "lead": 0.4,
+  "tail": 0.3
+}
