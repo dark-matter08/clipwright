@@ -94,18 +94,30 @@ async def _run(
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        ctx_kwargs: dict[str, Any] = {
-            "viewport": {"width": size[0], "height": size[1]},
-            "record_video_dir": str(video_dir),
-            "record_video_size": {"width": size[0], "height": size[1]},
-        }
         if mobile:
-            ctx_kwargs["is_mobile"] = True
-            ctx_kwargs["has_touch"] = True
-            ctx_kwargs["device_scale_factor"] = 3
-            ctx_kwargs["user_agent"] = user_agent or DEFAULT_MOBILE_UA
-        elif user_agent:
-            ctx_kwargs["user_agent"] = user_agent
+            # Mobile PWA emulation: record at a CSS viewport narrow enough to
+            # trigger mobile breakpoints (<768 px). Playwright records at
+            # viewport resolution regardless of device_scale_factor, so we
+            # keep the aspect ratio and let the compose step upscale.
+            css_w = 540
+            target_w, target_h = size
+            css_h = max(1, round(target_h * css_w / target_w))
+            ctx_kwargs: dict[str, Any] = {
+                "viewport": {"width": css_w, "height": css_h},
+                "is_mobile": True,
+                "has_touch": True,
+                "user_agent": user_agent or DEFAULT_MOBILE_UA,
+                "record_video_dir": str(video_dir),
+                "record_video_size": {"width": css_w, "height": css_h},
+            }
+        else:
+            ctx_kwargs = {
+                "viewport": {"width": size[0], "height": size[1]},
+                "record_video_dir": str(video_dir),
+                "record_video_size": {"width": size[0], "height": size[1]},
+            }
+            if user_agent:
+                ctx_kwargs["user_agent"] = user_agent
         context = await browser.new_context(**ctx_kwargs)
         page = await context.new_page()
         recorder.start()
