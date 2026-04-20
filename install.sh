@@ -14,8 +14,8 @@ if ! command -v ffprobe >/dev/null 2>&1; then
 fi
 
 PYTHON="${PYTHON:-python3}"
-if ! "$PYTHON" -c 'import sys; assert sys.version_info >= (3, 10)' 2>/dev/null; then
-    echo "ERROR: Python 3.10+ required. Set PYTHON=/path/to/python3." >&2
+if ! "$PYTHON" -c 'import sys; assert (3, 10) <= sys.version_info[:2] < (3, 13)' 2>/dev/null; then
+    echo "ERROR: Python 3.10-3.12 required (ML deps lack 3.13+ wheels). Set PYTHON=/path/to/python3.12." >&2
     exit 1
 fi
 

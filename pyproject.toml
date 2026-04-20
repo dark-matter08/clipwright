@@ -7,7 +7,7 @@ name = "clipwright"
 version = "0.1.0"
 description = "Playwright-driven short-form how-to video pipeline."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 license = { text = "MIT" }
 authors = [{ name = "DarkMatter" }]
 keywords = ["video", "playwright", "ffmpeg", "tts", "captions", "short-form"]

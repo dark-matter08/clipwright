@@ -33,7 +33,8 @@ quality) — all emitting the same character-level alignment format.
 
 ## Install
 
-Requires Python 3.10+, ffmpeg/ffprobe on PATH, and a POSIX shell.
+Requires Python 3.10-3.12 (the ML-based TTS backends don't yet have wheels for
+3.13+), ffmpeg/ffprobe on PATH, and a POSIX shell.
 
 ```
 git clone https://github.com/dark-matter08/clipwright
