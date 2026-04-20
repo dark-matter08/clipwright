@@ -35,3 +35,8 @@ htmlcov/
 # Fonts fetched by install.sh (OFL-licensed DejaVu)
 templates/fonts/*.ttf
 vertex-reader-demo/*
+# Desktop app
+desktop/node_modules/
+desktop/dist/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/

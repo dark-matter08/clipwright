@@ -29,6 +29,19 @@ def _root(path: Path | None) -> Path:
     return (path or Path.cwd()).resolve()
 
 
+def _progress(enabled: bool, stage: str, *, clip: str | None = None, pct: float | None = None, message: str | None = None) -> None:
+    if not enabled:
+        return
+    payload: dict = {"stage": stage}
+    if clip is not None:
+        payload["clip"] = clip
+    if pct is not None:
+        payload["pct"] = pct
+    if message is not None:
+        payload["message"] = message
+    print(json.dumps(payload), flush=True)
+
+
 def _load_cfg(root: Path) -> config.ProjectConfig:
     return config.load(root)
 
@@ -252,6 +265,8 @@ def tts(
     script_path: Path = typer.Argument(None, help="Voiceover script JSON (defaults to config.voice_script)."),
     project: Path = typer.Option(None, "--project"),
     provider: str = typer.Option(None, "--provider", help="Override tts_provider (kokoro | piper | elevenlabs)."),
+    clip_id: str = typer.Option(None, "--clip-id", help="Only synthesize this clip id."),
+    progress_json: bool = typer.Option(False, "--progress-json", help="Emit JSON progress events on stdout."),
 ) -> None:
     """Synthesize voiceover per beat, emitting audio + char-level timestamps."""
     root = _root(project)
@@ -263,8 +278,14 @@ def tts(
     audio_dir = out_dir / "audio"
     audio_dir.mkdir(exist_ok=True)
     data = json.loads(script.read_text())
-    for clip in data["clips"]:
+    clips_to_process = [c for c in data["clips"] if clip_id is None or c["id"] == clip_id]
+    if clip_id and not clips_to_process:
+        raise typer.BadParameter(f"clip id {clip_id!r} not in script")
+    total = len(clips_to_process)
+    _progress(progress_json, "tts", pct=0.0)
+    for idx, clip in enumerate(clips_to_process):
         cid = clip["id"]
+        _progress(progress_json, "tts", clip=cid, pct=idx / max(total, 1))
         if not clip.get("text"):
             rprint(f"[yellow]Skip[/yellow] {cid}: empty text")
             continue
@@ -295,12 +316,15 @@ def tts(
                 )
                 continue
         rprint(f"[green]TTS[/green] ({provider_name}) {cid}")
+    _progress(progress_json, "tts", pct=1.0, message="done")
 
 
 @app.command()
 def caption(
     project: Path = typer.Option(None, "--project"),
     style_path: Path = typer.Option(None, "--style", help="CaptionStyle JSON override."),
+    clip_id: str = typer.Option(None, "--clip-id", help="Only render captions for this clip id."),
+    progress_json: bool = typer.Option(False, "--progress-json", help="Emit JSON progress events on stdout."),
 ) -> None:
     """Chunk timestamps into 2-word UPPERCASE frames and render caption PNGs."""
     root = _root(project)
@@ -314,13 +338,22 @@ def caption(
         if style_path
         else CaptionStyle(width=cfg.resolution[0], height=cfg.resolution[1])
     )
-    for ts_path in sorted(audio_dir.glob("*.timestamps.json")):
+    ts_paths = sorted(audio_dir.glob("*.timestamps.json"))
+    if clip_id is not None:
+        ts_paths = [p for p in ts_paths if p.name.removesuffix(".timestamps.json") == clip_id]
+        if not ts_paths:
+            raise typer.BadParameter(f"no timestamps for clip id {clip_id!r}")
+    total = len(ts_paths)
+    _progress(progress_json, "caption", pct=0.0)
+    for idx, ts_path in enumerate(ts_paths):
         cid = ts_path.name.removesuffix(".timestamps.json")
+        _progress(progress_json, "caption", clip=cid, pct=idx / max(total, 1))
         align = json.loads(ts_path.read_text())
         words = chars_to_words(align)
         chunks = chunk_words(words, n=2, upper=True)
         render_all(chunks, style, subs_dir / cid)
         rprint(f"[green]Caption[/green] {cid}: {len(chunks)} chunks")
+    _progress(progress_json, "caption", pct=1.0, message="done")
 
 
 @app.command()
@@ -367,14 +400,19 @@ def render_cmd(
         help='Explicit clip_id -> range_index JSON, e.g. {"01_intro": 0, "02_reader": 2}. '
         "Defaults to beat_map.json in the project root; falls back to index pairing.",
     ),
+    clip_id: str = typer.Option(None, "--clip-id", help="Reserved; full render always runs (MVP)."),
+    progress_json: bool = typer.Option(False, "--progress-json", help="Emit JSON progress events on stdout."),
 ) -> None:
     """Compose vertical, mix audio, overlay captions LAST, concat outro."""
+    del clip_id  # per-clip splice is a later optimization
     require()
     root = _root(project)
     cfg = _load_cfg(root)
     out_dir = cfg.resolve_out(root)
+    _progress(progress_json, "render", pct=0.0)
     if backend == "remotion":
         _render_remotion(root, cfg, out_dir, no_outro=no_outro)
+        _progress(progress_json, "render", pct=1.0, message="done")
         return
     if backend != "ffmpeg":
         raise typer.BadParameter(f"unknown backend {backend!r} (ffmpeg | remotion)")
@@ -456,6 +494,7 @@ def render_cmd(
         outro=outro_final,
     )
     rprint(f"[green]Rendered[/green] {out_dir / 'final.mp4'}")
+    _progress(progress_json, "render", pct=1.0, message="done")
 
 
 def _render_remotion(
