@@ -30,6 +30,7 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+.claude/
 
 # Fonts fetched by install.sh (OFL-licensed DejaVu)
 templates/fonts/*.ttf
