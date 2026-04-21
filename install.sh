@@ -109,6 +109,11 @@ if [ -f "$REMOTION_DIR/package.json" ]; then
     fi
 fi
 
+if [ "${1:-}" != "--no-skill" ] && [ -x scripts/install-remotion-skill.sh ]; then
+    echo "Installing Remotion agent skill (set CLIPWRIGHT_REMOTION_SKILL_REF to pin)..."
+    scripts/install-remotion-skill.sh || echo "WARNING: remotion skill install failed (non-fatal)." >&2
+fi
+
 echo
 echo "Clipwright installed. Activate with: source .venv/bin/activate"
 echo "Try:                                 clipwright --help"

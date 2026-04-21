@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ProjectState, Clip, ProgressEvent, ClaudeEvent } from "./types";
+import type { ProjectState, VideoState, Clip, ProgressEvent, ClaudeEvent } from "./types";
 
 export async function pickProject(): Promise<string | null> {
   return (await invoke("pick_project")) as string | null;
@@ -47,24 +47,80 @@ export async function readTextFile(path: string): Promise<string> {
   return (await invoke("read_text_file", { path })) as string;
 }
 
+export interface KnownProject {
+  path: string;
+  name: string;
+  lastOpened: number;
+  exists: boolean;
+}
+
+export async function listKnownProjects(): Promise<KnownProject[]> {
+  return (await invoke("list_known_projects")) as KnownProject[];
+}
+
+export async function forgetProject(path: string): Promise<void> {
+  await invoke("forget_project", { path });
+}
+
 export async function saveScriptClip(
   path: string,
+  videoSlug: string,
   clipId: string,
   text: string,
 ): Promise<void> {
-  await invoke("save_script_clip", { path, clipId, text });
+  await invoke("save_script_clip", { path, videoSlug, clipId, text });
 }
 
 export async function runClipwright(
   path: string,
   subcommand: string,
+  videoSlug?: string,
   clipId?: string,
 ): Promise<number> {
   return (await invoke("run_clipwright", {
     path,
     subcommand,
+    videoSlug: videoSlug ?? null,
     clipId: clipId ?? null,
   })) as number;
+}
+
+export async function listVideos(path: string): Promise<VideoState[]> {
+  return (await invoke("list_videos", { path })) as VideoState[];
+}
+
+export async function loadVideo(path: string, slug: string): Promise<VideoState> {
+  return (await invoke("load_video", { path, slug })) as VideoState;
+}
+
+export async function createVideo(
+  path: string,
+  slug: string,
+  title: string,
+  fromSlug?: string,
+): Promise<VideoState> {
+  return (await invoke("create_video", {
+    path,
+    slug,
+    title,
+    fromSlug: fromSlug ?? null,
+  })) as VideoState;
+}
+
+export async function deleteVideo(
+  path: string,
+  slug: string,
+  force = false,
+): Promise<void> {
+  await invoke("delete_video", { path, slug, force });
+}
+
+export async function renameVideo(
+  path: string,
+  oldSlug: string,
+  newSlug: string,
+): Promise<void> {
+  await invoke("rename_video", { path, oldSlug, newSlug });
 }
 
 export async function cancelRun(runId: number): Promise<void> {
@@ -156,10 +212,15 @@ export function onRunDone(
   );
 }
 
+export interface ArtifactEvent {
+  path: string;
+  videoSlug?: string;
+}
+
 export function onArtifactChange(
-  handler: (path: string) => void,
+  handler: (ev: ArtifactEvent) => void,
 ): Promise<UnlistenFn> {
-  return listen<string>("artifact:changed", (e) => handler(e.payload));
+  return listen<ArtifactEvent>("artifact:changed", (e) => handler(e.payload));
 }
 
 export function onClaudeEvent(

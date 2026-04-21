@@ -35,14 +35,23 @@ export interface Segment {
   moments: Moment[];
 }
 
+export interface VideoState {
+  slug: string;
+  title: string;
+  phase: string;
+  hasVideo: boolean;
+  hasMoments: boolean;
+  hasSegments: boolean;
+  hasScript: boolean;
+  hasFinal: boolean;
+  script: Script | null;
+  segments: Segment[] | null;
+}
+
 export interface ProjectState {
   path: string;
   config: ClipwrightConfig;
-  script: Script | null;
-  segments: Segment[] | null;
-  hasMoments: boolean;
-  hasVideo: boolean;
-  hasFinal: boolean;
+  videos: VideoState[];
 }
 
 export type PipelineStage =

@@ -1,13 +1,20 @@
-"""Typer entrypoint. One subcommand per pipeline stage."""
+"""Typer entrypoint. One subcommand per pipeline stage.
+
+Every pipeline stage takes `--video <slug>` to pick one video inside a
+multi-video project. When the project has exactly one video the flag is
+optional; with zero or many it's required.
+"""
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import typer
 from rich import print as rprint
 
-from . import __version__, config
+from . import __version__, config, migrate as migrate_mod
 from .captions.chunker import chars_to_words, chunk_words
 from .captions.png_renderer import CaptionStyle, render_all
 from .edit import keyframes as keyframes_mod
@@ -42,8 +49,15 @@ def _progress(enabled: bool, stage: str, *, clip: str | None = None, pct: float 
     print(json.dumps(payload), flush=True)
 
 
-def _load_cfg(root: Path) -> config.ProjectConfig:
-    return config.load(root)
+def _resolve(project: Path | None, video: str | None) -> config.Resolved:
+    """Common entry point: resolve project + video slug, auto-migrating legacy."""
+    root = _root(project)
+    if migrate_mod.ensure_migrated(root):
+        rprint(f"[yellow]Migrated legacy project layout at {root} → videos/main/[/yellow]")
+    try:
+        return config.resolve(root, video)
+    except (FileNotFoundError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
 
 @app.callback()
@@ -58,18 +72,35 @@ def init(
     directory: Path = typer.Argument(..., help="Project directory to scaffold."),
     url: str = typer.Option("https://example.com", help="Initial URL for the demo."),
     aspect: str = typer.Option("9:16", help="9:16, 16:9, or 1:1."),
+    video: str = typer.Option("main", "--video", help="Slug for the first video in the project."),
 ) -> None:
-    """Scaffold a new Clipwright project."""
+    """Scaffold a new Clipwright project with one starter video."""
     directory = directory.resolve()
     directory.mkdir(parents=True, exist_ok=True)
-    cfg = config.ProjectConfig(
+    pcfg = config.ProjectConfig(
         name=directory.name,
         aspect=aspect,
         url=url,
     )
-    config.write(directory, cfg)
+    config.write(directory, pcfg)
+    _scaffold_video(directory, video, url=url, title=video)
+    _install_remotion_skill(directory)
+    rprint(f"[green]Initialized[/green] {directory} (video={video})")
 
-    (directory / "browse-plan.json").write_text(
+
+def _scaffold_video(project_root: Path, slug: str, *, url: str, title: str) -> Path:
+    """Create videos/<slug>/ with a starter browse-plan.json + demo.py + video.json."""
+    if not config.SLUG_RE.match(slug):
+        raise typer.BadParameter(
+            f"slug {slug!r} must be lowercase alphanumeric + hyphens (1-63 chars)."
+        )
+    vroot = config.video_root(project_root, slug)
+    if vroot.exists():
+        raise typer.BadParameter(f"video {slug!r} already exists at {vroot}")
+    vroot.mkdir(parents=True)
+    (vroot / "out").mkdir()
+    config.write_video(project_root, config.VideoConfig(slug=slug, title=title or slug))
+    (vroot / "browse-plan.json").write_text(
         json.dumps(
             {
                 "viewport": {"width": 540, "height": 960, "mobile": True},
@@ -93,8 +124,7 @@ def init(
         )
         + "\n"
     )
-    # Legacy demo.py — still supported, but `browse-plan.json` is preferred.
-    (directory / "demo.py").write_text(
+    (vroot / "demo.py").write_text(
         '"""Legacy Playwright user script. Prefer browse-plan.json.\n\n'
         'Run: clipwright record   (reads demo.py)\n'
         'Or:  clipwright record --plan browse-plan.json\n"""\n\n\n'
@@ -103,23 +133,166 @@ def init(
         "    await page.wait_for_timeout(800)\n"
         '    await mark("settle")\n'
     )
-    rprint(f"[green]Initialized[/green] {directory}")
+    return vroot
 
+
+def _install_remotion_skill(project_dir: Path) -> None:
+    """Install Remotion's agent skill into <project>/.claude/skills/remotion-best-practices.
+
+    Idempotent; re-running on an up-to-date target is a no-op. Non-fatal.
+    """
+    script = Path(__file__).resolve().parents[2] / "scripts" / "install-remotion-skill.sh"
+    if not script.is_file():
+        return
+    try:
+        subprocess.run(
+            [str(script), "--project", str(project_dir), "--quiet"],
+            check=False,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        rprint(f"[yellow]warn[/yellow] remotion skill install skipped: {exc}")
+
+
+# ---------- migrate ----------
+
+@app.command()
+def migrate(
+    project: Path = typer.Option(None, "--project"),
+    slug: str = typer.Option("main", "--slug", help="Slug for the legacy video."),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    """Migrate a legacy single-video project to the multi-video layout."""
+    root = _root(project)
+    if not migrate_mod.is_legacy(root):
+        rprint(f"[green]Nothing to do[/green] — {root} is already on the multi-video layout.")
+        return
+    moves = migrate_mod.run(root, slug=slug, dry_run=dry_run)
+    verb = "Would move" if dry_run else "Moved"
+    for src, dst in moves:
+        rprint(f"  {verb}: {src.relative_to(root)} → {dst.relative_to(root)}")
+    if not dry_run:
+        rprint(f"[green]Migrated[/green] {root} → videos/{slug}/")
+
+
+# ---------- video group ----------
+
+video_app = typer.Typer(no_args_is_help=True, help="Manage videos inside a project.")
+app.add_typer(video_app, name="video")
+
+
+@video_app.command("list")
+def video_list(project: Path = typer.Option(None, "--project")) -> None:
+    """List videos in this project with their current phase."""
+    root = _root(project)
+    migrate_mod.ensure_migrated(root)
+    videos = config.list_videos(root)
+    if not videos:
+        rprint("[yellow]No videos[/yellow] — run `clipwright video new <slug>`.")
+        return
+    for v in videos:
+        out = config.resolve_video_out(root, v.slug)
+        phase = _derive_phase(out)
+        rprint(f"  [bold]{v.slug}[/bold]  {v.title or '':<28}  phase: {phase}")
+
+
+@video_app.command("new")
+def video_new(
+    slug: str = typer.Argument(..., help="Slug (lowercase, hyphens)."),
+    project: Path = typer.Option(None, "--project"),
+    title: str = typer.Option("", "--title"),
+    from_slug: str = typer.Option(None, "--from", help="Clone browse-plan.json from an existing video."),
+) -> None:
+    """Create a new video inside an existing project."""
+    root = _root(project)
+    migrate_mod.ensure_migrated(root)
+    pcfg = config.load(root)
+    vroot = _scaffold_video(root, slug, url=pcfg.url, title=title or slug)
+    if from_slug:
+        src_plan = config.video_root(root, from_slug) / "browse-plan.json"
+        if src_plan.exists():
+            shutil.copy(src_plan, vroot / "browse-plan.json")
+            rprint(f"[green]Copied[/green] plan from {from_slug}")
+    rprint(f"[green]Created video[/green] {vroot}")
+
+
+@video_app.command("rm")
+def video_rm(
+    slug: str = typer.Argument(...),
+    project: Path = typer.Option(None, "--project"),
+    force: bool = typer.Option(False, "--force"),
+) -> None:
+    """Delete videos/<slug>/. Refuses if final.mp4 exists unless --force."""
+    root = _root(project)
+    vroot = config.video_root(root, slug)
+    if not vroot.exists():
+        raise typer.BadParameter(f"no such video: {slug}")
+    if (vroot / "out" / "final.mp4").exists() and not force:
+        raise typer.BadParameter(f"{slug}/out/final.mp4 exists — pass --force to delete anyway.")
+    shutil.rmtree(vroot)
+    rprint(f"[green]Deleted[/green] {vroot}")
+
+
+@video_app.command("rename")
+def video_rename(
+    old: str = typer.Argument(...),
+    new: str = typer.Argument(...),
+    project: Path = typer.Option(None, "--project"),
+) -> None:
+    """Rename a video slug (directory mv + video.json update)."""
+    root = _root(project)
+    if not config.SLUG_RE.match(new):
+        raise typer.BadParameter(f"slug {new!r} must be lowercase alphanumeric + hyphens.")
+    src = config.video_root(root, old)
+    dst = config.video_root(root, new)
+    if not src.exists():
+        raise typer.BadParameter(f"no such video: {old}")
+    if dst.exists():
+        raise typer.BadParameter(f"target slug already exists: {new}")
+    src.rename(dst)
+    vcfg = config.load_video(root, new)
+    vcfg.slug = new
+    config.write_video(root, vcfg)
+    rprint(f"[green]Renamed[/green] {old} → {new}")
+
+
+def _derive_phase(out_dir: Path) -> str:
+    if (out_dir / "final.mp4").exists():
+        return "ready"
+    if (out_dir.parent / "script.json").exists():
+        try:
+            d = json.loads((out_dir.parent / "script.json").read_text())
+            if any(c.get("text") for c in d.get("clips", [])):
+                return "audio → render"
+        except Exception:  # noqa: BLE001
+            pass
+        return "script"
+    if (out_dir / "segments.json").exists():
+        return "segments"
+    if (out_dir / "video.mp4").exists():
+        return "plan"
+    return "record"
+
+
+# ---------- pipeline stages ----------
 
 @app.command()
 def record(
-    script_path: Path = typer.Argument(None, help="Playwright script (defaults to config.demo_script)."),
-    project: Path = typer.Option(None, "--project", help="Project root (defaults to cwd)."),
-    plan: Path = typer.Option(None, "--plan", help="browse-plan.json to execute instead of a Python script."),
+    script_path: Path = typer.Argument(None, help="Playwright script (defaults to <video>/demo.py)."),
+    project: Path = typer.Option(None, "--project"),
+    video: str = typer.Option(None, "--video", help="Video slug inside the project."),
+    plan: Path = typer.Option(None, "--plan", help="browse-plan.json to execute (defaults to <video>/browse-plan.json)."),
 ) -> None:
     """Record the browser session -> video.mp4 + moments.json."""
     require()
-    root = _root(project)
-    cfg = _load_cfg(root)
-    out_dir = cfg.resolve_out(root)
+    r = _resolve(project, video)
+    cfg = r.project_cfg
+    out_dir = r.out_dir
+    if plan is None and r.browse_plan.exists():
+        plan = r.browse_plan
     if plan is not None:
         plan_path = plan.resolve()
-        video, moments = record_impl(
+        vid, moments = record_impl(
             cfg.url, None, out_dir,
             size=cfg.resolution,
             mobile=cfg.mobile,
@@ -127,25 +300,26 @@ def record(
             plan_path=plan_path,
         )
     else:
-        script = (script_path or root / cfg.demo_script).resolve()
-        video, moments = record_impl(
+        script = (script_path or r.video_root / cfg.demo_script).resolve()
+        vid, moments = record_impl(
             cfg.url, script, out_dir,
             size=cfg.resolution,
             mobile=cfg.mobile,
             user_agent=cfg.user_agent,
         )
-    rprint(f"[green]Recorded[/green] {video} + {moments}")
+    rprint(f"[green]Recorded[/green] {vid} + {moments}")
 
 
 @app.command()
 def trim(
     project: Path = typer.Option(None, "--project"),
+    video: str = typer.Option(None, "--video"),
 ) -> None:
     """Compute kept ranges from moments.json -> edl.json."""
     require()
-    root = _root(project)
-    cfg = _load_cfg(root)
-    out_dir = cfg.resolve_out(root)
+    r = _resolve(project, video)
+    cfg = r.project_cfg
+    out_dir = r.out_dir
     ranges = trim_impl(
         out_dir / "video.mp4",
         out_dir / "moments.json",
@@ -161,12 +335,13 @@ def trim(
 @app.command()
 def segments(
     project: Path = typer.Option(None, "--project"),
+    video: str = typer.Option(None, "--video"),
 ) -> None:
-    """Build segments.json from moments.json (replacement for `trim`)."""
+    """Build segments.json from moments.json."""
     require()
-    root = _root(project)
-    cfg = _load_cfg(root)
-    out_dir = cfg.resolve_out(root)
+    r = _resolve(project, video)
+    cfg = r.project_cfg
+    out_dir = r.out_dir
     segs = segments_mod.run(
         out_dir / "video.mp4",
         out_dir / "moments.json",
@@ -182,11 +357,12 @@ def segments(
 @app.command()
 def keyframes(
     project: Path = typer.Option(None, "--project"),
+    video: str = typer.Option(None, "--video"),
 ) -> None:
     """Build camera.json (output-timeline keyframes) from segments.json."""
-    root = _root(project)
-    cfg = _load_cfg(root)
-    out_dir = cfg.resolve_out(root)
+    r = _resolve(project, video)
+    cfg = r.project_cfg
+    out_dir = r.out_dir
     plan = keyframes_mod.run(
         out_dir / "segments.json",
         out_dir / "camera.json",
@@ -205,26 +381,19 @@ app.add_typer(script_app, name="script")
 @script_app.command("init")
 def script_init(
     project: Path = typer.Option(None, "--project"),
+    video: str = typer.Option(None, "--video"),
     overwrite: bool = typer.Option(False, "--overwrite", help="Discard any existing text."),
 ) -> None:
-    """Generate a script.json skeleton from segments.json.
-
-    Writes one clip per segment with `target_seconds` + `hint` (from moment
-    labels). Claude Code fills each clip's `text` field next — the CLI
-    never calls an LLM.
-    """
-    root = _root(project)
-    cfg = _load_cfg(root)
-    out_dir = cfg.resolve_out(root)
-    segments_path = out_dir / "segments.json"
+    """Generate a script.json skeleton from segments.json."""
+    r = _resolve(project, video)
+    segments_path = r.out_dir / "segments.json"
     if not segments_path.exists():
         raise typer.BadParameter(f"missing {segments_path} — run `clipwright segments` first")
-    script_path = (root / cfg.voice_script).resolve()
-    skeleton = script_skeleton.run(segments_path, script_path, overwrite=overwrite)
+    skeleton = script_skeleton.run(segments_path, r.script, overwrite=overwrite)
     clips = skeleton.get("clips") or []
     missing = [c["id"] for c in clips if not c.get("text")]
     rprint(
-        f"[green]Script skeleton[/green] {len(clips)} clips -> {script_path}"
+        f"[green]Script skeleton[/green] {len(clips)} clips -> {r.script}"
         + (f"\n[yellow]Fill text for:[/yellow] {', '.join(missing)}" if missing else "")
     )
 
@@ -232,11 +401,11 @@ def script_init(
 @app.command("edit-plan")
 def edit_plan(
     project: Path = typer.Option(None, "--project"),
+    video: str = typer.Option(None, "--video"),
 ) -> None:
     """Print segments + keyframes + total output duration for review."""
-    root = _root(project)
-    cfg = _load_cfg(root)
-    out_dir = cfg.resolve_out(root)
+    r = _resolve(project, video)
+    out_dir = r.out_dir
     segs_path = out_dir / "segments.json"
     cam_path = out_dir / "camera.json"
     if not segs_path.exists():
@@ -262,20 +431,20 @@ def edit_plan(
 
 @app.command()
 def tts(
-    script_path: Path = typer.Argument(None, help="Voiceover script JSON (defaults to config.voice_script)."),
+    script_path: Path = typer.Argument(None, help="Voiceover script JSON (defaults to <video>/script.json)."),
     project: Path = typer.Option(None, "--project"),
-    provider: str = typer.Option(None, "--provider", help="Override tts_provider (kokoro | piper | elevenlabs)."),
+    video: str = typer.Option(None, "--video"),
+    provider: str = typer.Option(None, "--provider", help="Override tts_provider."),
     clip_id: str = typer.Option(None, "--clip-id", help="Only synthesize this clip id."),
-    progress_json: bool = typer.Option(False, "--progress-json", help="Emit JSON progress events on stdout."),
+    progress_json: bool = typer.Option(False, "--progress-json"),
 ) -> None:
     """Synthesize voiceover per beat, emitting audio + char-level timestamps."""
-    root = _root(project)
-    cfg = _load_cfg(root)
-    script = (script_path or root / cfg.voice_script).resolve()
+    r = _resolve(project, video)
+    cfg = r.project_cfg
+    script = (script_path or r.script).resolve()
     provider_name = provider or cfg.tts_provider
     tts_provider = get_provider(provider_name)
-    out_dir = cfg.resolve_out(root)
-    audio_dir = out_dir / "audio"
+    audio_dir = r.out_dir / "audio"
     audio_dir.mkdir(exist_ok=True)
     data = json.loads(script.read_text())
     clips_to_process = [c for c in data["clips"] if clip_id is None or c["id"] == clip_id]
@@ -297,14 +466,10 @@ def tts(
         target = clip.get("target_seconds")
         if target:
             cur = probe_duration(mp3)
-            # Only speed up if audio is longer than the segment — never slow
-            # it down. Stretching a fast TTS to fit a long segment makes the
-            # narration sound drawn-out and robotic; trailing silence is fine.
             if cur > float(target) * 1.03:
                 stretched = audio_dir / f"{cid}.stretched.mp3"
                 ratio = stretch_audio(mp3, stretched, float(target))
                 stretched.replace(mp3)
-                # Rescale timestamps to match the stretched audio.
                 align = json.loads(ts.read_text())
                 for key in ("character_start_times_seconds", "character_end_times_seconds"):
                     if key in align:
@@ -322,16 +487,16 @@ def tts(
 @app.command()
 def caption(
     project: Path = typer.Option(None, "--project"),
-    style_path: Path = typer.Option(None, "--style", help="CaptionStyle JSON override."),
-    clip_id: str = typer.Option(None, "--clip-id", help="Only render captions for this clip id."),
-    progress_json: bool = typer.Option(False, "--progress-json", help="Emit JSON progress events on stdout."),
+    video: str = typer.Option(None, "--video"),
+    style_path: Path = typer.Option(None, "--style"),
+    clip_id: str = typer.Option(None, "--clip-id"),
+    progress_json: bool = typer.Option(False, "--progress-json"),
 ) -> None:
     """Chunk timestamps into 2-word UPPERCASE frames and render caption PNGs."""
-    root = _root(project)
-    cfg = _load_cfg(root)
-    out_dir = cfg.resolve_out(root)
-    audio_dir = out_dir / "audio"
-    subs_dir = out_dir / "subs"
+    r = _resolve(project, video)
+    cfg = r.project_cfg
+    audio_dir = r.out_dir / "audio"
+    subs_dir = r.out_dir / "subs"
     subs_dir.mkdir(exist_ok=True)
     style = (
         CaptionStyle.from_json(style_path)
@@ -359,14 +524,14 @@ def caption(
 @app.command()
 def outro(
     project: Path = typer.Option(None, "--project"),
-    preset: str = typer.Option("cyberpunk", "--preset", help="Template name under templates/outros/."),
-    brand_path: Path = typer.Option(None, "--brand", help="BrandConfig JSON override."),
+    video: str = typer.Option(None, "--video"),
+    preset: str = typer.Option("cyberpunk", "--preset"),
+    brand_path: Path = typer.Option(None, "--brand"),
 ) -> None:
     """Render the branded outro card."""
     require()
-    root = _root(project)
-    cfg = _load_cfg(root)
-    out_dir = cfg.resolve_out(root)
+    r = _resolve(project, video)
+    cfg = r.project_cfg
     if brand_path:
         brand = BrandConfig.from_json(brand_path)
     else:
@@ -374,7 +539,7 @@ def outro(
         brand = BrandConfig.from_json(tmpl) if tmpl.exists() else BrandConfig()
     brand.width, brand.height = cfg.resolution
     brand.fps = cfg.fps
-    out_path = out_dir / "outro.mp4"
+    out_path = r.out_dir / "outro.mp4"
     render_outro(brand, out_path)
     rprint(f"[green]Outro[/green] -> {out_path}")
 
@@ -391,27 +556,23 @@ def assets(
 @app.command("render")
 def render_cmd(
     project: Path = typer.Option(None, "--project"),
+    video: str = typer.Option(None, "--video"),
     backend: str = typer.Option("ffmpeg", "--backend", help="ffmpeg | remotion"),
     no_captions: bool = typer.Option(False, "--no-captions"),
     no_outro: bool = typer.Option(False, "--no-outro"),
-    beat_map: Path = typer.Option(
-        None,
-        "--beat-map",
-        help='Explicit clip_id -> range_index JSON, e.g. {"01_intro": 0, "02_reader": 2}. '
-        "Defaults to beat_map.json in the project root; falls back to index pairing.",
-    ),
-    clip_id: str = typer.Option(None, "--clip-id", help="Reserved; full render always runs (MVP)."),
-    progress_json: bool = typer.Option(False, "--progress-json", help="Emit JSON progress events on stdout."),
+    beat_map: Path = typer.Option(None, "--beat-map"),
+    clip_id: str = typer.Option(None, "--clip-id"),
+    progress_json: bool = typer.Option(False, "--progress-json"),
 ) -> None:
     """Compose vertical, mix audio, overlay captions LAST, concat outro."""
     del clip_id  # per-clip splice is a later optimization
     require()
-    root = _root(project)
-    cfg = _load_cfg(root)
-    out_dir = cfg.resolve_out(root)
+    r = _resolve(project, video)
+    cfg = r.project_cfg
+    out_dir = r.out_dir
     _progress(progress_json, "render", pct=0.0)
     if backend == "remotion":
-        _render_remotion(root, cfg, out_dir, no_outro=no_outro)
+        _render_remotion(r, no_outro=no_outro)
         _progress(progress_json, "render", pct=1.0, message="done")
         return
     if backend != "ffmpeg":
@@ -425,8 +586,7 @@ def render_cmd(
     per_clip_audio = sorted(audio_dir.glob("*.mp3"))
     ranges = edl["ranges"]
 
-    # Explicit beat_map: clip_id (audio stem) -> range index. Required when len differs.
-    beat_map_path = beat_map or (root / "beat_map.json")
+    beat_map_path = beat_map or (r.video_root / "beat_map.json")
     beat_to_range: dict[str, int] = {}
     if beat_map_path.exists():
         beat_to_range = json.loads(beat_map_path.read_text())
@@ -436,7 +596,6 @@ def render_cmd(
             f"create beat_map.json mapping clip_id -> range index, or pass --beat-map."
         )
 
-    # Build range_index -> audio lookup.
     audio_by_range: dict[int, Path] = {}
     if beat_to_range:
         stem_to_audio = {a.stem: a for a in per_clip_audio}
@@ -497,13 +656,9 @@ def render_cmd(
     _progress(progress_json, "render", pct=1.0, message="done")
 
 
-def _render_remotion(
-    root: Path,
-    cfg: config.ProjectConfig,
-    out_dir: Path,
-    *,
-    no_outro: bool,
-) -> None:
+def _render_remotion(r: config.Resolved, *, no_outro: bool) -> None:
+    cfg = r.project_cfg
+    out_dir = r.out_dir
     segs_path = out_dir / "segments.json"
     cam_path = out_dir / "camera.json"
     if not segs_path.exists() or not cam_path.exists():

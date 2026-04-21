@@ -57,6 +57,13 @@ you want to pin a specific one. It also:
   `npm install` errors; missing Node ≥ 18 fails upfront before anything else
   runs
 - Generates default gradient backgrounds for the Remotion backend
+- Installs Remotion's official [agent skill](https://www.remotion.dev/docs/ai/skills)
+  into `~/.claude/skills/remotion` so Claude Code has Remotion-specific
+  context when editing `remotion/**`. Pin with
+  `CLIPWRIGHT_REMOTION_SKILL_REF=<sha|tag>`, skip with `./install.sh --no-skill`.
+  `clipwright init` also installs a project-local copy at
+  `<project>/.claude/skills/remotion`. Re-running the installer is a no-op when
+  already up to date.
 
 ### Making `clipwright` available in new terminals
 

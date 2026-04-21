@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { Clip, ProjectState } from "../lib/types";
+import type { Clip } from "../lib/types";
 import { saveScriptClip, runClipwright } from "../lib/ipc";
 
 export function ClipDetail({
-  project,
+  projectPath,
+  videoSlug,
   clip,
   onReload,
   activeRun,
   setActiveRun,
 }: {
-  project: ProjectState;
+  projectPath: string;
+  videoSlug: string;
   clip: Clip;
   onReload: () => Promise<void>;
   activeRun: number | null;
@@ -24,10 +26,12 @@ export function ClipDetail({
     setDirty(false);
   }, [clip.id, clip.text]);
 
-  const audioUrl = convertFileSrc(`${project.path}/out/audio/${clip.id}.mp3`);
+  const audioUrl = convertFileSrc(
+    `${projectPath}/videos/${videoSlug}/out/audio/${clip.id}.mp3`,
+  );
 
   async function save() {
-    await saveScriptClip(project.path, clip.id, text);
+    await saveScriptClip(projectPath, videoSlug, clip.id, text);
     setDirty(false);
     await onReload();
   }
@@ -35,7 +39,7 @@ export function ClipDetail({
   async function regen(cmd: string) {
     if (activeRun !== null) return;
     if (dirty) await save();
-    const id = await runClipwright(project.path, cmd, clip.id);
+    const id = await runClipwright(projectPath, cmd, videoSlug, clip.id);
     setActiveRun(id);
   }
 

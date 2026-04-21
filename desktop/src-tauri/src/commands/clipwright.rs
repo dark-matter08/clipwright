@@ -39,6 +39,7 @@ const PROGRESS_STAGES: &[&str] = &["tts", "caption", "render"];
 pub async fn run_clipwright(
     path: String,
     subcommand: String,
+    video_slug: Option<String>,
     clip_id: Option<String>,
     app: AppHandle,
     state: State<'_, AppState>,
@@ -51,6 +52,12 @@ pub async fn run_clipwright(
     let root_cmd = args.first().cloned().unwrap_or_default();
     args.push("--project".into());
     args.push(path.clone());
+    if let Some(slug) = video_slug {
+        if !matches!(root_cmd.as_str(), "init" | "video" | "migrate") {
+            args.push("--video".into());
+            args.push(slug);
+        }
+    }
     if let Some(cid) = clip_id {
         args.push("--clip-id".into());
         args.push(cid);
