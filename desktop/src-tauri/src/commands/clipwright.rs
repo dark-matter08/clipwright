@@ -6,6 +6,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 #[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 struct LogEvent {
     run_id: u32,
     stream: &'static str,
@@ -13,25 +14,26 @@ struct LogEvent {
 }
 
 #[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 struct DoneEvent {
     run_id: u32,
     code: i32,
 }
 
 #[derive(Serialize, Clone)]
-#[serde(untagged)]
-enum ProgressEvent {
-    Parsed {
-        run_id: u32,
-        stage: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        clip: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        pct: Option<f64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        message: Option<String>,
-    },
+#[serde(rename_all = "camelCase")]
+struct ProgressEvent {
+    run_id: u32,
+    stage: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    clip: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pct: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
 }
+
+const PROGRESS_STAGES: &[&str] = &["tts", "caption", "render"];
 
 #[tauri::command]
 pub async fn run_clipwright(
@@ -46,13 +48,16 @@ pub async fn run_clipwright(
     state.runs.lock().unwrap().insert(run_id, cancel_tx);
 
     let mut args: Vec<String> = subcommand.split_whitespace().map(String::from).collect();
+    let root_cmd = args.first().cloned().unwrap_or_default();
     args.push("--project".into());
     args.push(path.clone());
     if let Some(cid) = clip_id {
         args.push("--clip-id".into());
         args.push(cid);
     }
-    args.push("--progress-json".into());
+    if PROGRESS_STAGES.contains(&root_cmd.as_str()) {
+        args.push("--progress-json".into());
+    }
 
     let mut cmd = Command::new("clipwright");
     cmd.args(&args)
@@ -73,7 +78,7 @@ pub async fn run_clipwright(
                     if v.get("stage").is_some() {
                         let _ = app_out.emit(
                             "clipwright:progress",
-                            ProgressEvent::Parsed {
+                            ProgressEvent {
                                 run_id,
                                 stage: v.get("stage").and_then(|x| x.as_str()).unwrap_or("").into(),
                                 clip: v.get("clip").and_then(|x| x.as_str()).map(String::from),

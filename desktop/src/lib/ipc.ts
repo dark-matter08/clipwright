@@ -10,6 +10,43 @@ export async function loadProject(path: string): Promise<ProjectState> {
   return (await invoke("load_project", { path })) as ProjectState;
 }
 
+export interface FileEntry {
+  name: string;
+  rel: string;
+  size: number;
+  isDir: boolean;
+}
+
+export async function listProjectFiles(path: string): Promise<FileEntry[]> {
+  const raw = (await invoke("list_project_files", { path })) as Array<{
+    name: string;
+    rel: string;
+    size: number;
+    is_dir: boolean;
+  }>;
+  return raw.map((r) => ({ name: r.name, rel: r.rel, size: r.size, isDir: r.is_dir }));
+}
+
+export async function initProject(
+  parentDir: string,
+  name: string,
+  url: string,
+  aspect: string,
+  description?: string,
+): Promise<string> {
+  return (await invoke("init_project", {
+    parentDir,
+    name,
+    url,
+    aspect,
+    description: description ?? "",
+  })) as string;
+}
+
+export async function readTextFile(path: string): Promise<string> {
+  return (await invoke("read_text_file", { path })) as string;
+}
+
 export async function saveScriptClip(
   path: string,
   clipId: string,
