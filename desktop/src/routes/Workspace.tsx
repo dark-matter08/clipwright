@@ -5,6 +5,9 @@ import { ClipList } from "../components/ClipList";
 import { ClipDetail } from "../components/ClipDetail";
 import { LogPane } from "../components/LogPane";
 import { ChatDock } from "../components/ChatDock";
+import { FilesPane } from "../components/FilesPane";
+import { SessionsPane } from "../components/SessionsPane";
+import { FileViewer } from "../components/FileViewer";
 import { onLog, onRunDone, onProgress } from "../lib/ipc";
 
 export function Workspace({
@@ -21,6 +24,9 @@ export function Workspace({
   const [logs, setLogs] = useState<string[]>([]);
   const [activeRun, setActiveRun] = useState<number | null>(null);
   const [progress, setProgress] = useState<{ stage: string; pct?: number } | null>(null);
+  const [sessionsListKey, setSessionsListKey] = useState(0);
+  const [chatReloadKey, setChatReloadKey] = useState(0);
+  const [openFile, setOpenFile] = useState<{ abs: string; rel: string } | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -65,11 +71,33 @@ export function Workspace({
             setActiveRun={setActiveRun}
             onReload={onReload}
           />
-          <ClipList clips={clips} selected={selected} onSelect={setSelected} />
+          {clips.length > 0 && (
+            <ClipList
+              clips={clips}
+              selected={selected}
+              onSelect={(id) => {
+                setSelected(id);
+                setOpenFile(null);
+              }}
+            />
+          )}
+          <FilesPane
+            projectPath={project.path}
+            onOpenFile={(abs, rel) => {
+              setOpenFile({ abs, rel });
+              setSelected(null);
+            }}
+          />
         </aside>
 
         <main className="flex flex-col overflow-hidden">
-          {selectedClip ? (
+          {openFile ? (
+            <FileViewer
+              absPath={openFile.abs}
+              rel={openFile.rel}
+              onClose={() => setOpenFile(null)}
+            />
+          ) : selectedClip ? (
             <ClipDetail
               project={project}
               clip={selectedClip}
@@ -79,13 +107,27 @@ export function Workspace({
             />
           ) : (
             <div className="flex flex-1 items-center justify-center text-muted font-mono text-sm">
-              no clips yet — run script-init after segments exist
+              click a file on the left, or run script-init after segments exist
             </div>
           )}
           <LogPane logs={logs} progress={progress} innerRef={logRef} />
         </main>
 
-        <ChatDock projectPath={project.path} />
+        <div className="flex flex-col overflow-hidden">
+          <SessionsPane
+            projectPath={project.path}
+            refreshKey={sessionsListKey}
+            onSessionChange={() => {
+              setSessionsListKey((k) => k + 1);
+              setChatReloadKey((k) => k + 1);
+            }}
+          />
+          <ChatDock
+            projectPath={project.path}
+            reloadKey={chatReloadKey}
+            onSessionCreated={() => setSessionsListKey((k) => k + 1)}
+          />
+        </div>
       </div>
 
       <footer className="border-t border-border bg-panel px-4 py-1 font-mono text-[10px] text-muted">
