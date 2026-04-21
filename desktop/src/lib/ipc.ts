@@ -94,6 +94,43 @@ export async function approveClaudePlan(projectPath: string): Promise<number> {
   return (await invoke("approve_claude_plan", { projectPath })) as number;
 }
 
+export interface SessionInfo {
+  id: string;
+  firstMessage: string;
+  lastModified: number;
+  messageCount: number;
+  active: boolean;
+}
+
+export async function listClaudeSessions(projectPath: string): Promise<SessionInfo[]> {
+  return (await invoke("list_claude_sessions", { projectPath })) as SessionInfo[];
+}
+
+export async function getActiveSession(projectPath: string): Promise<string | null> {
+  return (await invoke("get_active_session", { projectPath })) as string | null;
+}
+
+export async function setActiveSession(projectPath: string, sessionId: string): Promise<void> {
+  await invoke("set_active_session", { projectPath, sessionId });
+}
+
+export async function clearActiveSession(projectPath: string): Promise<void> {
+  await invoke("clear_active_session", { projectPath });
+}
+
+export interface ReplayMessage {
+  role: "user" | "assistant" | "plan" | "tool";
+  content: string;
+  tool: string | null;
+}
+
+export async function loadSessionTranscript(
+  projectPath: string,
+  sessionId: string,
+): Promise<ReplayMessage[]> {
+  return (await invoke("load_session_transcript", { projectPath, sessionId })) as ReplayMessage[];
+}
+
 export function onProgress(
   handler: (ev: ProgressEvent & { runId: number }) => void,
 ): Promise<UnlistenFn> {
