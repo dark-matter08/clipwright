@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -5,11 +7,58 @@
 html, body, #root {
   height: 100%;
   margin: 0;
-  background: rgb(8 12 22);
+  background: rgb(6 8 15);
   color: rgb(230 240 250);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
+/* Cyberpunk-friendly scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: rgb(30 40 58); border-radius: 4px; }
+::-webkit-scrollbar-thumb {
+  background: rgba(48, 66, 98, .6);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(63, 86, 128, .8);
+}
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* Subtle grid noise on the base canvas — shows through wherever panels are
+ * translucent. Keeps the mockup's "this is a DAW" feel. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(to bottom, rgba(255,255,255,.008) 0 1px, transparent 1px 3px);
+  z-index: 0;
+}
+#root { position: relative; z-index: 1; }
+
+/* Headings pick up Inter; body text keeps the mono feel. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-weight: 500;
+}
+
+/* Utility: monospace numbers for timecodes + metrics */
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* Timeline-specific: keyframe diamond rotation helper */
+.kf-diamond {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+/* Timeline clip pulse used on selected/active blocks */
+@keyframes clip-edge-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(0,245,229,.55), 0 0 24px rgba(0,245,229,.3); }
+  50%      { box-shadow: 0 0 0 1px rgba(0,245,229,.4),  0 0 32px rgba(0,245,229,.45); }
+}
+.clip-selected {
+  animation: clip-edge-pulse 2.4s ease-in-out infinite;
+}
