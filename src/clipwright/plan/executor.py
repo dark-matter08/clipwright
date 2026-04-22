@@ -122,7 +122,9 @@ async def _scroll(page, action: Action, base_url: str) -> None:
     if to_y is not None:
         await page.evaluate(f"window.scrollTo({{top: {int(to_y)}, behavior: 'smooth'}})")
     else:
-        await page.evaluate(f"window.scrollBy(0, {by_y})")
+        await page.evaluate(
+            f"window.scrollTo({{top: document.documentElement.scrollTop + {by_y}, behavior: 'instant'}})"
+        )
 
 
 async def _wait(page, action: Action, base_url: str) -> None:
