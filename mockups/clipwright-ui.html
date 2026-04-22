@@ -1,0 +1,2909 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Clipwright — UI concept</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+  :root{
+    --bg: #06080f;
+    --bg-raised: #0a0f1c;
+    --panel: #0e1526;
+    --panel-2: #121a2e;
+    --border: #1d2942;
+    --border-strong: #293a5c;
+    --fg: #e6f0fa;
+    --fg-dim: #b3c5db;
+    --muted: #667793;
+    --muted-dim: #3a4c69;
+    --accent: #00f5e5;          /* teal */
+    --accent-dim: #0aa89c;
+    --accent2: #e879f9;         /* magenta */
+    --accent3: #fbbf24;         /* amber */
+    --danger: #ff4d6d;
+    --ok: #4ade80;
+
+    --grid: rgba(70, 130, 180, 0.035);
+    --glow-teal: 0 0 0 1px rgba(0,245,229,.25), 0 0 24px rgba(0,245,229,.15);
+    --glow-teal-strong: 0 0 0 1px rgba(0,245,229,.55), 0 0 40px rgba(0,245,229,.35);
+    --glow-magenta: 0 0 0 1px rgba(232,121,249,.35), 0 0 28px rgba(232,121,249,.22);
+    --shadow-lift: 0 1px 0 rgba(255,255,255,.02) inset, 0 8px 30px rgba(0,0,0,.5);
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; height:100%; }
+  body{
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px;
+    line-height: 1.5;
+    overflow: hidden;
+    letter-spacing: 0.01em;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before{
+    content:"";
+    position: fixed; inset:0; pointer-events:none; z-index:0;
+    background:
+      radial-gradient(1200px 800px at 20% -10%, rgba(0,245,229,.06), transparent 60%),
+      radial-gradient(900px 700px at 100% 110%, rgba(232,121,249,.05), transparent 60%),
+      linear-gradient(transparent 0, transparent calc(100% - 1px), var(--grid) 100%) 0 0/32px 32px,
+      linear-gradient(90deg, transparent 0, transparent calc(100% - 1px), var(--grid) 100%) 0 0/32px 32px;
+  }
+  body::after{
+    content:""; position: fixed; inset:0; pointer-events:none; z-index:1;
+    background: repeating-linear-gradient(to bottom, rgba(255,255,255,.013) 0 1px, transparent 1px 3px);
+    mix-blend-mode: overlay;
+  }
+
+  .sans{ font-family: 'Inter', system-ui, sans-serif; letter-spacing: 0; }
+  .mono{ font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+  /* Lucide icons: default sizing & stroke */
+  [data-lucide]{ width:14px; height:14px; stroke-width:1.75; vertical-align:-0.22em; display:inline-block; }
+
+  .app{
+    position: relative; z-index: 2;
+    height: 100vh; width: 100vw;
+    display: flex; flex-direction: column;
+  }
+
+  /* ── titlebar ──────────────────────────── */
+  .titlebar{
+    display:flex; align-items:center; justify-content:space-between;
+    height: 36px; padding: 0 12px;
+    background: linear-gradient(to bottom, rgba(20,28,46,.9), rgba(10,15,28,.9));
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(10px);
+    flex-shrink: 0;
+  }
+  .traffic{ display:flex; gap:8px; align-items:center; }
+  .dot{ width:12px; height:12px; border-radius:50%; background:#40506b; }
+  .dot.r{ background: #ff5f57; }
+  .dot.y{ background: #febc2e; }
+  .dot.g{ background: #28c940; }
+  .title-brand{
+    display:flex; align-items:center; gap:10px;
+    font-size: 11px; letter-spacing: .22em; color: var(--fg-dim);
+  }
+  .title-brand .glyph{
+    width:22px; height:22px; display:grid; place-items:center;
+    color: var(--accent);
+    filter: drop-shadow(0 0 6px rgba(0,245,229,.45));
+  }
+  .title-brand .glyph [data-lucide]{ width:18px; height:18px; }
+  .title-meta{ display:flex; gap:14px; color: var(--muted); font-size: 10.5px; align-items:center;}
+  .title-meta b{ color: var(--fg-dim); font-weight: 500; }
+  .title-meta [data-lucide]{ width:13px; height:13px; opacity:.7; }
+
+  /* screen switcher */
+  .switcher{
+    position: fixed; top: 48px; left: 50%; transform: translateX(-50%);
+    z-index: 60;
+    display:flex; gap: 2px; padding: 4px;
+    background: rgba(14,21,38,.85);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    box-shadow: 0 10px 40px rgba(0,0,0,.6), 0 0 0 1px rgba(0,245,229,.08);
+    backdrop-filter: blur(14px);
+  }
+  .switcher button{
+    appearance:none; border:0; cursor:pointer; color: var(--muted);
+    background: transparent; font-family: inherit; font-size: 10.5px;
+    letter-spacing: .18em; text-transform: uppercase;
+    padding: 8px 14px; border-radius: 999px;
+    transition: all .15s ease;
+    display:inline-flex; align-items:center; gap:8px;
+  }
+  .switcher button [data-lucide]{ width:13px; height:13px; }
+  .switcher button:hover{ color: var(--fg); }
+  .switcher button.active{
+    color: var(--bg);
+    background: linear-gradient(180deg, #3ffff2, var(--accent));
+    box-shadow: 0 0 24px rgba(0,245,229,.45), inset 0 1px 0 rgba(255,255,255,.35);
+  }
+
+  .screen{ flex:1; display:none; min-height:0; }
+  .screen.active{ display:flex; }
+
+  /* ── project rail ── */
+  .rail{
+    width: 232px; flex-shrink:0;
+    display:flex; flex-direction:column;
+    background: linear-gradient(180deg, rgba(14,21,38,.75), rgba(10,15,28,.7));
+    border-right: 1px solid var(--border);
+  }
+  .rail-head{
+    display:flex; justify-content:space-between; align-items:center;
+    padding: 12px 12px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .rail-head .h{
+    font-size: 9.5px; letter-spacing: .24em; color: var(--muted); text-transform: uppercase;
+    display:inline-flex; gap:6px; align-items:center;
+  }
+  .rail-head .collapse{
+    color: var(--muted); cursor:pointer; background:transparent; border:0; font-size:11px;
+  }
+  .new-project{
+    margin: 10px;
+    display:flex; align-items:center; gap:8px;
+    padding: 9px 10px;
+    font-size: 10.5px; letter-spacing:.14em;
+    color: var(--accent);
+    border: 1px dashed rgba(0,245,229,.35);
+    border-radius: 6px;
+    background: radial-gradient(ellipse at left, rgba(0,245,229,.08), transparent 70%);
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .new-project:hover{ border-style: solid; box-shadow: var(--glow-teal); }
+  .new-project .plus{
+    width:20px; height:20px; display:grid; place-items:center;
+    border:1px solid rgba(0,245,229,.5); border-radius:4px;
+  }
+  .rail-section{
+    padding: 10px 12px 6px;
+    font-size: 9px; letter-spacing: .24em; color: var(--muted-dim); text-transform: uppercase;
+  }
+  .rail-list{ flex:1; overflow:auto; padding-bottom: 12px; }
+  .rail-item{
+    display:flex; align-items:center; gap: 10px;
+    padding: 9px 12px;
+    font-size: 11px; color: var(--fg-dim);
+    border-left: 2px solid transparent;
+    cursor: pointer;
+    position: relative;
+  }
+  .rail-item:hover{ background: rgba(255,255,255,.02); color: var(--fg); }
+  .rail-item.active{
+    border-left-color: var(--accent);
+    background: linear-gradient(90deg, rgba(0,245,229,.09), transparent 70%);
+    color: var(--fg);
+  }
+  .rail-item .tick{ color: var(--accent); opacity: .8; display:inline-flex;}
+  .rail-item .nm{ flex:1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rail-item .count{
+    font-size: 9px; color: var(--muted); padding: 1px 6px; border:1px solid var(--border);
+    border-radius: 999px;
+  }
+  .rail-foot{
+    padding: 10px 12px; border-top: 1px solid var(--border);
+    display:flex; flex-direction:column; gap: 6px;
+    font-size: 10px; color: var(--muted);
+  }
+  .rail-foot .row{ display:flex; justify-content:space-between; align-items:center; gap:8px;}
+  .rail-foot .k{ color: var(--muted-dim); display:inline-flex; gap:6px; align-items:center;}
+
+  .panel{
+    background: linear-gradient(180deg, rgba(18,26,46,.65), rgba(14,21,38,.65));
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    position: relative;
+  }
+  .panel::before, .panel::after{
+    content:""; position:absolute; width:10px; height:10px;
+    border-color: var(--accent-dim);
+  }
+  .panel::before{ top:-1px; left:-1px; border-top:1px solid; border-left:1px solid; border-top-left-radius:10px; opacity:.55;}
+  .panel::after{ bottom:-1px; right:-1px; border-bottom:1px solid; border-right:1px solid; border-bottom-right-radius:10px; opacity:.55;}
+
+  .chip{
+    display:inline-flex; align-items:center; gap:6px;
+    padding: 3px 8px; border-radius: 999px;
+    border:1px solid var(--border); color: var(--muted);
+    font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase;
+    background: rgba(255,255,255,.015);
+  }
+  .chip [data-lucide]{ width:11px; height:11px;}
+  .chip .pulse{
+    width:6px; height:6px; border-radius:50%; background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse{ 0%,100%{opacity:.4;} 50%{opacity:1;} }
+  .chip.ok{ color:#bff3d2; border-color: rgba(74,222,128,.35); }
+  .chip.ok .pulse{ background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+  .chip.warn{ color:#fde1a0; border-color: rgba(251,191,36,.35); }
+  .chip.warn .pulse{ background: var(--accent3); box-shadow: 0 0 10px var(--accent3); }
+  .chip.off{ color: var(--muted-dim); }
+  .chip.off .pulse{ background: var(--muted-dim); box-shadow: none; }
+  .chip.mag{ color:#f6d0fb; border-color: rgba(232,121,249,.4); }
+  .chip.mag .pulse{ background: var(--accent2); box-shadow: 0 0 10px var(--accent2); }
+
+  .btn{
+    appearance:none; border:1px solid var(--border); background: var(--panel);
+    color: var(--fg-dim); padding: 7px 12px; border-radius: 6px; cursor: pointer;
+    font-family: inherit; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
+    transition: all .15s;
+    display:inline-flex; align-items:center; gap:6px; justify-content:center;
+  }
+  .btn [data-lucide]{ width:13px; height:13px;}
+  .btn:hover{ color: var(--accent); border-color: rgba(0,245,229,.5); }
+  .btn.primary{
+    color: var(--accent);
+    background: linear-gradient(180deg, rgba(0,245,229,.12), rgba(0,245,229,.04));
+    border-color: rgba(0,245,229,.55);
+    box-shadow: var(--glow-teal);
+  }
+  .btn.primary:hover{ box-shadow: var(--glow-teal-strong); }
+  .btn.danger{ color:#fecdd3; border-color: rgba(255,77,109,.5); }
+  .btn.mag{ color: var(--accent2); border-color: rgba(232,121,249,.4);}
+  .btn.ghost{ background: transparent; }
+
+  /* icon button */
+  .iconbtn{
+    width:28px; height:28px; display:grid; place-items:center;
+    border:1px solid var(--border); border-radius:6px;
+    color: var(--muted); cursor:pointer; background: rgba(255,255,255,.02);
+    transition: all .15s;
+  }
+  .iconbtn:hover{ color: var(--accent); border-color: rgba(0,245,229,.45);}
+  .iconbtn [data-lucide]{ width:15px; height:15px;}
+  .iconbtn.lg{ width:34px; height:34px;}
+  .iconbtn.lg [data-lucide]{ width:17px; height:17px;}
+  .iconbtn.on{ color: var(--accent); border-color: rgba(0,245,229,.45); box-shadow: var(--glow-teal); }
+
+  /* ═══ ONBOARDING ═══ */
+  .onboarding{ flex:1; display:flex; }
+  .ob-rail{
+    width: 232px; flex-shrink:0;
+    background: linear-gradient(180deg, rgba(14,21,38,.85), rgba(10,15,28,.85));
+    border-right: 1px solid var(--border);
+    display:flex; flex-direction:column; justify-content: space-between;
+    padding: 20px 14px;
+  }
+  .ob-rail .version{ font-size: 9px; color: var(--muted-dim); letter-spacing: .2em; }
+  .ob-rail .blurb{ font-size: 10px; color: var(--muted); line-height: 1.6; margin-top: 12px;}
+  .ob-rail .steplist{ margin-top: 20px; display:flex; flex-direction:column; gap:8px;}
+  .ob-rail .step{ display:flex; align-items:center; gap:10px; color: var(--fg-dim); font-size:10.5px;}
+  .ob-rail .step [data-lucide]{ width:14px; height:14px; color: var(--accent);}
+  .ob-main{
+    flex: 1; display: grid; grid-template-rows: 1fr auto 1fr;
+    padding: 48px 48px;
+    overflow: auto;
+  }
+  .logo-stack{
+    display:flex; flex-direction: column; align-items: center; justify-content:flex-end; gap: 16px;
+  }
+  .logo-mark{
+    width: 112px; height: 112px;
+    display:grid; place-items:center;
+    border:1px solid rgba(0,245,229,.35);
+    border-radius: 20px;
+    position: relative;
+    background:
+      radial-gradient(circle at 30% 30%, rgba(0,245,229,.15), transparent 60%),
+      linear-gradient(135deg, rgba(232,121,249,.08), transparent 60%);
+    box-shadow: 0 0 60px rgba(0,245,229,.25), inset 0 0 40px rgba(0,245,229,.08);
+  }
+  .logo-mark [data-lucide]{ width: 56px; height: 56px; color: var(--accent); stroke-width: 1.3;}
+  .logo-mark::before{
+    content:""; position:absolute; inset:10px; border:1px dashed rgba(0,245,229,.2); border-radius: 12px;
+  }
+  .brand-word{
+    font-size: 48px; letter-spacing: .28em; font-weight: 300;
+    color: transparent;
+    background: linear-gradient(180deg, #e6f0fa 10%, #5dd9ce 70%, #0aa89c 100%);
+    -webkit-background-clip: text; background-clip: text;
+  }
+  .brand-tagline{
+    color: var(--muted); font-size: 11px; letter-spacing: .26em; text-transform: uppercase;
+    display:flex; align-items:center; gap: 14px;
+  }
+  .brand-tagline span.dot{ width:3px; height:3px; background: var(--accent); border-radius:50%; box-shadow: none;}
+
+  .ob-cards{
+    display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;
+    max-width: 1080px; margin: 0 auto; width:100%;
+  }
+  .ob-card{
+    padding: 22px 20px;
+    border: 1px solid var(--border); border-radius: 12px;
+    background:
+      linear-gradient(180deg, rgba(18,26,46,.55), rgba(10,15,28,.55));
+    position: relative;
+    cursor: pointer;
+    transition: all .25s;
+    overflow: hidden;
+  }
+  .ob-card:hover{
+    border-color: rgba(0,245,229,.55);
+    transform: translateY(-2px);
+    box-shadow: 0 18px 40px rgba(0,0,0,.45), var(--glow-teal);
+  }
+  .ob-card .num{
+    position:absolute; top:14px; right:16px;
+    font-size: 10px; color: var(--muted-dim); letter-spacing: .2em;
+  }
+  .ob-card .ic{
+    width:44px; height:44px; border-radius: 10px; display:grid; place-items:center;
+    background: linear-gradient(180deg, rgba(0,245,229,.15), rgba(0,245,229,.04));
+    border: 1px solid rgba(0,245,229,.4);
+    color: var(--accent);
+    margin-bottom: 14px;
+  }
+  .ob-card .ic [data-lucide]{ width:22px; height:22px;}
+  .ob-card.alt .ic{
+    background: linear-gradient(180deg, rgba(232,121,249,.15), rgba(232,121,249,.04));
+    border-color: rgba(232,121,249,.4); color: var(--accent2);
+  }
+  .ob-card h3{
+    margin:0; font-size: 13px; letter-spacing: .1em; color: var(--fg); font-weight: 500;
+  }
+  .ob-card p{
+    margin: 8px 0 16px; font-size: 11px; color: var(--muted); line-height: 1.7;
+  }
+  .ob-card .cta{
+    font-size: 10px; color: var(--accent); letter-spacing: .18em; text-transform: uppercase;
+    display:inline-flex; align-items:center; gap:6px;
+  }
+  .ob-card .cta.alt{ color: var(--accent2); }
+
+  .ob-recents{
+    margin-top: auto;
+    max-width: 1080px; margin-left: auto; margin-right: auto; width:100%;
+  }
+  .ob-recents .h{
+    display:flex; justify-content:space-between; align-items:center;
+    color: var(--muted); font-size: 10px; letter-spacing: .24em; text-transform: uppercase;
+    padding-bottom: 10px; border-bottom: 1px solid var(--border);
+  }
+  .ob-recents .h .l{ display:inline-flex; gap:8px; align-items:center;}
+  .ob-recents .items{
+    display:grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px;
+  }
+  .ob-recent{
+    padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px;
+    display:flex; align-items:center; gap: 12px; cursor: pointer;
+    transition: all .15s; background: rgba(255,255,255,.01);
+  }
+  .ob-recent:hover{ border-color: rgba(0,245,229,.4); background: rgba(0,245,229,.03); }
+  .ob-recent .thumb{
+    width: 40px; height: 40px; border-radius: 6px; flex-shrink:0;
+    background: linear-gradient(135deg, #1a2542, #0c1223);
+    border: 1px solid var(--border-strong);
+    display:grid; place-items:center; color: var(--accent); font-size: 10px;
+    font-weight: 600; letter-spacing: .1em;
+  }
+  .ob-recent .nm{ font-size: 12px; color: var(--fg); }
+  .ob-recent .meta{ font-size: 9.5px; color: var(--muted); margin-top: 2px; }
+
+  /* ═══ WORKSPACE ═══ */
+  .ws{ flex:1; display:flex; min-height: 0;}
+  .ws-main{ flex:1; display:flex; flex-direction:column; min-width: 0;}
+  .ws-header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(18,26,46,.7), rgba(14,21,38,.4));
+  }
+  .ws-breadcrumb{ display:flex; align-items:center; gap: 10px; font-size: 11px; color: var(--fg-dim); }
+  .ws-breadcrumb .proj{ color: var(--accent); display:inline-flex; gap:6px; align-items:center;}
+  .ws-breadcrumb .sep{ color: var(--muted-dim); display:inline-flex;}
+  .ws-breadcrumb .path{ color: var(--muted); font-size: 10px; }
+
+  .video-rail{
+    display:flex; gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    background: rgba(10,15,28,.4);
+  }
+  .vtab{
+    flex-shrink: 0;
+    display:flex; gap: 10px; align-items: center;
+    padding: 6px 10px 6px 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: linear-gradient(180deg, rgba(255,255,255,.02), transparent);
+    cursor: pointer; transition: all .15s;
+    min-width: 240px;
+  }
+  .vtab:hover{ border-color: rgba(0,245,229,.4); }
+  .vtab.active{
+    border-color: rgba(0,245,229,.55);
+    background: linear-gradient(180deg, rgba(0,245,229,.08), transparent);
+    box-shadow: 0 0 0 1px rgba(0,245,229,.1), 0 6px 20px rgba(0,0,0,.4);
+  }
+  .vtab .thumb{
+    width: 42px; height: 42px; border-radius: 6px; flex-shrink:0;
+    background: linear-gradient(135deg, #1a2542, #0c1223);
+    border: 1px solid var(--border-strong);
+    position:relative; overflow:hidden;
+  }
+  .vtab .thumb::before{
+    content:""; position:absolute; inset:0;
+    background:
+      linear-gradient(135deg, transparent 30%, rgba(0,245,229,.15) 60%, transparent 70%);
+  }
+  .vtab .thumb .play{
+    position:absolute; inset:0; display:grid; place-items:center; color: var(--accent);
+  }
+  .vtab .thumb .play [data-lucide]{ width:18px; height:18px; filter: drop-shadow(0 0 6px rgba(0,245,229,.6));}
+  .vtab .meta{ min-width:0; flex:1; }
+  .vtab .t{ font-size: 11.5px; color: var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .vtab .row{ display:flex; gap: 8px; margin-top: 3px; align-items:center; }
+  .vtab .row .p{ font-size: 9.5px; color: var(--muted); letter-spacing: .14em; text-transform: uppercase; display:inline-flex; gap:4px; align-items:center;}
+  .vtab .row .d{ font-size: 9.5px; color: var(--muted-dim); }
+  .vtab .live{
+    font-size: 9px; color: var(--accent2); letter-spacing:.2em; margin-left: 4px;
+    display:inline-flex; gap:4px; align-items:center;
+  }
+  .vtab .live [data-lucide]{ width:10px; height:10px;}
+  .vtab.new{ border-style: dashed; color: var(--muted); justify-content:center; min-width: 140px; gap:8px;}
+  .vtab.new:hover{ color: var(--accent); }
+
+  .ws-grid{
+    flex:1; display: grid;
+    grid-template-columns: 300px 1fr 380px;
+    min-height: 0;
+  }
+  .ws-left{
+    border-right: 1px solid var(--border);
+    display:flex; flex-direction:column; min-height:0;
+    background: rgba(10,15,28,.35);
+  }
+  .ws-center{ display:flex; flex-direction:column; min-height:0; min-width:0; }
+  .ws-right{
+    border-left: 1px solid var(--border);
+    display:flex; flex-direction:column; min-height:0;
+    background: rgba(10,15,28,.35);
+  }
+
+  .pipeline{ padding: 14px; border-bottom: 1px solid var(--border); }
+  .pipeline-head{ display:flex; justify-content:space-between; font-size:9.5px; letter-spacing:.2em; text-transform:uppercase; color: var(--muted); margin-bottom: 10px;}
+  .pipeline-head .ph{ color: var(--accent); display:inline-flex; gap:6px; align-items:center;}
+  .pipeline-stages{
+    display:flex; gap: 0;
+    margin-bottom: 12px;
+    align-items:center;
+  }
+  .stage{
+    flex:1; text-align:center; font-size: 9px; color: var(--muted-dim);
+    letter-spacing: .14em; text-transform: uppercase;
+    padding: 6px 2px; border-top: 2px solid var(--border);
+    position: relative;
+  }
+  .stage.done{ color: var(--ok); border-top-color: var(--ok); }
+  .stage.active{
+    color: var(--accent); border-top-color: var(--accent);
+    filter: drop-shadow(0 0 6px rgba(0,245,229,.55));
+  }
+  .stage.active::after{
+    content:""; position:absolute; top:-3px; left:50%; transform: translateX(-50%);
+    width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 12px var(--accent);
+  }
+  .stage.todo{ color: var(--muted-dim); }
+
+  .pipeline-row{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 6px; }
+  .pipeline-row .btn{ padding: 8px 6px; font-size: 10px; letter-spacing: .16em; }
+  .pipeline-runall{
+    display:grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  }
+
+  .clips-head{
+    display:flex; justify-content:space-between;
+    padding: 10px 14px; border-bottom:1px solid var(--border);
+    font-size:9.5px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted);
+  }
+  .clips-head .l{ display:inline-flex; gap:6px; align-items:center;}
+  .clips{ flex: 1; overflow: auto; min-height:0; }
+  .clip{
+    display:grid; grid-template-columns: 24px 1fr auto; gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    position: relative;
+  }
+  .clip:hover{ background: rgba(255,255,255,.02);}
+  .clip.active{ background: linear-gradient(90deg, rgba(0,245,229,.08), transparent); }
+  .clip.active::before{
+    content:""; position:absolute; left:0; top:0; bottom:0; width: 2px; background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+  }
+  .clip .n{ color: var(--muted-dim); font-size: 10px; padding-top: 2px;}
+  .clip .chapter{ color: var(--fg); font-size: 11.5px;}
+  .clip .t{ font-size: 9.5px; color: var(--muted); margin-top: 3px; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;}
+  .clip .meta{ font-size: 10px; color: var(--accent); text-align: right; }
+  .clip.empty .t{ color: var(--muted-dim); font-style: italic; }
+
+  .files{
+    border-top: 1px solid var(--border);
+    max-height: 180px; overflow: auto;
+    padding: 8px 10px;
+  }
+  .files .f-head{
+    display:flex; justify-content:space-between;
+    padding: 4px 4px 8px;
+    font-size: 9.5px; letter-spacing:.2em; text-transform:uppercase; color: var(--muted);
+  }
+  .files .f-head .l{ display:inline-flex; gap:6px; align-items:center;}
+  .file{
+    display:flex; gap: 8px; align-items:center;
+    padding: 5px 6px; font-size: 10.5px; color: var(--fg-dim);
+    border-radius: 4px; cursor:pointer;
+  }
+  .file:hover{ background: rgba(255,255,255,.03); color: var(--fg);}
+  .file .sz{ margin-left: auto; color: var(--muted); font-size: 9.5px;}
+  .file .ic{ color: var(--muted); display:inline-flex;}
+  .file.hot .ic{ color: var(--accent);}
+  .file.hot{ color: var(--accent); }
+
+  .preview-bar{
+    display:flex; justify-content:space-between; align-items:center;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(14,21,38,.45);
+  }
+  .preview-bar .tabs{ display:flex; gap: 4px;}
+  .preview-bar .tab{
+    font-size: 10px; letter-spacing:.16em; text-transform: uppercase; color: var(--muted);
+    padding: 6px 10px; border-radius: 6px; cursor:pointer; border:1px solid transparent;
+    display:inline-flex; gap:6px; align-items:center;
+  }
+  .preview-bar .tab.active{ color: var(--accent); background: rgba(0,245,229,.06); border-color: rgba(0,245,229,.3); }
+  .preview-bar .tools{ display:flex; gap: 6px; color: var(--muted); font-size: 10px; align-items:center;}
+  .preview-bar .tools .sep{ color: var(--muted-dim);}
+  .preview-bar .tools .acc{ color: var(--accent); display:inline-flex; gap:4px; align-items:center;}
+
+  .stage-area{
+    flex: 1; min-height: 0; display:grid; grid-template-columns: 1fr 260px; gap: 14px;
+    padding: 14px; overflow:hidden;
+  }
+  .preview{
+    border: 1px solid var(--border); border-radius: 12px;
+    background:
+      radial-gradient(circle at 50% 0%, rgba(0,245,229,.08), transparent 50%),
+      linear-gradient(180deg, #09101e, #070a15);
+    display:grid; place-items:center; position: relative; overflow: hidden;
+  }
+  .preview::before{
+    content:""; position:absolute; inset:0;
+    background: repeating-linear-gradient(to bottom, rgba(255,255,255,.013) 0 1px, transparent 1px 3px);
+  }
+  .phone-frame{
+    width: 252px; aspect-ratio: 9/16;
+    border: 1px solid rgba(0,245,229,.3); border-radius: 22px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.6), 0 0 0 4px rgba(10,15,28,.9), 0 0 40px rgba(0,245,229,.12);
+    background: linear-gradient(145deg, #1b2947, #0c1223);
+    position: relative; overflow: hidden;
+  }
+  .phone-frame::before{
+    content:""; position:absolute; inset:0;
+    background:
+      radial-gradient(ellipse at top, rgba(232,121,249,.28), transparent 50%),
+      radial-gradient(ellipse at bottom right, rgba(0,245,229,.18), transparent 60%);
+  }
+  .phone-caption{
+    position:absolute; left:0; right:0; bottom: 44px; text-align:center;
+    font-family: 'Inter', sans-serif; font-weight: 800; font-size: 24px;
+    letter-spacing: .04em; color: #fff;
+    text-shadow: 0 0 14px rgba(0,245,229,.7), 0 2px 0 #000;
+    padding: 0 10px;
+  }
+  .phone-caption em{ font-style: normal; color: var(--accent); }
+  .phone-url{
+    position: absolute; top: 16px; left: 14px; right: 14px;
+    height: 22px; border-radius: 5px;
+    background: rgba(255,255,255,.12);
+    display:flex; align-items:center; gap: 6px; padding: 0 8px;
+    font-family: 'Inter', sans-serif; font-size: 10px; color: #fff;
+  }
+  .phone-hero{
+    position: absolute; inset: 52px 18px 110px;
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(0,0,0,.25));
+    border: 1px solid rgba(255,255,255,.1);
+    display:flex; flex-direction:column; justify-content:flex-end; padding: 10px;
+  }
+  .phone-hero .ttl{ color:#fff; font-family:'Inter',sans-serif; font-weight: 700; font-size: 13px;}
+  .phone-hero .sub{ color: rgba(255,255,255,.65); font-family:'Inter',sans-serif; font-size:10px; margin-top:3px;}
+  .phone-cursor{
+    position:absolute; left: 70%; top: 55%;
+    color: var(--accent); filter: drop-shadow(0 0 10px rgba(0,245,229,.8));
+  }
+  .phone-cursor [data-lucide]{ width:20px; height:20px;}
+
+  .preview-side{
+    display:flex; flex-direction: column; gap: 10px;
+    overflow: auto;
+  }
+  .side-card{
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px;
+    background: linear-gradient(180deg, rgba(18,26,46,.55), rgba(14,21,38,.55));
+  }
+  .side-card .h{
+    font-size: 9.5px; letter-spacing: .2em; color: var(--muted); text-transform: uppercase; margin-bottom: 10px;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .side-card .h .l{ display:inline-flex; gap:6px; align-items:center;}
+  .kv{ display:flex; justify-content:space-between; font-size: 10.5px; padding: 3px 0; }
+  .kv .k{ color: var(--muted); }
+  .kv .v{ color: var(--fg); }
+
+  .timeline-mini{ height: 48px; position: relative; margin-top: 8px; }
+  .timeline-mini .track{
+    position:absolute; inset: 18px 0 18px 0; border-radius: 4px;
+    background: linear-gradient(90deg, rgba(0,245,229,.08), rgba(232,121,249,.1));
+    border: 1px solid var(--border);
+  }
+  .timeline-mini .seg{
+    position:absolute; top: 14px; bottom: 14px;
+    border-radius: 3px; background: rgba(0,245,229,.3);
+  }
+  .timeline-mini .pb{
+    position:absolute; top: 6px; bottom: 6px; width: 2px; background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+  }
+  .timeline-mini .tick{ position:absolute; bottom:0; font-size: 8.5px; color: var(--muted-dim);}
+
+  .waveform{ display:flex; align-items:center; gap: 2px; height: 40px; margin-top: 6px;}
+  .waveform b{ display:block; width: 3px; border-radius: 2px; background: linear-gradient(180deg, var(--accent), rgba(0,245,229,.25)); }
+
+  .logs{
+    border-top: 1px solid var(--border);
+    max-height: 200px; display:flex; flex-direction: column;
+  }
+  .logs-head{
+    display:flex; justify-content: space-between; align-items:center;
+    padding: 8px 14px; border-bottom: 1px solid var(--border);
+    font-size: 9.5px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted);
+    background: rgba(255,255,255,.015);
+  }
+  .logs-head .l{ display:inline-flex; gap:6px; align-items:center;}
+  .logs-body{
+    padding: 8px 14px 10px; overflow: auto; font-size: 11px; line-height: 1.7;
+  }
+  .logs-body .ln{ white-space: pre; color: var(--fg-dim); }
+  .logs-body .ln .t{ color: var(--muted-dim); }
+  .logs-body .ln .s{ color: var(--accent); }
+  .logs-body .ln .w{ color: var(--accent3); }
+  .logs-body .ln .e{ color: var(--danger); }
+  .logs-body .ln .d{ color: var(--muted); }
+
+  .sessions{
+    padding: 10px 14px 8px; border-bottom: 1px solid var(--border);
+  }
+  .sessions .h{
+    display:flex; justify-content: space-between; align-items:center;
+    font-size: 9.5px; letter-spacing:.2em; text-transform:uppercase; color: var(--muted);
+  }
+  .sessions .h .l{ display:inline-flex; gap:6px; align-items:center;}
+  .sessions .h .add{ color: var(--accent); cursor:pointer; display:inline-flex; gap:4px; align-items:center;}
+  .ses-list{ margin-top: 8px; display:flex; flex-direction:column; gap: 4px; }
+  .ses{
+    display:flex; justify-content: space-between; align-items:center;
+    font-size: 10.5px; color: var(--fg-dim);
+    padding: 6px 8px; border-radius: 6px; cursor: pointer;
+  }
+  .ses:hover{ background: rgba(255,255,255,.03);}
+  .ses.active{ background: rgba(0,245,229,.06); color: var(--accent); }
+  .ses .id{ font-size: 9.5px; color: var(--muted); display:inline-flex; gap:4px; align-items:center;}
+
+  .claude{
+    flex:1; display:flex; flex-direction:column; min-height:0;
+  }
+  .claude-head{
+    display:flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    font-size: 11px; color: var(--accent);
+  }
+  .claude-head .l{ display:inline-flex; gap:8px; align-items:center;}
+  .claude-head .tag{ font-size: 9.5px; color: var(--muted); letter-spacing: .2em; display:inline-flex; gap:4px; align-items:center;}
+  .claude-body{ flex:1; overflow:auto; padding: 12px 14px; }
+  .msg{ margin-bottom: 14px; }
+  .msg .role{ font-size: 9px; color: var(--muted); letter-spacing: .22em; text-transform: uppercase; margin-bottom: 5px; display:inline-flex; gap:6px; align-items:center;}
+  .msg.user .text{ color: var(--accent); }
+  .msg.tool .text{ color: var(--muted); font-size: 10.5px; }
+  .msg.tool .text .k{ color: var(--accent2); }
+  .msg.plan{
+    padding: 10px 12px; border-radius: 8px;
+    background: rgba(232,121,249,.05); border: 1px solid rgba(232,121,249,.3);
+  }
+  .msg.plan .role{ color: var(--accent2);}
+  .msg .text{ font-size: 11.5px; color: var(--fg-dim); line-height: 1.65; white-space: pre-wrap; }
+  .msg .text code{
+    background: rgba(0,245,229,.07); color: var(--accent); padding: 1px 5px; border-radius: 4px; font-size: 10.5px;
+  }
+  .claude-plan-actions{ display:flex; gap: 8px; margin-top: 10px;}
+  .claude-input{
+    border-top: 1px solid var(--border);
+    padding: 10px;
+  }
+  .claude-input textarea{
+    width:100%; background: var(--panel); border: 1px solid var(--border); color: var(--fg);
+    border-radius: 8px; padding: 8px 10px; font-family: inherit; font-size: 11.5px;
+    resize: none; outline: none;
+    transition: all .15s;
+  }
+  .claude-input textarea:focus{ border-color: rgba(0,245,229,.45); box-shadow: var(--glow-teal); }
+  .claude-input .row{ display:flex; justify-content: space-between; align-items:center; margin-top: 8px;}
+  .claude-input .kbd{
+    font-size: 9px; color: var(--muted); letter-spacing: .16em; text-transform: uppercase;
+  }
+  .claude-input .kbd span{
+    padding: 2px 5px; border: 1px solid var(--border); border-radius: 3px; margin: 0 2px;
+  }
+
+  .statusbar{
+    display:flex; justify-content: space-between; align-items:center;
+    padding: 5px 14px;
+    border-top: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(14,21,38,.8), rgba(8,12,22,.8));
+    font-size: 9.5px; color: var(--muted); letter-spacing: .14em; text-transform: uppercase;
+  }
+  .statusbar .g{ display:flex; gap: 16px; align-items:center; }
+  .statusbar .g > span{ display:inline-flex; gap:6px; align-items:center;}
+  .statusbar b{ color: var(--fg-dim); font-weight: 500; }
+  .statusbar .dotstat{ display:inline-block; width:6px; height:6px; border-radius:50%; }
+  .statusbar .d-teal{ background: var(--accent); box-shadow: 0 0 6px var(--accent);}
+  .statusbar .d-mag{ background: var(--accent2); box-shadow: 0 0 6px var(--accent2);}
+
+  /* ═══ CLIP DETAIL ═══ */
+  .cd-wrap{ flex:1; display:flex; flex-direction:column; min-height: 0;}
+  .cd-inner{ flex:1; display: grid; grid-template-columns: 280px 1fr 320px; min-height:0; }
+  .cd-clips{ border-right:1px solid var(--border); background: rgba(10,15,28,.35); overflow:auto; display:flex; flex-direction:column;}
+  .cd-main{ padding: 22px 26px; overflow: auto; }
+  .cd-side{ border-left:1px solid var(--border); padding: 16px; background: rgba(10,15,28,.35); overflow:auto;}
+
+  .cd-header{ display:flex; justify-content: space-between; align-items:flex-start; margin-bottom: 20px; gap: 20px;}
+  .cd-title{ display:flex; flex-direction:column; gap: 6px; }
+  .cd-title .id{
+    display:inline-flex; gap: 10px; align-items:center;
+    font-size: 22px; color: var(--accent); letter-spacing: .08em; font-weight: 400;
+  }
+  .cd-title .chapter{ color: var(--fg); font-family: 'Inter', sans-serif; font-size: 18px; font-weight: 500;}
+  .cd-title .hint{ color: var(--muted); font-size: 11px; letter-spacing: .04em; max-width: 540px; }
+
+  .cd-stats{
+    display:flex; gap: 10px; flex-wrap: wrap;
+  }
+  .stat{
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; min-width: 76px;
+  }
+  .stat .k{ font-size: 9px; color: var(--muted); letter-spacing: .2em; text-transform: uppercase; display:inline-flex; gap:4px; align-items:center;}
+  .stat .v{ font-family: 'Inter', sans-serif; font-size: 17px; color: var(--fg); font-weight: 500; margin-top: 2px;}
+  .stat .v b{ color: var(--accent); }
+  .stat.ok .v b{ color: var(--ok); }
+  .stat.warn .v b{ color: var(--accent3); }
+
+  .narration{
+    border: 1px solid var(--border); border-radius: 10px;
+    background: linear-gradient(180deg, rgba(18,26,46,.65), rgba(14,21,38,.65));
+    padding: 14px 16px;
+  }
+  .narration .hh{ display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;}
+  .narration .hh .l{ font-size: 9.5px; letter-spacing: .22em; text-transform: uppercase; color: var(--muted); display:inline-flex; gap:6px; align-items:center;}
+  .narration textarea{
+    width:100%; background: transparent; border: 0;
+    color: var(--fg); font-family: 'Inter', sans-serif; font-size: 15px; line-height: 1.7;
+    resize: none; outline: none; min-height: 140px;
+  }
+  .narration .foot{
+    display:flex; justify-content:space-between; margin-top: 10px;
+    font-size: 10px; color: var(--muted); padding-top: 10px; border-top: 1px solid var(--border);
+  }
+
+  .waverow{
+    margin-top: 18px;
+    border: 1px solid var(--border); border-radius: 10px; padding: 14px;
+    background: linear-gradient(180deg, rgba(18,26,46,.55), rgba(14,21,38,.55));
+  }
+  .waverow .hh{
+    display:flex; justify-content: space-between; align-items:center; margin-bottom: 12px;
+  }
+  .waverow .hh .l{
+    font-size: 9.5px; letter-spacing: .22em; text-transform: uppercase; color: var(--muted); display:inline-flex; gap:6px; align-items:center;
+  }
+  .bigwave{ height: 64px; display:flex; align-items:center; gap: 2px; }
+  .bigwave b{ flex:1; display:block; background: linear-gradient(180deg, var(--accent), rgba(0,245,229,.2)); border-radius: 2px; }
+  .bigwave b.p{ background: linear-gradient(180deg, var(--accent2), rgba(232,121,249,.2)); }
+
+  .word-grid{
+    display:flex; flex-wrap: wrap; gap: 4px; margin-top: 12px;
+  }
+  .word{
+    padding: 4px 8px; border-radius: 5px;
+    background: rgba(0,245,229,.05); border: 1px solid rgba(0,245,229,.18);
+    font-family: 'Inter', sans-serif; font-size: 12px; color: var(--fg);
+  }
+  .word.pair{ background: rgba(232,121,249,.05); border-color: rgba(232,121,249,.18); color: #f5d4fa; }
+  .word .tm{ font-family:'JetBrains Mono'; font-size: 9px; color: var(--muted); margin-left: 6px;}
+
+  .cd-actions{ display:flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+
+  .cd-side h4{ font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: var(--muted); margin: 18px 0 10px; display:flex; align-items:center; gap:6px;}
+  .cd-side h4:first-child{ margin-top: 0; }
+
+  .zoom-card{ border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .zoom-viz{
+    height: 70px; position: relative; margin-top: 8px;
+    border-radius: 6px; overflow: hidden;
+    background: linear-gradient(180deg, rgba(0,245,229,.03), rgba(232,121,249,.03));
+    border: 1px solid var(--border);
+  }
+  .zoom-viz svg{ width:100%; height:100%; }
+
+  .moment{
+    display:flex; gap: 8px; align-items:center;
+    padding: 7px 10px;
+    border-left: 2px solid var(--border);
+    font-size: 10.5px; color: var(--fg-dim);
+  }
+  .moment.active{ border-left-color: var(--accent); background: rgba(0,245,229,.04);}
+  .moment .t{ font-family: 'JetBrains Mono'; color: var(--accent); font-size: 10px; min-width: 40px;}
+  .moment .kind{
+    font-size: 9px; letter-spacing: .14em; color: var(--muted); text-transform: uppercase;
+    min-width: 72px; display:inline-flex; gap:5px; align-items:center;
+  }
+  .moment .lbl{ color: var(--fg); font-family: 'JetBrains Mono';}
+
+  /* ═══ RENDER ═══ */
+  .rn-wrap{ flex:1; display:flex; min-height:0; }
+  .rn-main{ flex: 1; padding: 26px 32px; overflow: auto; display:flex; flex-direction: column; gap: 20px; }
+  .rn-right{ width: 360px; border-left: 1px solid var(--border); padding: 20px; overflow: auto; background: rgba(10,15,28,.35); }
+
+  .rn-hero{
+    display: grid; grid-template-columns: 380px 1fr; gap: 24px;
+    align-items: stretch;
+  }
+  .rn-phone-wrap{
+    border: 1px solid var(--border); border-radius: 14px; padding: 20px;
+    background:
+      radial-gradient(circle at 50% 0%, rgba(0,245,229,.1), transparent 50%),
+      linear-gradient(180deg, rgba(14,21,38,.6), rgba(10,15,28,.7));
+    display: grid; place-items: center;
+    position: relative; overflow:hidden;
+  }
+  .rn-phone-wrap::before{
+    content:""; position: absolute; inset:0;
+    background: repeating-linear-gradient(to bottom, rgba(255,255,255,.013) 0 1px, transparent 1px 3px);
+  }
+
+  .render-side-pane{ display:flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+  .render-card{
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px 18px;
+    background: linear-gradient(180deg, rgba(18,26,46,.55), rgba(14,21,38,.55));
+  }
+  .render-card .hh{
+    display:flex; justify-content: space-between; align-items:center;
+    margin-bottom: 14px;
+  }
+  .render-card .hh .l{
+    font-size: 10px; letter-spacing:.22em; color: var(--muted); text-transform: uppercase;
+    display:inline-flex; gap:6px; align-items:center;
+  }
+  .render-card .hh .pct{
+    font-family: 'Inter', sans-serif; font-size: 32px; font-weight: 500; color: var(--accent);
+    text-shadow: 0 0 20px rgba(0,245,229,.4);
+    line-height: 1;
+  }
+  .pbar{
+    height: 8px; border-radius: 4px; background: rgba(255,255,255,.04); overflow:hidden;
+    border: 1px solid var(--border); position: relative;
+  }
+  .pbar .f{
+    height:100%; background: linear-gradient(90deg, #00f5e5, #e879f9);
+    box-shadow: 0 0 12px rgba(0,245,229,.6);
+    position: relative;
+  }
+  .pbar .f::after{
+    content:""; position:absolute; inset:0;
+    background: linear-gradient(90deg, transparent 40%, rgba(255,255,255,.25) 50%, transparent 60%);
+    animation: sheen 2.2s linear infinite;
+  }
+  @keyframes sheen{ 0%{ transform: translateX(-100%);} 100%{ transform: translateX(100%);} }
+  .pbar-row{ display:flex; justify-content:space-between; margin-top: 8px;
+    font-size: 10px; color: var(--muted); letter-spacing: .1em;}
+  .pbar-row .eta{ color: var(--fg-dim); }
+
+  .render-stages{
+    display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px;
+    margin-top: 14px;
+  }
+  .rstage{
+    display:flex; flex-direction: column; align-items:flex-start; gap: 6px;
+    padding: 10px 8px; border: 1px solid var(--border); border-radius: 8px;
+    background: rgba(255,255,255,.015);
+    position: relative;
+    min-height: 70px;
+  }
+  .rstage.done{ border-color: rgba(74,222,128,.35); background: rgba(74,222,128,.03);}
+  .rstage.active{ border-color: rgba(0,245,229,.55); background: rgba(0,245,229,.05); box-shadow: var(--glow-teal); }
+  .rstage .ic{ width: 22px; height: 22px; display:grid; place-items:center; color: var(--muted);}
+  .rstage.done .ic{ color: var(--ok);}
+  .rstage.active .ic{ color: var(--accent);}
+  .rstage .ic [data-lucide]{ width:15px; height:15px;}
+  .rstage .nm{ font-size: 9.5px; letter-spacing: .16em; color: var(--fg); text-transform: uppercase;}
+  .rstage .d{ font-size: 9px; color: var(--muted); }
+  .rstage.active .ic .spin{ animation: spin 1s linear infinite;}
+  @keyframes spin{ to{ transform: rotate(360deg);} }
+
+  .rn-stream{
+    height: 240px; overflow: auto;
+    font-size: 10.5px; line-height: 1.65;
+    padding: 12px 14px; border-radius: 8px;
+    background: #06080f; border: 1px solid var(--border);
+  }
+
+  .rn-grid{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .rn-tile{
+    border: 1px solid var(--border); border-radius: 10px; padding: 14px;
+    background: linear-gradient(180deg, rgba(18,26,46,.55), rgba(14,21,38,.55));
+  }
+  .rn-tile .k{ font-size: 9.5px; letter-spacing: .22em; color: var(--muted); text-transform: uppercase; display:inline-flex; gap:6px; align-items:center;}
+  .rn-tile .v{ font-family: 'Inter', sans-serif; font-size: 24px; color: var(--fg); font-weight: 500; margin-top: 6px;}
+  .rn-tile .sub{ font-size: 10px; color: var(--muted); margin-top: 4px;}
+  .rn-tile .v b{ color: var(--accent); }
+
+  .rn-settings-row{
+    display:flex; justify-content:space-between; align-items:center;
+    padding: 9px 0; font-size: 11px; color: var(--fg-dim);
+    border-bottom: 1px solid var(--border);
+  }
+  .rn-settings-row:last-child{ border-bottom: 0; }
+  .rn-settings-row .k{ color: var(--muted); display:inline-flex; gap:6px; align-items:center;}
+
+  .switch{
+    display:inline-flex; gap: 0; border:1px solid var(--border); border-radius: 999px; padding: 2px;
+  }
+  .switch button{
+    background: transparent; border: 0; color: var(--muted); cursor:pointer;
+    font-family: inherit; font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase;
+    padding: 4px 10px; border-radius: 999px;
+  }
+  .switch button.on{
+    color: var(--bg);
+    background: var(--accent); box-shadow: 0 0 10px rgba(0,245,229,.5);
+  }
+  .switch button.onMag.on{ background: var(--accent2); box-shadow: 0 0 10px rgba(232,121,249,.5);}
+
+  /* ═══ TIMELINE EDITOR ═══ */
+  .ed-wrap{ flex:1; display:grid; grid-template-columns: 240px 1fr 300px; min-height: 0; }
+  .ed-left{
+    border-right: 1px solid var(--border); background: rgba(10,15,28,.5);
+    display:flex; flex-direction:column; min-height:0;
+  }
+  .ed-right{
+    border-left: 1px solid var(--border); background: rgba(10,15,28,.5);
+    display:flex; flex-direction:column; min-height:0;
+    overflow: auto;
+  }
+  .ed-center{ display:flex; flex-direction:column; min-height:0; min-width:0; }
+
+  /* transport bar */
+  .transport{
+    display:grid; grid-template-columns: 1fr auto 1fr; gap: 20px; align-items:center;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(18,26,46,.6), rgba(14,21,38,.4));
+  }
+  .transport .lft, .transport .rgt{ display:flex; gap: 8px; align-items:center; min-width: 0;}
+  .transport .rgt{ justify-content: flex-end;}
+  .transport .timecode{
+    font-family: 'JetBrains Mono'; font-weight: 500; letter-spacing: .05em;
+    background: linear-gradient(180deg, rgba(0,245,229,.08), rgba(0,245,229,.03));
+    border: 1px solid rgba(0,245,229,.3);
+    padding: 6px 16px; border-radius: 8px;
+    font-size: 18px; color: var(--accent);
+    text-shadow: 0 0 18px rgba(0,245,229,.45);
+    display:flex; align-items:center; gap: 10px;
+  }
+  .transport .timecode small{
+    font-size: 11px; color: var(--muted); letter-spacing: 0;
+  }
+  .transport .play-stack{ display:flex; gap: 6px; }
+  .transport .play-stack .iconbtn.play{
+    background: linear-gradient(180deg, rgba(0,245,229,.15), rgba(0,245,229,.04));
+    border-color: rgba(0,245,229,.5); color: var(--accent);
+    box-shadow: var(--glow-teal);
+  }
+  .transport .tools{ display:flex; gap:6px; align-items:center;}
+
+  /* preview area */
+  .ed-preview{
+    flex: 1; min-height: 0;
+    background:
+      radial-gradient(circle at 50% -10%, rgba(0,245,229,.07), transparent 50%),
+      linear-gradient(180deg, #07091a, #050811);
+    display:grid; place-items:center;
+    position: relative; overflow: hidden;
+    border-bottom: 1px solid var(--border);
+    padding: 14px;
+  }
+  .ed-preview::before{
+    content:""; position:absolute; inset:0;
+    background: repeating-linear-gradient(to bottom, rgba(255,255,255,.013) 0 1px, transparent 1px 3px);
+  }
+  .ed-preview-overlay{
+    position:absolute; top: 12px; left: 12px;
+    display:flex; flex-direction:column; gap: 6px;
+  }
+  .ed-preview-overlay .chip{ background: rgba(10,15,28,.8);}
+  .ed-preview-bottom-bar{
+    position:absolute; bottom: 12px; left: 12px; right: 12px;
+    display:flex; justify-content:space-between; align-items:center;
+    font-size: 10px; color: var(--muted); letter-spacing: .14em; text-transform: uppercase;
+  }
+  .ed-preview-bottom-bar .l{ display:inline-flex; gap:10px; align-items:center;}
+  .ed-preview-bottom-bar .l span{ display:inline-flex; gap:5px; align-items:center;}
+
+  /* timeline pane */
+  .tl{
+    flex-shrink: 0; height: 320px;
+    display:grid; grid-template-rows: 30px 1fr 22px;
+    background: #060910;
+    border-top: 1px solid var(--border);
+  }
+  .tl-head{
+    display:grid; grid-template-columns: 110px 1fr; align-items:stretch;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(14,21,38,.7), rgba(10,15,28,.7));
+    color: var(--muted); font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase;
+  }
+  .tl-head .th-left{
+    display:flex; justify-content:space-between; align-items:center;
+    padding: 0 10px; border-right: 1px solid var(--border);
+  }
+  .tl-head .th-left .l{ display:inline-flex; gap:6px; align-items:center;}
+  .tl-ruler{ position: relative; overflow: hidden; }
+  .tl-ruler .tick{
+    position:absolute; top: 0; bottom: 0; width: 1px; background: var(--border-strong);
+  }
+  .tl-ruler .tick.m{ background: var(--border); height: 60%; top: 40%;}
+  .tl-ruler .lbl{
+    position:absolute; top: 4px; font-size: 9px; color: var(--muted-dim);
+    letter-spacing: 0; text-transform: none; font-family: 'JetBrains Mono';
+  }
+
+  .tl-body{
+    display:grid; grid-template-columns: 110px 1fr; overflow: auto; position: relative;
+  }
+  .tl-trackcol{
+    border-right: 1px solid var(--border);
+    background: rgba(10,15,28,.6);
+    display:flex; flex-direction:column;
+  }
+  .tl-lanes{ position: relative; }
+  .tl-lane{
+    position: relative; border-bottom: 1px solid var(--border);
+  }
+
+  .tl-row-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 0 8px 0 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--fg-dim);
+    font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
+    gap: 6px;
+  }
+  .tl-row-head .tag{ display:inline-flex; gap:6px; align-items:center; color: var(--fg-dim);}
+  .tl-row-head .tag [data-lucide]{ color: var(--accent);}
+  .tl-row-head.a1 .tag [data-lucide]{ color: var(--accent); }
+  .tl-row-head.a2 .tag [data-lucide]{ color: var(--accent3); }
+  .tl-row-head.c1 .tag [data-lucide]{ color: var(--accent2); }
+  .tl-row-head.fx .tag [data-lucide]{ color: var(--accent2); }
+  .tl-row-head .ctrls{ display:flex; gap: 3px; color: var(--muted);}
+  .tl-row-head .ctrls [data-lucide]{ width:11px; height:11px; cursor:pointer;}
+  .tl-row-head .ctrls [data-lucide]:hover{ color: var(--fg);}
+
+  /* clip blocks */
+  .clip-block{
+    position:absolute; top: 5px; bottom: 5px;
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    display:flex; flex-direction:column;
+    transition: box-shadow .15s;
+  }
+  .clip-block:hover{ box-shadow: 0 0 0 1px rgba(255,255,255,.15); }
+  .clip-block.selected{
+    outline: 2px solid var(--accent);
+    box-shadow: 0 0 24px rgba(0,245,229,.35);
+  }
+  .clip-block .lbl{
+    font-size: 10px; color: #fff;
+    padding: 3px 8px;
+    letter-spacing: .04em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-family: 'Inter', sans-serif; font-weight: 500;
+    background: rgba(0,0,0,.35);
+    border-bottom: 1px solid rgba(255,255,255,.08);
+  }
+  .clip-block .body{
+    flex: 1; position: relative;
+  }
+  .clip-block .handle{
+    position:absolute; top:0; bottom:0; width: 4px;
+    background: rgba(255,255,255,.15);
+  }
+  .clip-block .handle.l{ left:0; border-top-left-radius:6px; border-bottom-left-radius:6px; }
+  .clip-block .handle.r{ right:0; border-top-right-radius:6px; border-bottom-right-radius:6px; }
+  .clip-block.selected .handle{ background: var(--accent); box-shadow: 0 0 10px var(--accent);}
+
+  /* video track clip colors */
+  .clip-v{
+    background: linear-gradient(180deg, #1d3a5e, #12233f);
+    border: 1px solid #2a4e82;
+  }
+  .clip-v .body::before{
+    content:""; position:absolute; inset: 4px;
+    background:
+      linear-gradient(135deg, rgba(0,245,229,.22) 0 30%, transparent 32% 68%, rgba(232,121,249,.2) 70% 100%),
+      repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 1px, transparent 1px 8px);
+    border-radius: 3px;
+  }
+
+  /* audio track clip (voice) */
+  .clip-a{
+    background: linear-gradient(180deg, #0d3332, #062523);
+    border: 1px solid rgba(0,245,229,.35);
+  }
+  .clip-a .wave{
+    position:absolute; inset: 18px 4px 4px 4px;
+    display:flex; align-items:center; gap: 1px;
+  }
+  .clip-a .wave b{
+    flex: 1; display: block;
+    background: linear-gradient(180deg, var(--accent), rgba(0,245,229,.2));
+    border-radius: 1px;
+  }
+
+  /* music */
+  .clip-m{
+    background: linear-gradient(180deg, #3a2d0a, #1f1705);
+    border: 1px solid rgba(251,191,36,.3);
+  }
+  .clip-m .wave{
+    position:absolute; inset: 18px 4px 4px 4px;
+    display:flex; align-items:center; gap: 1px;
+  }
+  .clip-m .wave b{
+    flex:1; display:block;
+    background: linear-gradient(180deg, var(--accent3), rgba(251,191,36,.2));
+    border-radius: 1px;
+  }
+
+  /* captions */
+  .clip-c{
+    background: linear-gradient(180deg, #3a1a42, #1d0d24);
+    border: 1px solid rgba(232,121,249,.35);
+    padding: 3px 6px;
+    display:flex; align-items:center; justify-content:center;
+    font-family: 'Inter', sans-serif;
+    font-size: 10px; font-weight: 700; letter-spacing: .03em;
+    color: #fff; text-shadow: 0 0 8px rgba(232,121,249,.6);
+    text-align: center;
+    line-height: 1.1;
+  }
+
+  /* keyframes */
+  .kf{
+    position:absolute; top: 50%; transform: translate(-50%, -50%) rotate(45deg);
+    width: 10px; height: 10px;
+    background: var(--accent2);
+    border: 1px solid #fff2fb;
+    box-shadow: 0 0 8px var(--accent2);
+  }
+  .kf.teal{ background: var(--accent); border-color: #dffffc; box-shadow: 0 0 8px var(--accent);}
+
+  .kf-curve{
+    position:absolute; left:0; right:0; top:0; bottom:0;
+    pointer-events: none;
+  }
+
+  /* outro block */
+  .clip-o{
+    background: linear-gradient(135deg, #0d1c35, #1d0c32);
+    border: 1px solid rgba(232,121,249,.4);
+  }
+  .clip-o .body::before{
+    content:""; position:absolute; inset:3px;
+    background:
+      radial-gradient(circle at 20% 30%, rgba(0,245,229,.5), transparent 60%),
+      radial-gradient(circle at 80% 70%, rgba(232,121,249,.5), transparent 60%);
+    border-radius: 3px;
+  }
+
+  /* playhead */
+  .playhead{
+    position:absolute; top: -30px; bottom: 0; width: 2px;
+    background: linear-gradient(180deg, #ffe8fb, var(--accent2));
+    z-index: 10;
+    box-shadow: 0 0 12px var(--accent2);
+    pointer-events: none;
+  }
+  .playhead::before{
+    content:""; position:absolute; left: -7px; top: 0; width: 16px; height: 16px;
+    background: var(--accent2); clip-path: polygon(50% 100%, 0 0, 100% 0);
+    filter: drop-shadow(0 0 6px rgba(232,121,249,.8));
+  }
+
+  /* status on editor bottom */
+  .tl-footer{
+    display:flex; justify-content:space-between; align-items:center;
+    padding: 4px 14px;
+    border-top: 1px solid var(--border);
+    font-size: 9px; color: var(--muted); letter-spacing: .14em; text-transform: uppercase;
+    background: rgba(10,15,28,.7);
+  }
+  .tl-footer .l{ display:flex; gap: 14px; align-items:center;}
+  .tl-footer .l span{ display:inline-flex; gap: 5px; align-items:center;}
+  .zoomctl{
+    display:inline-flex; gap: 6px; align-items:center;
+    padding: 2px 6px; border: 1px solid var(--border); border-radius: 999px;
+  }
+  .zoomctl [data-lucide]{ width:11px; height:11px; color: var(--muted); cursor:pointer;}
+  .zoomctl [data-lucide]:hover{ color: var(--accent);}
+
+  /* ed-left library */
+  .lib-tabs{
+    display:flex; border-bottom: 1px solid var(--border);
+  }
+  .lib-tabs .lt{
+    flex:1; text-align:center;
+    padding: 10px 4px;
+    font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted);
+    cursor:pointer; display:flex; flex-direction:column; align-items:center; gap: 4px;
+    border-right: 1px solid var(--border);
+  }
+  .lib-tabs .lt:last-child{ border-right: 0;}
+  .lib-tabs .lt.on{ color: var(--accent); background: rgba(0,245,229,.05);}
+  .lib-tabs .lt [data-lucide]{ width:15px; height:15px;}
+  .lib-sec{
+    padding: 12px 12px 6px;
+    font-size: 9px; letter-spacing: .2em; color: var(--muted-dim); text-transform: uppercase;
+  }
+  .lib-grid{
+    padding: 0 10px 10px;
+    display:grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  }
+  .lib-item{
+    aspect-ratio: 9/16;
+    border: 1px solid var(--border); border-radius: 6px;
+    background: linear-gradient(135deg, #1a2542, #0c1223);
+    cursor:pointer;
+    position: relative;
+    overflow: hidden;
+    display:flex; flex-direction:column; justify-content:flex-end;
+    padding: 5px 6px;
+    font-size: 9px; color: var(--fg);
+    letter-spacing: .06em;
+  }
+  .lib-item::before{
+    content:""; position:absolute; inset:0;
+    background: linear-gradient(180deg, rgba(255,255,255,.05), transparent 50%, rgba(0,0,0,.4));
+  }
+  .lib-item .tag{ position:relative; z-index: 1;}
+  .lib-item .dur{
+    position:absolute; top: 5px; right: 6px;
+    font-size: 8.5px; color: #fff; padding: 1px 5px; border-radius: 3px;
+    background: rgba(0,0,0,.5);
+    z-index: 1;
+  }
+  .lib-item.v{ background: linear-gradient(135deg, #14304f, #0c1223);}
+  .lib-item.v2{ background: linear-gradient(135deg, #3a1a42, #0c1223);}
+  .lib-item.v3{ background: linear-gradient(135deg, #1a3a42, #0c1223);}
+  .lib-item.v4{ background: linear-gradient(135deg, #42291a, #0c1223);}
+
+  .lib-row{
+    display:flex; align-items:center; gap: 8px;
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    cursor:pointer; font-size: 10.5px; color: var(--fg-dim);
+  }
+  .lib-row:hover{ background: rgba(255,255,255,.02); color: var(--fg);}
+  .lib-row .ic{ width: 22px; height: 22px; display:grid; place-items:center; color: var(--accent); border: 1px solid rgba(0,245,229,.35); border-radius: 4px; background: rgba(0,245,229,.04);}
+  .lib-row .ic [data-lucide]{ width:13px; height:13px; }
+  .lib-row .meta{ min-width: 0;}
+  .lib-row .nm{ white-space:nowrap; overflow: hidden; text-overflow: ellipsis;}
+  .lib-row .sub{ font-size: 9px; color: var(--muted);}
+
+  /* ed-right props */
+  .pr-head{
+    padding: 14px 16px 10px; border-bottom: 1px solid var(--border);
+  }
+  .pr-head .t{ color: var(--fg); font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 500;}
+  .pr-head .s{
+    display:flex; gap: 8px; align-items:center; margin-top: 6px;
+    font-size: 10px; color: var(--muted); letter-spacing: .14em; text-transform: uppercase;
+  }
+  .pr-group{ padding: 10px 16px 14px; border-bottom: 1px solid var(--border); }
+  .pr-group h5{
+    font-size: 9.5px; letter-spacing: .22em; text-transform: uppercase; color: var(--muted);
+    margin: 0 0 10px;
+    display:flex; align-items:center; gap: 6px;
+  }
+  .pr-row{
+    display:flex; justify-content:space-between; align-items:center;
+    padding: 5px 0;
+    font-size: 11px; color: var(--fg-dim);
+  }
+  .pr-row .k{ color: var(--muted);}
+  .pr-row .v{ color: var(--fg); font-family: 'JetBrains Mono';}
+  .slider{
+    position:relative; height: 6px; background: var(--panel); border:1px solid var(--border);
+    border-radius: 3px; margin-top: 8px;
+  }
+  .slider .f{
+    position:absolute; inset: 0 auto 0 0; width: 60%;
+    background: linear-gradient(90deg, rgba(0,245,229,.3), var(--accent));
+    border-radius: 3px;
+  }
+  .slider .thumb{
+    position:absolute; top: 50%; transform: translate(-50%, -50%);
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 8px var(--accent);
+    left: 60%;
+  }
+  .pr-row2{
+    display:flex; justify-content:space-between; margin-top: 4px;
+    font-size: 9.5px; color: var(--muted);
+  }
+
+  /* scrollbars */
+  *::-webkit-scrollbar{ width: 8px; height: 8px; }
+  *::-webkit-scrollbar-thumb{ background: rgba(48,66,98,.6); border-radius: 4px;}
+  *::-webkit-scrollbar-track{ background: transparent;}
+</style>
+</head>
+<body>
+
+<!-- switcher -->
+<div class="switcher" id="switcher">
+  <button class="active" data-scr="onb"><i data-lucide="rocket"></i>01 · Onboarding</button>
+  <button data-scr="ws"><i data-lucide="layout-dashboard"></i>02 · Workspace</button>
+  <button data-scr="cd"><i data-lucide="file-text"></i>03 · Clip Detail</button>
+  <button data-scr="rn"><i data-lucide="cpu"></i>04 · Render</button>
+  <button data-scr="ed"><i data-lucide="film"></i>05 · Editor</button>
+</div>
+
+<div class="app">
+  <!-- titlebar -->
+  <div class="titlebar">
+    <div class="traffic">
+      <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+    </div>
+    <div class="title-brand">
+      <div class="glyph"><i data-lucide="clapperboard"></i></div>
+      <span>CLIPWRIGHT · 0.3.1</span>
+    </div>
+    <div class="title-meta">
+      <span><i data-lucide="mic"></i><b>kokoro</b> · af_bella</span>
+      <span><i data-lucide="aspect-ratio"></i>1080 × 1920 · 30fps</span>
+      <span><i data-lucide="zap"></i>remotion</span>
+    </div>
+  </div>
+
+  <!-- ═══ ONBOARDING ═══ -->
+  <div class="screen active" id="scr-onb">
+    <div class="onboarding">
+      <aside class="ob-rail">
+        <div>
+          <div class="version">V 0.3.1 · APR 22</div>
+          <p class="blurb">
+            // clipwright<br>
+            turns a scripted browser session into a short‑form how‑to video.
+          </p>
+          <div class="steplist">
+            <div class="step"><i data-lucide="video"></i>record</div>
+            <div class="step"><i data-lucide="scissors"></i>segment</div>
+            <div class="step"><i data-lucide="file-text"></i>script</div>
+            <div class="step"><i data-lucide="mic"></i>voice</div>
+            <div class="step"><i data-lucide="captions"></i>caption</div>
+            <div class="step"><i data-lucide="film"></i>render</div>
+          </div>
+        </div>
+        <div>
+          <div class="chip ok" style="width:fit-content;"><span class="pulse"></span>FFMPEG OK</div>
+          <div class="chip ok" style="width:fit-content;margin-top:6px;"><span class="pulse"></span>CHROMIUM OK</div>
+          <div class="chip warn" style="width:fit-content;margin-top:6px;"><span class="pulse"></span>ELEVENLABS KEY ABSENT</div>
+        </div>
+      </aside>
+
+      <main class="ob-main">
+        <div class="logo-stack">
+          <div class="logo-mark"><i data-lucide="clapperboard"></i></div>
+          <div class="brand-word">C L I P W R I G H T</div>
+          <div class="brand-tagline">
+            <span>BROWSER</span><span class="dot"></span>
+            <span>TO</span><span class="dot"></span>
+            <span>VERTICAL IN ONE RUN</span>
+          </div>
+        </div>
+
+        <div class="ob-cards">
+          <div class="ob-card">
+            <div class="num">01</div>
+            <div class="ic"><i data-lucide="folder-plus"></i></div>
+            <h3>New Project</h3>
+            <p>Spin up a fresh clipwright tree with a browse-plan template, assets, and a git-ready .clipwright.json.</p>
+            <div class="cta"><i data-lucide="plus"></i>CREATE <i data-lucide="arrow-right"></i></div>
+          </div>
+          <div class="ob-card alt">
+            <div class="num">02</div>
+            <div class="ic"><i data-lucide="folder-open"></i></div>
+            <h3>Open Folder</h3>
+            <p>Point to any folder with a <code style="color:var(--accent2)">.clipwright.json</code> and clipwright takes it from there.</p>
+            <div class="cta alt"><i data-lucide="folder-open"></i>OPEN · ⌘O</div>
+          </div>
+          <div class="ob-card">
+            <div class="num">03</div>
+            <div class="ic"><i data-lucide="git-branch"></i></div>
+            <h3>Clone From URL</h3>
+            <p>Pull an existing clipwright repo from GitHub. Hooks run locally — nothing ships back.</p>
+            <div class="cta"><i data-lucide="download"></i>CLONE <i data-lucide="arrow-right"></i></div>
+          </div>
+        </div>
+
+        <div class="ob-recents">
+          <div class="h">
+            <span class="l"><i data-lucide="history"></i>RECENT</span>
+            <span>5 PROJECTS · SORTED BY LAST OPEN</span>
+          </div>
+          <div class="items">
+            <div class="ob-recent">
+              <div class="thumb">VX</div>
+              <div>
+                <div class="nm">vertex-reader-demo</div>
+                <div class="meta">~/code/vertex-reader-demo · 4 videos · opened 2 min ago</div>
+              </div>
+            </div>
+            <div class="ob-recent">
+              <div class="thumb">HW</div>
+              <div>
+                <div class="nm">hello-world</div>
+                <div class="meta">~/code/clipwright/examples/hello-world · 1 video · yesterday</div>
+              </div>
+            </div>
+            <div class="ob-recent">
+              <div class="thumb" style="color:var(--accent2)">CP</div>
+              <div>
+                <div class="nm">course-player</div>
+                <div class="meta">~/desktop/course-player · 3 videos · 4 days ago</div>
+              </div>
+            </div>
+            <div class="ob-recent">
+              <div class="thumb">TR</div>
+              <div>
+                <div class="nm">trajectory-ui</div>
+                <div class="meta">~/code/trajectory · 2 videos · last week</div>
+              </div>
+            </div>
+            <div class="ob-recent">
+              <div class="thumb" style="color:var(--accent2)">GP</div>
+              <div>
+                <div class="nm">gpt-onboarding</div>
+                <div class="meta">~/sandbox/gpt-onboarding · 6 videos · apr 12</div>
+              </div>
+            </div>
+            <div class="ob-recent" style="border-style:dashed; opacity:.8">
+              <div class="thumb" style="color:var(--muted)"><i data-lucide="plus"></i></div>
+              <div>
+                <div class="nm" style="color:var(--muted)">Browse for folder…</div>
+                <div class="meta">⌘O</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- ═══ WORKSPACE ═══ -->
+  <div class="screen" id="scr-ws">
+    <aside class="rail">
+      <div class="rail-head">
+        <span class="h"><i data-lucide="folder-tree"></i>Projects</span>
+        <button class="collapse" title="Collapse"><i data-lucide="panel-left-close"></i></button>
+      </div>
+      <button class="new-project">
+        <span class="plus"><i data-lucide="plus"></i></span>
+        <span>NEW / OPEN</span>
+      </button>
+      <div class="rail-section">Pinned</div>
+      <div class="rail-list">
+        <div class="rail-item active">
+          <span class="tick"><i data-lucide="folder-open"></i></span>
+          <span class="nm">vertex-reader-demo</span>
+          <span class="count">4</span>
+        </div>
+        <div class="rail-item">
+          <span class="tick"><i data-lucide="folder"></i></span>
+          <span class="nm">hello-world</span>
+          <span class="count">1</span>
+        </div>
+        <div class="rail-section" style="padding-top:14px;">Recent</div>
+        <div class="rail-item">
+          <span class="tick"><i data-lucide="folder"></i></span>
+          <span class="nm">course-player</span>
+          <span class="count">3</span>
+        </div>
+        <div class="rail-item">
+          <span class="tick"><i data-lucide="folder"></i></span>
+          <span class="nm">trajectory-ui</span>
+          <span class="count">2</span>
+        </div>
+        <div class="rail-item" style="opacity:.5">
+          <span class="tick" style="color:var(--accent2)"><i data-lucide="folder-x"></i></span>
+          <span class="nm">gpt-onboarding</span>
+          <span style="font-size:9px;color:var(--accent2)">missing</span>
+        </div>
+      </div>
+      <div class="rail-foot">
+        <div class="row"><span class="k"><i data-lucide="activity"></i>active run</span><span style="color:var(--accent)">render · 38%</span></div>
+        <div class="row"><span class="k"><i data-lucide="cpu"></i>gpu</span><span>idle</span></div>
+        <div class="row"><span class="k"><i data-lucide="hard-drive"></i>disk</span><span>482 GB free</span></div>
+      </div>
+    </aside>
+
+    <div class="ws-main">
+      <div class="ws-header">
+        <div class="ws-breadcrumb">
+          <span class="proj"><i data-lucide="folder-open"></i>vertex-reader-demo</span>
+          <span class="sep"><i data-lucide="chevron-right"></i></span>
+          <span>vertex-5‑features</span>
+          <span class="path">— ~/code/vertex-reader-demo</span>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <span class="chip"><span class="pulse"></span>REC 02:14</span>
+          <span class="chip ok"><span class="pulse"></span>TTS OK</span>
+          <span class="chip mag"><span class="pulse"></span>CLAUDE LIVE</span>
+        </div>
+      </div>
+
+      <div class="video-rail">
+        <div class="vtab active">
+          <div class="thumb"><div class="play"><i data-lucide="play"></i></div></div>
+          <div class="meta">
+            <div class="t">vertex-5‑features</div>
+            <div class="row">
+              <span class="p"><i data-lucide="file-text"></i>script</span>
+              <span class="d">0:42</span>
+              <span class="live"><i data-lucide="radio"></i>LIVE</span>
+            </div>
+          </div>
+        </div>
+        <div class="vtab">
+          <div class="thumb" style="background:linear-gradient(135deg,#3a1a42,#0c1223)"></div>
+          <div class="meta">
+            <div class="t">quick-tour</div>
+            <div class="row"><span class="p"><i data-lucide="check-circle-2"></i>done</span><span class="d">0:33</span></div>
+          </div>
+        </div>
+        <div class="vtab">
+          <div class="thumb" style="background:linear-gradient(135deg,#1a3a42,#0c1223)"></div>
+          <div class="meta">
+            <div class="t">onboarding-flow</div>
+            <div class="row"><span class="p"><i data-lucide="mic"></i>tts</span><span class="d">0:58</span></div>
+          </div>
+        </div>
+        <div class="vtab">
+          <div class="thumb" style="background:linear-gradient(135deg,#42291a,#0c1223)"></div>
+          <div class="meta">
+            <div class="t">upload-pdf</div>
+            <div class="row"><span class="p"><i data-lucide="scissors"></i>segments</span><span class="d">0:47</span></div>
+          </div>
+        </div>
+        <div class="vtab new">
+          <i data-lucide="plus"></i><span>NEW VIDEO</span>
+        </div>
+      </div>
+
+      <div class="ws-grid">
+        <aside class="ws-left">
+          <div class="pipeline">
+            <div class="pipeline-head">
+              <span>pipeline · vertex-5‑features</span>
+              <span class="ph"><i data-lucide="circle-dot"></i>phase · script</span>
+            </div>
+
+            <div class="pipeline-stages">
+              <div class="stage done">rec</div>
+              <div class="stage done">seg</div>
+              <div class="stage done">key</div>
+              <div class="stage active">scr</div>
+              <div class="stage todo">tts</div>
+              <div class="stage todo">cap</div>
+              <div class="stage todo">out</div>
+              <div class="stage todo">ren</div>
+            </div>
+
+            <div class="pipeline-row">
+              <button class="btn"><i data-lucide="mic"></i>TTS</button>
+              <button class="btn"><i data-lucide="captions"></i>CAPTION</button>
+              <button class="btn"><i data-lucide="film"></i>RENDER</button>
+            </div>
+            <div class="pipeline-runall">
+              <button class="btn ghost"><i data-lucide="hammer"></i>BUILD <i data-lucide="chevron-down"></i></button>
+              <button class="btn primary"><i data-lucide="play"></i>RUN ALL</button>
+            </div>
+          </div>
+
+          <div class="clips-head">
+            <span class="l"><i data-lucide="list"></i>clips · 6</span>
+            <span>42.0s total</span>
+          </div>
+          <div class="clips">
+            <div class="clip">
+              <span class="n">01</span>
+              <div>
+                <div class="chapter">Open Vertex Reader</div>
+                <div class="t">This is vertex reader — upload a PDF…</div>
+              </div>
+              <div class="meta">4.8s</div>
+            </div>
+            <div class="clip active">
+              <span class="n">02</span>
+              <div>
+                <div class="chapter">Upload a PDF</div>
+                <div class="t">Drag any book or research paper into…</div>
+              </div>
+              <div class="meta">6.2s</div>
+            </div>
+            <div class="clip">
+              <span class="n">03</span>
+              <div>
+                <div class="chapter">Ask a Question</div>
+                <div class="t">Highlight a passage, ask follow-ups…</div>
+              </div>
+              <div class="meta">7.4s</div>
+            </div>
+            <div class="clip empty">
+              <span class="n">04</span>
+              <div>
+                <div class="chapter">Generate Summary</div>
+                <div class="t">(empty — claude will draft this)</div>
+              </div>
+              <div class="meta">8.1s</div>
+            </div>
+            <div class="clip">
+              <span class="n">05</span>
+              <div>
+                <div class="chapter">Export Highlights</div>
+                <div class="t">Every highlight exports as markdown…</div>
+              </div>
+              <div class="meta">7.7s</div>
+            </div>
+            <div class="clip">
+              <span class="n">06</span>
+              <div>
+                <div class="chapter">Outro</div>
+                <div class="t">Try vertex reader at vertexreader.site</div>
+              </div>
+              <div class="meta">7.8s</div>
+            </div>
+          </div>
+
+          <div class="files">
+            <div class="f-head">
+              <span class="l"><i data-lucide="folder-tree"></i>project files</span>
+              <span>out/</span>
+            </div>
+            <div class="file"><span class="ic"><i data-lucide="file-json-2"></i></span><span>browse-plan.json</span><span class="sz">4.1 KB</span></div>
+            <div class="file"><span class="ic"><i data-lucide="file-json-2"></i></span><span>moments.json</span><span class="sz">12 KB</span></div>
+            <div class="file"><span class="ic"><i data-lucide="file-json-2"></i></span><span>segments.json</span><span class="sz">3.8 KB</span></div>
+            <div class="file hot"><span class="ic"><i data-lucide="file-text"></i></span><span>script.json</span><span class="sz">2.2 KB</span></div>
+            <div class="file"><span class="ic"><i data-lucide="file-json-2"></i></span><span>camera.json</span><span class="sz">1.4 KB</span></div>
+            <div class="file"><span class="ic"><i data-lucide="file-video-2"></i></span><span>video.mp4</span><span class="sz">48 MB</span></div>
+          </div>
+        </aside>
+
+        <main class="ws-center">
+          <div class="preview-bar">
+            <div class="tabs">
+              <div class="tab active"><i data-lucide="play-circle"></i>PREVIEW</div>
+              <div class="tab"><i data-lucide="gallery-horizontal"></i>TIMELINE</div>
+              <div class="tab"><i data-lucide="list-ordered"></i>BROWSE PLAN</div>
+              <div class="tab"><i data-lucide="mouse-pointer-click"></i>MOMENTS</div>
+            </div>
+            <div class="tools">
+              <span><i data-lucide="aspect-ratio"></i>9:16</span>
+              <span class="sep">·</span>
+              <span><i data-lucide="gauge"></i>30 fps</span>
+              <span class="sep">·</span>
+              <span class="acc"><i data-lucide="zap"></i>remotion</span>
+            </div>
+          </div>
+
+          <div class="stage-area">
+            <div class="preview">
+              <div class="phone-frame">
+                <div class="phone-url">
+                  <span style="color:var(--accent)">●</span> vertexreader.site / upload
+                </div>
+                <div class="phone-hero">
+                  <div class="ttl">Drop your PDF.</div>
+                  <div class="sub">Vertex reads it, summarises it, and lets you ask follow-ups.</div>
+                </div>
+                <div class="phone-cursor"><i data-lucide="mouse-pointer-2"></i></div>
+                <div class="phone-caption">DROP YOUR <em>PDF</em></div>
+              </div>
+            </div>
+
+            <div class="preview-side">
+              <div class="side-card">
+                <div class="h">
+                  <span class="l"><i data-lucide="sparkles"></i>Current clip</span><span style="color:var(--accent)">02/06</span>
+                </div>
+                <div class="kv"><span class="k">chapter</span><span class="v">Upload a PDF</span></div>
+                <div class="kv"><span class="k">target</span><span class="v">6.20s</span></div>
+                <div class="kv"><span class="k">words</span><span class="v">18 · 2.90 w/s</span></div>
+                <div class="kv"><span class="k">zoom</span><span class="v">1.00 → 1.22</span></div>
+                <div class="kv"><span class="k">focus</span><span class="v">(0.63, 0.41)</span></div>
+
+                <div class="waveform" id="wf-side"></div>
+                <div class="timeline-mini">
+                  <div class="track"></div>
+                  <div class="seg" style="left: 14%; width: 18%;"></div>
+                  <div class="seg" style="left: 36%; width: 20%; background: rgba(232,121,249,.35);"></div>
+                  <div class="seg" style="left: 60%; width: 14%;"></div>
+                  <div class="pb" style="left: 44%"></div>
+                  <div class="tick" style="left:0">00:00</div>
+                  <div class="tick" style="right:0">00:42</div>
+                </div>
+              </div>
+
+              <div class="side-card">
+                <div class="h"><span class="l"><i data-lucide="mouse-pointer-click"></i>Browse actions</span><span>t+3.8s</span></div>
+                <div class="moment"><span class="t">0:00</span><span class="kind"><i data-lucide="arrow-right"></i>goto</span><span class="lbl">vertexreader.site</span></div>
+                <div class="moment"><span class="t">0:02</span><span class="kind"><i data-lucide="mouse-pointer-click"></i>click</span><span class="lbl">"Sign in"</span></div>
+                <div class="moment active"><span class="t">0:04</span><span class="kind"><i data-lucide="upload"></i>drop</span><span class="lbl">my-book.pdf</span></div>
+                <div class="moment"><span class="t">0:09</span><span class="kind"><i data-lucide="hourglass"></i>wait</span><span class="lbl">spinner.hidden</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="logs">
+            <div class="logs-head">
+              <span class="l"><i data-lucide="terminal"></i>stdout · run #7 · clipwright script init</span>
+              <span><span class="chip"><span class="pulse"></span>STREAMING</span></span>
+            </div>
+            <div class="logs-body">
+              <div class="ln"><span class="t">14:22:09.114</span> <span class="s">→</span> loaded <span class="d">out/moments.json</span> (6 moments, 42.0s)</div>
+              <div class="ln"><span class="t">14:22:09.241</span> <span class="s">→</span> chunked into 6 clips, targets set by action dwell</div>
+              <div class="ln"><span class="t">14:22:09.390</span> <span class="s">→</span> wrote <span class="d">out/script.json</span> (skeleton)</div>
+              <div class="ln"><span class="t">14:22:09.412</span> <span class="w">!</span> clip 04 has no hint — claude will backfill</div>
+              <div class="ln"><span class="t">14:22:09.501</span> <span class="s">→</span> running <span class="d">tts</span> for 6 clips via kokoro/af_bella</div>
+              <div class="ln"><span class="t">14:22:10.088</span> <span class="d">[tts]</span> clip-02 synthesized · 6.18s · 187 aligned tokens</div>
+              <div class="ln"><span class="t">14:22:10.882</span> <span class="d">[tts]</span> clip-03 synthesized · 7.41s · 221 aligned tokens</div>
+              <div class="ln"><span class="t">14:22:11.034</span> <span class="s">▶</span> progress · <span style="color:var(--accent)">tts 3/6</span> · 50%</div>
+            </div>
+          </div>
+        </main>
+
+        <aside class="ws-right">
+          <div class="sessions">
+            <div class="h">
+              <span class="l"><i data-lucide="bot"></i>Claude sessions</span>
+              <span class="add"><i data-lucide="plus"></i>NEW</span>
+            </div>
+            <div class="ses-list">
+              <div class="ses active">
+                <span>script polish</span>
+                <span class="id"><i data-lucide="disc"></i>9af24c11</span>
+              </div>
+              <div class="ses">
+                <span>zoom keyframes</span>
+                <span class="id"><i data-lucide="circle"></i>112e34bb</span>
+              </div>
+              <div class="ses">
+                <span>rewrite intro for tiktok</span>
+                <span class="id"><i data-lucide="circle"></i>7d0a4921</span>
+              </div>
+            </div>
+          </div>
+          <div class="claude">
+            <div class="claude-head">
+              <span class="l"><i data-lucide="bot"></i>CLAUDE · full-access</span>
+              <span class="tag"><i data-lucide="disc"></i>9af24c11</span>
+            </div>
+            <div class="claude-body">
+              <div class="msg user">
+                <div class="role"><i data-lucide="user"></i>you</div>
+                <div class="text">Tighten clip 02 — sounds corporate. 2.9 w/s is fine.</div>
+              </div>
+              <div class="msg">
+                <div class="role"><i data-lucide="bot"></i>assistant</div>
+                <div class="text">Swapping in three variants. Going for "casual host" energy, keeping the hook word "drop" to match the cursor motion at t=4s.</div>
+              </div>
+              <div class="msg tool">
+                <div class="role"><i data-lucide="book-open"></i>tool · read</div>
+                <div class="text"><span class="k">file:</span> videos/vertex-5-features/out/script.json</div>
+              </div>
+              <div class="msg tool">
+                <div class="role"><i data-lucide="pencil-line"></i>tool · edit</div>
+                <div class="text"><span class="k">patch:</span> clip-02.text — 1 hunk</div>
+              </div>
+              <div class="msg plan">
+                <div class="role"><i data-lucide="list-checks"></i>plan · exit-plan-mode</div>
+                <div class="text">1. Rewrite clip-02.text to "Just drop a PDF — any book, any paper. Vertex reads it."
+2. Rerun tts for clip-02 only.
+3. Recompute captions for clip-02.
+4. Leave others untouched.</div>
+                <div class="claude-plan-actions">
+                  <button class="btn primary" style="flex:1;"><i data-lucide="check"></i>APPROVE</button>
+                  <button class="btn" style="flex:1;"><i data-lucide="x"></i>REJECT</button>
+                </div>
+              </div>
+            </div>
+            <div class="claude-input">
+              <textarea rows="3" placeholder="message claude (↵ to send, ⇧↵ for newline)">Also shorten clip 03 to 6.5s and keep the zoom peak at 0.7.</textarea>
+              <div class="row">
+                <div class="kbd"><span>↵</span> send &nbsp; <span>⇧</span><span>↵</span> newline</div>
+                <button class="btn primary"><i data-lucide="send"></i>SEND</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ CLIP DETAIL ═══ -->
+  <div class="screen" id="scr-cd">
+    <aside class="rail">
+      <div class="rail-head">
+        <span class="h"><i data-lucide="film"></i>vertex-5‑features</span>
+        <button class="collapse"><i data-lucide="panel-left-close"></i></button>
+      </div>
+      <div class="rail-section">Clips · 6</div>
+      <div class="rail-list">
+        <div class="rail-item">
+          <span class="tick" style="color:var(--ok)"><i data-lucide="check-circle-2"></i></span>
+          <span class="nm">01 · Open Vertex</span>
+          <span class="count">4.8</span>
+        </div>
+        <div class="rail-item active">
+          <span class="tick"><i data-lucide="chevron-right"></i></span>
+          <span class="nm">02 · Upload a PDF</span>
+          <span class="count" style="color:var(--accent);border-color:rgba(0,245,229,.4)">6.2</span>
+        </div>
+        <div class="rail-item">
+          <span class="tick" style="color:var(--ok)"><i data-lucide="check-circle-2"></i></span>
+          <span class="nm">03 · Ask a Question</span>
+          <span class="count">7.4</span>
+        </div>
+        <div class="rail-item" style="opacity:.85">
+          <span class="tick" style="color:var(--accent3)"><i data-lucide="circle-dashed"></i></span>
+          <span class="nm">04 · Summary</span>
+          <span class="count" style="color:var(--accent3)">8.1</span>
+        </div>
+        <div class="rail-item">
+          <span class="tick" style="color:var(--ok)"><i data-lucide="check-circle-2"></i></span>
+          <span class="nm">05 · Highlights</span>
+          <span class="count">7.7</span>
+        </div>
+        <div class="rail-item">
+          <span class="tick" style="color:var(--ok)"><i data-lucide="check-circle-2"></i></span>
+          <span class="nm">06 · Outro</span>
+          <span class="count">7.8</span>
+        </div>
+      </div>
+      <div class="rail-foot">
+        <div class="row"><span class="k"><i data-lucide="check-circle-2"></i>complete</span><span style="color:var(--ok)">5 / 6</span></div>
+        <div class="row"><span class="k"><i data-lucide="timer"></i>drift</span><span style="color:var(--accent)">+0.3s</span></div>
+        <div class="row"><span class="k"><i data-lucide="mic"></i>voice</span><span>af_bella</span></div>
+      </div>
+    </aside>
+
+    <div class="cd-wrap">
+      <div class="ws-header">
+        <div class="ws-breadcrumb">
+          <span class="proj"><i data-lucide="folder-open"></i>vertex-reader-demo</span>
+          <span class="sep"><i data-lucide="chevron-right"></i></span>
+          <span>vertex-5‑features</span>
+          <span class="sep"><i data-lucide="chevron-right"></i></span>
+          <span style="color:var(--fg)">clip-02</span>
+        </div>
+        <div style="display:flex; gap:8px">
+          <span class="chip ok"><span class="pulse"></span>TTS RENDERED</span>
+          <span class="chip"><span class="pulse"></span>CAPTIONS STALE</span>
+        </div>
+      </div>
+
+      <div class="cd-inner">
+        <aside class="cd-clips">
+          <div class="clips-head">
+            <span class="l"><i data-lucide="list"></i>all clips</span>
+            <span>filter <i data-lucide="chevron-down"></i></span>
+          </div>
+          <div class="clips">
+            <div class="clip">
+              <span class="n">01</span>
+              <div>
+                <div class="chapter">Open Vertex Reader</div>
+                <div class="t">This is vertex reader…</div>
+              </div>
+              <div class="meta">4.8s</div>
+            </div>
+            <div class="clip active">
+              <span class="n">02</span>
+              <div>
+                <div class="chapter">Upload a PDF</div>
+                <div class="t">Just drop any book or paper…</div>
+              </div>
+              <div class="meta">6.2s</div>
+            </div>
+            <div class="clip">
+              <span class="n">03</span>
+              <div>
+                <div class="chapter">Ask a Question</div>
+                <div class="t">Highlight a passage…</div>
+              </div>
+              <div class="meta">7.4s</div>
+            </div>
+            <div class="clip empty">
+              <span class="n">04</span>
+              <div>
+                <div class="chapter">Generate Summary</div>
+                <div class="t">(empty — draft pending)</div>
+              </div>
+              <div class="meta">8.1s</div>
+            </div>
+            <div class="clip">
+              <span class="n">05</span>
+              <div>
+                <div class="chapter">Export Highlights</div>
+                <div class="t">Every highlight exports as markdown…</div>
+              </div>
+              <div class="meta">7.7s</div>
+            </div>
+            <div class="clip">
+              <span class="n">06</span>
+              <div>
+                <div class="chapter">Outro</div>
+                <div class="t">Try vertex reader at vertexreader.site</div>
+              </div>
+              <div class="meta">7.8s</div>
+            </div>
+          </div>
+        </aside>
+
+        <main class="cd-main">
+          <div class="cd-header">
+            <div class="cd-title">
+              <div class="id">clip-02<span style="color:var(--muted-dim)">·</span><span style="color:var(--muted); font-size: 11px; letter-spacing:.2em;">CHAPTER 02 / 06</span></div>
+              <div class="chapter">Upload a PDF</div>
+              <div class="hint">User drops a PDF onto the upload area. Camera pulses toward the drop zone at t=4s when the file lands. Voice should land on "drop" right as the cursor releases.</div>
+            </div>
+            <div class="cd-stats">
+              <div class="stat ok"><div class="k"><i data-lucide="text"></i>Words</div><div class="v"><b>18</b></div></div>
+              <div class="stat"><div class="k"><i data-lucide="gauge"></i>Rate</div><div class="v"><b>2.90</b> w/s</div></div>
+              <div class="stat"><div class="k"><i data-lucide="target"></i>Target</div><div class="v">6.20 s</div></div>
+              <div class="stat warn"><div class="k"><i data-lucide="timer"></i>Actual</div><div class="v"><b>6.41</b> s</div></div>
+            </div>
+          </div>
+
+          <div class="narration">
+            <div class="hh">
+              <span class="l"><i data-lucide="pen-line"></i>narration</span>
+              <span style="font-size: 10px; color: var(--muted); display:inline-flex; gap:6px; align-items:center;"><i data-lucide="cloud-check" style="color:var(--accent)"></i>autosaved 2s ago</span>
+            </div>
+            <textarea>Just drop a PDF — any book, any paper. Vertex reads it, summarises it, and lets you ask follow-ups in plain english.</textarea>
+            <div class="foot">
+              <span>⌘ + ↵ save &nbsp;·&nbsp; ⌘ + R regen audio &nbsp;·&nbsp; ⌘ + K rewrite with claude</span>
+              <span>123 chars · 18 words · 2.90 w/s</span>
+            </div>
+          </div>
+
+          <div class="waverow">
+            <div class="hh">
+              <span class="l"><i data-lucide="audio-lines"></i>audio · out/audio/clip-02.mp3</span>
+              <span style="font-size:10.5px; color: var(--muted); display:inline-flex; gap:6px; align-items:center;"><i data-lucide="mic"></i>kokoro · af_bella · 24 kHz</span>
+            </div>
+            <div class="bigwave" id="wf-big"></div>
+            <div class="timeline-mini" style="height:28px;">
+              <div class="tick" style="left:0">0.0s</div>
+              <div class="tick" style="left:16%">1.0</div>
+              <div class="tick" style="left:32%">2.0</div>
+              <div class="tick" style="left:48%">3.0</div>
+              <div class="tick" style="left:64%">4.0</div>
+              <div class="tick" style="left:80%">5.0</div>
+              <div class="tick" style="right:0">6.4s</div>
+            </div>
+
+            <div style="margin-top:10px; font-size:10px; color:var(--muted); letter-spacing:.18em; text-transform:uppercase; display:inline-flex; gap:6px; align-items:center;"><i data-lucide="captions"></i>caption chunking · 2-word uppercase</div>
+            <div class="word-grid">
+              <div class="word">JUST DROP<span class="tm">0.10–0.58</span></div>
+              <div class="word pair">A PDF<span class="tm">0.58–1.08</span></div>
+              <div class="word">ANY BOOK<span class="tm">1.22–1.71</span></div>
+              <div class="word">ANY PAPER<span class="tm">1.74–2.32</span></div>
+              <div class="word pair">VERTEX READS<span class="tm">2.58–3.20</span></div>
+              <div class="word">IT SUMMARISES<span class="tm">3.23–3.88</span></div>
+              <div class="word">AND LETS<span class="tm">4.01–4.41</span></div>
+              <div class="word pair">YOU ASK<span class="tm">4.45–4.82</span></div>
+              <div class="word">FOLLOW UPS<span class="tm">4.88–5.45</span></div>
+              <div class="word">IN PLAIN<span class="tm">5.51–5.90</span></div>
+              <div class="word">ENGLISH<span class="tm">5.95–6.41</span></div>
+            </div>
+
+            <div class="cd-actions">
+              <button class="btn primary"><i data-lucide="refresh-cw"></i>REGEN AUDIO</button>
+              <button class="btn"><i data-lucide="captions"></i>REGEN CAPTIONS</button>
+              <button class="btn"><i data-lucide="film"></i>RE‑RENDER CLIP</button>
+              <button class="btn ghost"><i data-lucide="git-compare-arrows"></i>A/B WITH PREVIOUS</button>
+              <button class="btn mag ghost"><i data-lucide="sparkles"></i>⌘K · ASK CLAUDE</button>
+            </div>
+          </div>
+        </main>
+
+        <aside class="cd-side">
+          <h4><i data-lucide="smartphone"></i>phone preview</h4>
+          <div class="preview" style="aspect-ratio: 9/16; border-radius: 12px;">
+            <div class="phone-frame" style="width:88%;">
+              <div class="phone-url">
+                <span style="color:var(--accent)">●</span> vertexreader.site / upload
+              </div>
+              <div class="phone-hero">
+                <div class="ttl">Drop your PDF.</div>
+                <div class="sub">Vertex reads it, summarises it, asks follow-ups.</div>
+              </div>
+              <div class="phone-cursor" style="left:68%; top:50%"><i data-lucide="mouse-pointer-2"></i></div>
+              <div class="phone-caption" style="font-size: 20px;">ANY BOOK<br>ANY <em>PAPER</em></div>
+            </div>
+          </div>
+
+          <h4><i data-lucide="focus"></i>zoom / focus</h4>
+          <div class="zoom-card">
+            <div style="display:flex; justify-content:space-between; font-size: 10.5px; color: var(--muted);">
+              <span>peak 1.22×</span>
+              <span>t=4.00s</span>
+              <span style="color:var(--accent)">(0.63, 0.41)</span>
+            </div>
+            <div class="zoom-viz">
+              <svg viewBox="0 0 200 60" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="zg" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0" stop-color="#00f5e5" stop-opacity=".45"/>
+                    <stop offset="1" stop-color="#00f5e5" stop-opacity="0"/>
+                  </linearGradient>
+                </defs>
+                <path d="M0,52 C20,50 40,40 70,15 C90,2 110,2 130,18 C160,42 180,50 200,52 L200,60 L0,60 Z"
+                      fill="url(#zg)"/>
+                <path d="M0,52 C20,50 40,40 70,15 C90,2 110,2 130,18 C160,42 180,50 200,52"
+                      fill="none" stroke="#00f5e5" stroke-width="1.2"/>
+                <circle cx="100" cy="10" r="3" fill="#e879f9"/>
+              </svg>
+            </div>
+          </div>
+
+          <h4><i data-lucide="mouse-pointer-click"></i>browse actions in this clip</h4>
+          <div class="moment"><span class="t">4.04s</span><span class="kind"><i data-lucide="mouse-pointer-click"></i>click</span><span class="lbl">[data-upload]</span></div>
+          <div class="moment active"><span class="t">4.11s</span><span class="kind"><i data-lucide="upload"></i>drop</span><span class="lbl">my-book.pdf</span></div>
+          <div class="moment"><span class="t">5.02s</span><span class="kind"><i data-lucide="hourglass"></i>wait</span><span class="lbl">spinner.hidden</span></div>
+          <div class="moment"><span class="t">5.88s</span><span class="kind"><i data-lucide="camera"></i>snap</span><span class="lbl">upload-success</span></div>
+
+          <h4><i data-lucide="alert-triangle"></i>warnings</h4>
+          <div style="padding: 10px 12px; border: 1px solid rgba(251,191,36,.3); border-radius: 8px; background: rgba(251,191,36,.04); font-size: 10.5px; color: #fde1a0; line-height: 1.7;">
+            Actual 6.41s is 0.21s longer than target 6.20s. Captions need re-rendering — last render was before the last text edit.
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ RENDER ═══ -->
+  <div class="screen" id="scr-rn">
+    <aside class="rail">
+      <div class="rail-head">
+        <span class="h"><i data-lucide="layers"></i>Render queue</span>
+        <button class="collapse"><i data-lucide="panel-left-close"></i></button>
+      </div>
+      <div class="rail-section">Active</div>
+      <div class="rail-list">
+        <div class="rail-item active">
+          <span class="tick"><i data-lucide="loader-2" class="spin-icon"></i></span>
+          <span class="nm">vertex-5‑features</span>
+          <span class="count" style="color:var(--accent);border-color:rgba(0,245,229,.4)">38%</span>
+        </div>
+        <div class="rail-section">Queued</div>
+        <div class="rail-item">
+          <span class="tick" style="color:var(--muted)"><i data-lucide="clock"></i></span>
+          <span class="nm">onboarding-flow</span>
+          <span class="count">wait</span>
+        </div>
+        <div class="rail-section">Recent</div>
+        <div class="rail-item">
+          <span class="tick" style="color:var(--ok)"><i data-lucide="check-circle-2"></i></span>
+          <span class="nm">quick-tour</span>
+          <span class="count" style="color:var(--ok);border-color: rgba(74,222,128,.35)">done</span>
+        </div>
+        <div class="rail-item">
+          <span class="tick" style="color:var(--ok)"><i data-lucide="check-circle-2"></i></span>
+          <span class="nm">upload-pdf · draft 3</span>
+          <span class="count" style="color:var(--ok);border-color: rgba(74,222,128,.35)">done</span>
+        </div>
+        <div class="rail-item" style="opacity:.75">
+          <span class="tick" style="color:var(--danger)"><i data-lucide="x-circle"></i></span>
+          <span class="nm">course-intro · v2</span>
+          <span class="count" style="color:var(--danger); border-color: rgba(255,77,109,.35)">err</span>
+        </div>
+      </div>
+      <div class="rail-foot">
+        <div class="row"><span class="k"><i data-lucide="zap"></i>backend</span><span style="color:var(--accent)">remotion</span></div>
+        <div class="row"><span class="k"><i data-lucide="cpu"></i>cpu</span><span>64%</span></div>
+        <div class="row"><span class="k"><i data-lucide="memory-stick"></i>ram</span><span>3.8 / 16 GB</span></div>
+      </div>
+    </aside>
+
+    <div class="rn-wrap">
+      <main class="rn-main">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div style="font-size: 10px; letter-spacing: .22em; color: var(--muted); text-transform: uppercase; display:inline-flex; gap:6px; align-items:center;"><i data-lucide="film"></i>render · run #24</div>
+            <h1 style="font-family:'Inter'; font-size: 28px; font-weight: 500; color: var(--fg); margin: 4px 0 0;">vertex-5‑features · <span style="color:var(--accent)">final.mp4</span></h1>
+            <div style="color: var(--muted); font-size: 11px; margin-top: 4px;">remotion backend · 1080×1920 · 30fps · 42.0s output · started 14:24:07</div>
+          </div>
+          <div style="display:flex; gap: 8px;">
+            <button class="btn"><i data-lucide="pause"></i>PAUSE</button>
+            <button class="btn danger"><i data-lucide="x"></i>CANCEL</button>
+            <button class="btn primary"><i data-lucide="folder-open"></i>OPEN IN FINDER</button>
+          </div>
+        </div>
+
+        <div class="rn-hero">
+          <div class="rn-phone-wrap">
+            <div class="phone-frame" style="width:260px;">
+              <div class="phone-url">
+                <span style="color:var(--accent)">●</span> vertexreader.site / upload
+              </div>
+              <div class="phone-hero">
+                <div class="ttl">Drop your PDF.</div>
+                <div class="sub">Vertex reads it, summarises it, asks follow-ups.</div>
+              </div>
+              <div class="phone-cursor" style="left:65%; top:55%"><i data-lucide="mouse-pointer-2"></i></div>
+              <div class="phone-caption">VERTEX <em>READS</em><br>IT</div>
+            </div>
+          </div>
+
+          <div class="render-side-pane">
+            <div class="render-card">
+              <div class="hh">
+                <span class="l"><i data-lucide="activity"></i>overall progress</span>
+                <span class="pct">38%</span>
+              </div>
+              <div class="pbar"><div class="f" style="width: 38%"></div></div>
+              <div class="pbar-row">
+                <span>frame 478 / 1260</span>
+                <span>38.4 fps render</span>
+                <span class="eta">ETA 1m 12s</span>
+              </div>
+
+              <div class="render-stages">
+                <div class="rstage done"><div class="ic"><i data-lucide="check"></i></div><div class="nm">REC</div><div class="d">3.2s</div></div>
+                <div class="rstage done"><div class="ic"><i data-lucide="check"></i></div><div class="nm">SEG</div><div class="d">0.4s</div></div>
+                <div class="rstage done"><div class="ic"><i data-lucide="check"></i></div><div class="nm">KEY</div><div class="d">0.2s</div></div>
+                <div class="rstage done"><div class="ic"><i data-lucide="check"></i></div><div class="nm">SCR</div><div class="d">0.1s</div></div>
+                <div class="rstage done"><div class="ic"><i data-lucide="check"></i></div><div class="nm">TTS</div><div class="d">7.8s</div></div>
+                <div class="rstage done"><div class="ic"><i data-lucide="check"></i></div><div class="nm">CAP</div><div class="d">2.1s</div></div>
+                <div class="rstage done"><div class="ic"><i data-lucide="check"></i></div><div class="nm">OUT</div><div class="d">0.6s</div></div>
+                <div class="rstage active"><div class="ic"><i data-lucide="loader-2" class="spin"></i></div><div class="nm">REN</div><div class="d">1m 12s</div></div>
+              </div>
+            </div>
+
+            <div class="render-card">
+              <div class="hh">
+                <span class="l"><i data-lucide="terminal"></i>stream</span>
+                <span class="chip"><span class="pulse"></span>TAIL -F</span>
+              </div>
+              <div class="rn-stream">
+                <div class="ln"><span class="d">14:24:07.003</span> <span style="color:var(--accent)">▶</span> starting remotion bundle</div>
+                <div class="ln"><span class="d">14:24:07.418</span> <span style="color:var(--muted)">[remotion]</span> compiled entry in 412ms</div>
+                <div class="ln"><span class="d">14:24:07.712</span> <span style="color:var(--muted)">[remotion]</span> composition <span style="color:var(--accent)">ClipwrightVertical</span> · 1260 frames</div>
+                <div class="ln"><span class="d">14:24:08.021</span> <span style="color:var(--accent)">▶</span> launching chromium · concurrency 4</div>
+                <div class="ln"><span class="d">14:24:11.200</span> <span style="color:var(--muted)">[frame]</span> 100/1260 (7.9%) · 32 fps</div>
+                <div class="ln"><span class="d">14:24:17.602</span> <span style="color:var(--muted)">[frame]</span> 200/1260 (15.9%) · 33 fps</div>
+                <div class="ln"><span class="d">14:24:24.014</span> <span style="color:var(--muted)">[frame]</span> 300/1260 (23.8%) · 35 fps</div>
+                <div class="ln"><span class="d">14:24:29.891</span> <span style="color:var(--muted)">[frame]</span> 400/1260 (31.7%) · 38 fps</div>
+                <div class="ln"><span class="d">14:24:35.400</span> <span style="color:var(--muted)">[frame]</span> 478/1260 (38.0%) · 38.4 fps · ETA 1m 12s</div>
+                <div class="ln" style="color:var(--accent2)"><span class="d">14:24:35.920</span> ▸ caption overlay · clip-02 pass OK</div>
+                <div class="ln" style="color:var(--fg)"><span style="color:var(--accent)">●</span> <span class="d">14:24:36.004</span> audio mux on frame 480</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rn-grid">
+          <div class="rn-tile">
+            <div class="k"><i data-lucide="hard-drive"></i>output size est.</div>
+            <div class="v"><b>14.2</b> MB</div>
+            <div class="sub">h.264 · crf 18 · aac 160k</div>
+          </div>
+          <div class="rn-tile">
+            <div class="k"><i data-lucide="captions"></i>captions rendered</div>
+            <div class="v"><b>82</b> pngs</div>
+            <div class="sub">2-word UPPERCASE · DejaVu Sans</div>
+          </div>
+          <div class="rn-tile">
+            <div class="k"><i data-lucide="timer"></i>total runtime</div>
+            <div class="v">42.00 s</div>
+            <div class="sub">6 clips · 18 zoom keyframes</div>
+          </div>
+          <div class="rn-tile">
+            <div class="k"><i data-lucide="mic"></i>audio</div>
+            <div class="v">kokoro <b>af_bella</b></div>
+            <div class="sub">stretched 1.003× for alignment</div>
+          </div>
+          <div class="rn-tile">
+            <div class="k"><i data-lucide="sparkles"></i>outro</div>
+            <div class="v">cyberpunk</div>
+            <div class="sub">brand: vertexreader.site · 1.4s</div>
+          </div>
+          <div class="rn-tile">
+            <div class="k"><i data-lucide="fingerprint"></i>hash</div>
+            <div class="v" style="font-family:'JetBrains Mono'; font-size: 14px;">c9a3…f42e</div>
+            <div class="sub">reproducible seed: 0x4CLI</div>
+          </div>
+        </div>
+      </main>
+
+      <aside class="rn-right">
+        <h4 style="font-size:10px; letter-spacing:.22em; color:var(--muted); text-transform:uppercase; margin:0 0 12px; display:flex; align-items:center; gap:6px;"><i data-lucide="sliders"></i>export settings</h4>
+        <div style="border:1px solid var(--border); border-radius: 10px; padding: 4px 14px; background: linear-gradient(180deg, rgba(18,26,46,.55), rgba(14,21,38,.55));">
+          <div class="rn-settings-row">
+            <span class="k"><i data-lucide="aspect-ratio"></i>aspect</span>
+            <div class="switch">
+              <button>1:1</button>
+              <button class="on">9:16</button>
+              <button>16:9</button>
+            </div>
+          </div>
+          <div class="rn-settings-row">
+            <span class="k"><i data-lucide="monitor"></i>resolution</span>
+            <span>1080 × 1920</span>
+          </div>
+          <div class="rn-settings-row">
+            <span class="k"><i data-lucide="gauge"></i>fps</span>
+            <span>30</span>
+          </div>
+          <div class="rn-settings-row">
+            <span class="k"><i data-lucide="zap"></i>backend</span>
+            <div class="switch">
+              <button>ffmpeg</button>
+              <button class="on onMag">remotion</button>
+            </div>
+          </div>
+          <div class="rn-settings-row">
+            <span class="k"><i data-lucide="file-video-2"></i>codec</span>
+            <span>H.264 · CRF 18</span>
+          </div>
+          <div class="rn-settings-row">
+            <span class="k"><i data-lucide="sparkles"></i>outro preset</span>
+            <span style="color:var(--accent2)">cyberpunk</span>
+          </div>
+          <div class="rn-settings-row">
+            <span class="k"><i data-lucide="captions"></i>caption style</span>
+            <span>default · 2‑word upper</span>
+          </div>
+          <div class="rn-settings-row">
+            <span class="k"><i data-lucide="paintbrush"></i>gradient bg</span>
+            <span style="display:inline-flex;gap:6px;align-items:center">
+              <span style="width:18px;height:18px;border-radius:4px;background:linear-gradient(135deg,#0c1223,#3a1a42);border:1px solid var(--border)"></span>
+              dark
+            </span>
+          </div>
+        </div>
+
+        <h4 style="font-size:10px; letter-spacing:.22em; color:var(--muted); text-transform:uppercase; margin:22px 0 12px; display:flex; align-items:center; gap:6px;"><i data-lucide="folder-output"></i>destination</h4>
+        <div class="rn-settings-row" style="padding: 0 0 10px; border-bottom:0;">
+          <span class="k"><i data-lucide="file"></i>path</span>
+          <span style="color:var(--fg); font-size: 10.5px;">out/final.mp4</span>
+        </div>
+        <div style="display:flex; gap:8px; margin-top: 6px;">
+          <button class="btn" style="flex:1;"><i data-lucide="edit-3"></i>CHANGE</button>
+          <button class="btn" style="flex:1;"><i data-lucide="copy"></i>COPY</button>
+        </div>
+
+        <h4 style="font-size:10px; letter-spacing:.22em; color:var(--muted); text-transform:uppercase; margin:22px 0 12px; display:flex; align-items:center; gap:6px;"><i data-lucide="list-checks"></i>post-render</h4>
+        <label style="display:flex; align-items:center; gap: 10px; font-size: 11px; color: var(--fg-dim); padding: 6px 0;">
+          <span style="width:14px;height:14px;border:1px solid var(--accent);border-radius:3px;background:rgba(0,245,229,.2);display:inline-grid;place-items:center;color:var(--accent);"><i data-lucide="check" style="width:10px;height:10px;"></i></span>
+          open in preview
+        </label>
+        <label style="display:flex; align-items:center; gap: 10px; font-size: 11px; color: var(--fg-dim); padding: 6px 0;">
+          <span style="width:14px;height:14px;border:1px solid var(--border);border-radius:3px;"></span>
+          copy path to clipboard
+        </label>
+        <label style="display:flex; align-items:center; gap: 10px; font-size: 11px; color: var(--fg-dim); padding: 6px 0;">
+          <span style="width:14px;height:14px;border:1px solid var(--accent2);border-radius:3px;background:rgba(232,121,249,.2);display:inline-grid;place-items:center;color:var(--accent2);"><i data-lucide="check" style="width:10px;height:10px;"></i></span>
+          upload to &nbsp;<span style="color:var(--accent2)">tiktok draft</span>
+        </label>
+        <label style="display:flex; align-items:center; gap: 10px; font-size: 11px; color: var(--fg-dim); padding: 6px 0;">
+          <span style="width:14px;height:14px;border:1px solid var(--border);border-radius:3px;"></span>
+          notify claude on done
+        </label>
+      </aside>
+    </div>
+  </div>
+
+  <!-- ═══ TIMELINE EDITOR (NEW) ═══ -->
+  <div class="screen" id="scr-ed">
+    <div class="ed-wrap">
+      <!-- library -->
+      <aside class="ed-left">
+        <div class="lib-tabs">
+          <div class="lt on"><i data-lucide="video"></i>VIDEO</div>
+          <div class="lt"><i data-lucide="music-2"></i>AUDIO</div>
+          <div class="lt"><i data-lucide="captions"></i>TEXT</div>
+          <div class="lt"><i data-lucide="sparkles"></i>FX</div>
+        </div>
+
+        <div class="lib-sec">Segments · 6</div>
+        <div class="lib-grid">
+          <div class="lib-item v"><span class="dur">4.8s</span><span class="tag">01 · open</span></div>
+          <div class="lib-item v2" style="outline:1px solid rgba(0,245,229,.55); box-shadow: var(--glow-teal)"><span class="dur">6.2s</span><span class="tag">02 · upload</span></div>
+          <div class="lib-item v3"><span class="dur">7.4s</span><span class="tag">03 · ask</span></div>
+          <div class="lib-item v2"><span class="dur">8.1s</span><span class="tag">04 · summary</span></div>
+          <div class="lib-item v4"><span class="dur">7.7s</span><span class="tag">05 · highlights</span></div>
+          <div class="lib-item"><span class="dur">7.8s</span><span class="tag">06 · outro</span></div>
+        </div>
+
+        <div class="lib-sec">Audio</div>
+        <div class="lib-row">
+          <div class="ic"><i data-lucide="mic"></i></div>
+          <div class="meta"><div class="nm">clip-02.mp3</div><div class="sub">6.41 s · kokoro · af_bella</div></div>
+        </div>
+        <div class="lib-row">
+          <div class="ic"><i data-lucide="music"></i></div>
+          <div class="meta"><div class="nm">synthwave-bed.ogg</div><div class="sub">loop · 42.0 s · −18 dB</div></div>
+        </div>
+        <div class="lib-row">
+          <div class="ic"><i data-lucide="waves"></i></div>
+          <div class="meta"><div class="nm">whoosh-01.wav</div><div class="sub">0.42 s · sfx</div></div>
+        </div>
+
+        <div class="lib-sec">Effects</div>
+        <div class="lib-row">
+          <div class="ic"><i data-lucide="focus"></i></div>
+          <div class="meta"><div class="nm">Ken Burns Zoom</div><div class="sub">ease-in-out · 1.00 → 1.22</div></div>
+        </div>
+        <div class="lib-row">
+          <div class="ic"><i data-lucide="sparkles"></i></div>
+          <div class="meta"><div class="nm">Cyberpunk Outro</div><div class="sub">1.4 s · glitch</div></div>
+        </div>
+      </aside>
+
+      <!-- center: transport + preview + timeline -->
+      <div class="ed-center">
+        <div class="transport">
+          <div class="lft">
+            <span class="chip"><i data-lucide="film"></i>vertex-5‑features</span>
+            <span class="chip ok"><span class="pulse"></span>PREVIEW READY</span>
+            <span class="chip mag"><span class="pulse"></span>AUTOSYNC</span>
+          </div>
+          <div style="display:flex; align-items:center; gap: 14px;">
+            <div class="play-stack">
+              <button class="iconbtn"><i data-lucide="skip-back"></i></button>
+              <button class="iconbtn lg play"><i data-lucide="play"></i></button>
+              <button class="iconbtn"><i data-lucide="skip-forward"></i></button>
+            </div>
+            <div class="timecode">
+              <i data-lucide="timer" style="color:var(--muted); width:14px; height:14px;"></i>
+              00:23.450<small>&nbsp;/&nbsp;00:42.000</small>
+            </div>
+            <div style="display:flex; gap: 6px;">
+              <button class="iconbtn"><i data-lucide="rotate-ccw"></i></button>
+              <button class="iconbtn"><i data-lucide="repeat"></i></button>
+              <button class="iconbtn"><i data-lucide="volume-2"></i></button>
+            </div>
+          </div>
+          <div class="rgt tools">
+            <button class="iconbtn"><i data-lucide="scissors"></i></button>
+            <button class="iconbtn"><i data-lucide="magnet"></i></button>
+            <button class="iconbtn on"><i data-lucide="split-square-horizontal"></i></button>
+            <span class="chip" style="margin-left:6px"><i data-lucide="layers"></i>6 TRACKS</span>
+            <button class="btn primary"><i data-lucide="file-down"></i>EXPORT</button>
+          </div>
+        </div>
+
+        <div class="ed-preview">
+          <div class="ed-preview-overlay">
+            <span class="chip"><i data-lucide="aspect-ratio"></i>9:16 · 1080×1920</span>
+            <span class="chip"><i data-lucide="gauge"></i>30 FPS</span>
+          </div>
+          <div class="phone-frame" style="width: 260px;">
+            <div class="phone-url">
+              <span style="color:var(--accent)">●</span> vertexreader.site / upload
+            </div>
+            <div class="phone-hero">
+              <div class="ttl">Drop your PDF.</div>
+              <div class="sub">Vertex reads it, summarises it, asks follow-ups.</div>
+            </div>
+            <div class="phone-cursor" style="left:63%; top:48%;"><i data-lucide="mouse-pointer-2"></i></div>
+            <div class="phone-caption">VERTEX <em>READS</em><br>IT</div>
+          </div>
+          <div class="ed-preview-bottom-bar">
+            <div class="l">
+              <span><i data-lucide="eye"></i>PREVIEW</span>
+              <span><i data-lucide="zap" style="color:var(--accent)"></i>REMOTION</span>
+              <span><i data-lucide="layers" style="color:var(--accent2)"></i>CLIP 03 · ASK</span>
+            </div>
+            <div style="display:inline-flex; gap: 10px; align-items:center;">
+              <span>PLAYHEAD <b style="color:var(--accent)">23.450s</b></span>
+              <span>SELECTED <b style="color:var(--accent2)">CLIP-02</b></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- timeline -->
+        <div class="tl">
+          <!-- RULER -->
+          <div class="tl-head">
+            <div class="th-left">
+              <span class="l"><i data-lucide="gallery-horizontal-end"></i>TIMELINE</span>
+              <span style="color:var(--accent)">42.0s</span>
+            </div>
+            <div class="tl-ruler" id="tl-ruler"></div>
+          </div>
+
+          <!-- BODY -->
+          <div class="tl-body" id="tl-body">
+            <div class="tl-trackcol">
+              <div class="tl-row-head" style="height:52px;">
+                <span class="tag"><i data-lucide="video"></i>V1</span>
+                <span class="ctrls">
+                  <i data-lucide="eye"></i>
+                  <i data-lucide="lock"></i>
+                </span>
+              </div>
+              <div class="tl-row-head a1" style="height:52px;">
+                <span class="tag"><i data-lucide="mic"></i>A1 VOICE</span>
+                <span class="ctrls">
+                  <i data-lucide="volume-2"></i>
+                  <i data-lucide="lock"></i>
+                </span>
+              </div>
+              <div class="tl-row-head a2" style="height:40px;">
+                <span class="tag"><i data-lucide="music-2"></i>A2 MUSIC</span>
+                <span class="ctrls">
+                  <i data-lucide="volume-2"></i>
+                  <i data-lucide="lock"></i>
+                </span>
+              </div>
+              <div class="tl-row-head c1" style="height:36px;">
+                <span class="tag"><i data-lucide="captions"></i>C1</span>
+                <span class="ctrls">
+                  <i data-lucide="eye"></i>
+                  <i data-lucide="lock"></i>
+                </span>
+              </div>
+              <div class="tl-row-head fx" style="height:34px;">
+                <span class="tag"><i data-lucide="focus"></i>FX ZOOM</span>
+                <span class="ctrls">
+                  <i data-lucide="eye"></i>
+                  <i data-lucide="lock"></i>
+                </span>
+              </div>
+              <div class="tl-row-head" style="height:36px;">
+                <span class="tag" style="color:var(--accent2)"><i data-lucide="sparkles"></i>OUTRO</span>
+                <span class="ctrls">
+                  <i data-lucide="eye"></i>
+                  <i data-lucide="lock"></i>
+                </span>
+              </div>
+            </div>
+
+            <!-- lanes -->
+            <div class="tl-lanes" id="tl-lanes">
+              <div class="tl-lane" data-lane="v1" style="height:52px;"></div>
+              <div class="tl-lane" data-lane="a1" style="height:52px;"></div>
+              <div class="tl-lane" data-lane="a2" style="height:40px;"></div>
+              <div class="tl-lane" data-lane="c1" style="height:36px;"></div>
+              <div class="tl-lane" data-lane="fx" style="height:34px;"></div>
+              <div class="tl-lane" data-lane="outro" style="height:36px;"></div>
+              <div class="playhead" id="playhead"></div>
+            </div>
+          </div>
+
+          <!-- footer -->
+          <div class="tl-footer">
+            <div class="l">
+              <span><i data-lucide="magnet" style="color:var(--accent)"></i>SNAP 1/4 FRAME</span>
+              <span><i data-lucide="ruler"></i>42.0S · 30 FPS · 1260 FRAMES</span>
+              <span><i data-lucide="bookmark" style="color:var(--accent2)"></i>2 MARKERS</span>
+            </div>
+            <div style="display:flex; gap: 10px; align-items:center;">
+              <span style="color: var(--muted);">ZOOM</span>
+              <div class="zoomctl">
+                <i data-lucide="zoom-out"></i>
+                <span style="font-size:9px; color:var(--fg)">80%</span>
+                <i data-lucide="zoom-in"></i>
+              </div>
+              <span>|</span>
+              <span>[A] SCALE · [S] SPLIT · [J/K/L] SHUTTLE · [SPC] PLAY</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- right: properties -->
+      <aside class="ed-right">
+        <div class="pr-head">
+          <div style="font-size:9.5px; letter-spacing:.22em; color:var(--muted); text-transform:uppercase; display:inline-flex; gap:6px; align-items:center;"><i data-lucide="info"></i>Selected</div>
+          <div class="t" style="margin-top:4px;">Upload a PDF</div>
+          <div class="s">
+            <span><i data-lucide="film" style="color:var(--accent)"></i>clip-02</span>
+            <span>·</span>
+            <span>V1 · 00:04.80 → 00:11.00</span>
+          </div>
+        </div>
+
+        <div class="pr-group">
+          <h5><i data-lucide="move-horizontal"></i>TRANSFORM</h5>
+          <div class="pr-row"><span class="k">in</span><span class="v">00:04.800</span></div>
+          <div class="pr-row"><span class="k">out</span><span class="v">00:11.000</span></div>
+          <div class="pr-row"><span class="k">duration</span><span class="v">6.200s</span></div>
+          <div class="pr-row"><span class="k">speed</span><span class="v">1.00×</span></div>
+          <div class="slider"><div class="f"></div><div class="thumb"></div></div>
+          <div class="pr-row2"><span>0.25×</span><span>1.00×</span><span>4.00×</span></div>
+        </div>
+
+        <div class="pr-group">
+          <h5><i data-lucide="focus"></i>CAMERA</h5>
+          <div class="pr-row"><span class="k">zoom in</span><span class="v">1.00</span></div>
+          <div class="pr-row"><span class="k">zoom peak</span><span class="v" style="color:var(--accent2)">1.22 @ 4.00s</span></div>
+          <div class="pr-row"><span class="k">focus</span><span class="v">(0.63, 0.41)</span></div>
+          <div class="pr-row"><span class="k">curve</span><span class="v">ease‑in‑out</span></div>
+        </div>
+
+        <div class="pr-group">
+          <h5><i data-lucide="volume-2"></i>AUDIO</h5>
+          <div class="pr-row"><span class="k">voice</span><span class="v">af_bella</span></div>
+          <div class="pr-row"><span class="k">gain</span><span class="v">+0.0 dB</span></div>
+          <div class="pr-row"><span class="k">stretch</span><span class="v">1.003×</span></div>
+          <div class="pr-row"><span class="k">ducking (A2)</span><span class="v">−12 dB</span></div>
+        </div>
+
+        <div class="pr-group">
+          <h5><i data-lucide="captions"></i>CAPTIONS</h5>
+          <div class="pr-row"><span class="k">chunk</span><span class="v">2-word UPPER</span></div>
+          <div class="pr-row"><span class="k">font</span><span class="v">DejaVu Sans · 800</span></div>
+          <div class="pr-row"><span class="k">glow</span><span class="v">teal · 14px</span></div>
+          <div class="pr-row"><span class="k">position</span><span class="v">bottom 44px</span></div>
+        </div>
+
+        <div class="pr-group" style="border-bottom:0;">
+          <h5><i data-lucide="sparkles"></i>ACTIONS</h5>
+          <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top: 6px;">
+            <button class="btn" style="flex:1;"><i data-lucide="scissors"></i>SPLIT</button>
+            <button class="btn" style="flex:1;"><i data-lucide="copy"></i>DUPLICATE</button>
+            <button class="btn" style="flex:1;"><i data-lucide="trash-2"></i>DELETE</button>
+            <button class="btn primary" style="flex-basis: 100%;"><i data-lucide="refresh-cw"></i>RE-RENDER SEGMENT</button>
+            <button class="btn mag ghost" style="flex-basis: 100%;"><i data-lucide="sparkles"></i>⌘K · ASK CLAUDE</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- statusbar -->
+  <div class="statusbar">
+    <div class="g">
+      <span><span class="dotstat d-teal"></span>CONNECTED</span>
+      <span><i data-lucide="loader-2" class="spin-icon" style="color:var(--accent)"></i>RUN <b>#24</b> · RENDER · 38%</span>
+      <span><i data-lucide="hard-drive"></i><b>482 GB</b> FREE</span>
+      <span style="color:var(--muted-dim)">CPU 64 · MEM 3.8 / 16 · GPU IDLE</span>
+    </div>
+    <div class="g">
+      <span><span class="dotstat d-mag"></span>CLAUDE LIVE · <b>2</b> SESSIONS</span>
+      <span>⌘O OPEN · ⌘R REC · ⌘↵ RUN · ⌘K CLAUDE</span>
+    </div>
+  </div>
+</div>
+
+<style>
+  .spin-icon{ animation: spin 1.2s linear infinite; display:inline-block;}
+</style>
+
+<script>
+  // screen switching
+  const btns = document.querySelectorAll('#switcher button');
+  const screens = document.querySelectorAll('.screen');
+  btns.forEach(b => b.addEventListener('click', () => {
+    btns.forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    const id = 'scr-' + b.dataset.scr;
+    screens.forEach(s => s.classList.toggle('active', s.id === id));
+  }));
+
+  // waveform (for workspace side card)
+  function makeWave(el, count, seed){
+    let s = seed || 42;
+    function rand(){ s = (s * 9301 + 49297) % 233280; return s / 233280; }
+    let html = '';
+    for(let i=0; i<count; i++){
+      const h = 10 + Math.abs(Math.sin(i/1.8 + rand()*2))*28 + rand()*8;
+      const isPlayed = i < count*0.44;
+      html += `<b style="height:${h}px; opacity:${isPlayed?1:.32}"></b>`;
+    }
+    el.innerHTML = html;
+  }
+  const wf = document.getElementById('wf-side');
+  if(wf) makeWave(wf, 74, 11);
+
+  function makeBigWave(el, count, seed){
+    let s = seed || 17;
+    function rand(){ s = (s * 9301 + 49297) % 233280; return s / 233280; }
+    let html = '';
+    for(let i=0; i<count; i++){
+      const h = 6 + Math.abs(Math.sin(i/2.3 + rand()*3))*42 + rand()*10;
+      const played = i < count*0.44;
+      const peak = (i > count*0.4 && i < count*0.46);
+      html += `<b class="${peak?'p':''}" style="height:${h}px; opacity:${played?1:.3}"></b>`;
+    }
+    el.innerHTML = html;
+  }
+  const bwf = document.getElementById('wf-big');
+  if(bwf) makeBigWave(bwf, 220, 7);
+
+  // ─── TIMELINE builder ───────────────────────────
+  const TOTAL = 42.0;            // seconds
+  function pct(s){ return (s / TOTAL) * 100; }
+
+  // segments (video track V1): 6 segments
+  const segments = [
+    { id:'clip-01', name:'01 · Open Vertex Reader', start: 0.0,  dur: 4.8 },
+    { id:'clip-02', name:'02 · Upload a PDF',        start: 4.8,  dur: 6.2, selected: true },
+    { id:'clip-03', name:'03 · Ask a Question',      start: 11.0, dur: 7.4 },
+    { id:'clip-04', name:'04 · Generate Summary',    start: 18.4, dur: 8.1 },
+    { id:'clip-05', name:'05 · Export Highlights',   start: 26.5, dur: 7.7 },
+    { id:'clip-06', name:'06 · Outro',               start: 34.2, dur: 7.8 },
+  ];
+
+  // voice clips (A1): per-clip audio
+  const voices = segments.map(s => ({ start: s.start, dur: s.dur, id: s.id, selected: s.selected }));
+
+  // music bed (A2)
+  const music = [{ start: 0.0, dur: 40.6, name:'synthwave-bed.ogg' }];
+
+  // captions (C1): 2-word chunks per voice clip — condensed
+  const capChunks = [
+    // clip 01
+    { start:0.20, end:0.90, text:'THIS IS' },
+    { start:0.95, end:1.65, text:'VERTEX READER' },
+    { start:1.70, end:2.50, text:'UPLOAD A' },
+    { start:2.55, end:3.35, text:'PDF TO' },
+    { start:3.40, end:4.40, text:'GET STARTED' },
+    // clip 02
+    { start:5.00, end:5.70, text:'JUST DROP' },
+    { start:5.75, end:6.40, text:'A PDF' },
+    { start:6.60, end:7.20, text:'ANY BOOK' },
+    { start:7.25, end:7.95, text:'ANY PAPER' },
+    { start:8.10, end:8.80, text:'VERTEX READS' },
+    { start:8.85, end:9.55, text:'IT SUMMARISES' },
+    { start:9.60, end:10.35, text:'AND LETS' },
+    { start:10.40, end:10.95, text:'YOU ASK' },
+    // clip 03
+    { start:11.40, end:12.10, text:'HIGHLIGHT ANY' },
+    { start:12.15, end:12.85, text:'PASSAGE ASK' },
+    { start:12.90, end:13.60, text:'FOLLOW UPS' },
+    { start:13.65, end:14.35, text:'IN PLAIN' },
+    { start:14.40, end:15.10, text:'ENGLISH VERTEX' },
+    { start:15.15, end:15.85, text:'REMEMBERS CONTEXT' },
+    { start:15.90, end:16.60, text:'ACROSS QUESTIONS' },
+    { start:16.65, end:17.90, text:'AND CITATIONS' },
+    // clip 04
+    { start:18.60, end:19.30, text:'VERTEX BUILDS' },
+    { start:19.35, end:20.05, text:'A SUMMARY' },
+    { start:20.10, end:20.80, text:'WITH KEY' },
+    { start:20.85, end:21.55, text:'TAKEAWAYS LINKED' },
+    { start:21.60, end:22.30, text:'BACK TO' },
+    { start:22.35, end:23.05, text:'THE PAGE' },
+    { start:23.10, end:23.80, text:'IT CAME' },
+    { start:23.85, end:24.55, text:'FROM SO' },
+    { start:24.60, end:25.30, text:'NOTHING IS' },
+    { start:25.35, end:26.30, text:'BLACK BOX' },
+    // clip 05
+    { start:26.70, end:27.40, text:'EXPORT EVERY' },
+    { start:27.45, end:28.15, text:'HIGHLIGHT AS' },
+    { start:28.20, end:28.90, text:'MARKDOWN OR' },
+    { start:28.95, end:29.65, text:'DROP INTO' },
+    { start:29.70, end:30.40, text:'NOTION OBSIDIAN' },
+    { start:30.45, end:31.15, text:'OR ROAM' },
+    { start:31.20, end:31.90, text:'RESEARCH STAYS' },
+    { start:31.95, end:32.65, text:'IN YOUR' },
+    { start:32.70, end:33.85, text:'OWN STACK' },
+    // clip 06 - outro
+    { start:34.40, end:35.10, text:'TRY VERTEX' },
+    { start:35.15, end:35.85, text:'READER AT' },
+    { start:35.90, end:36.80, text:'VERTEXREADER.SITE' },
+    { start:37.00, end:37.80, text:'LINK IN' },
+    { start:37.85, end:38.65, text:'THE BIO' },
+    { start:38.70, end:39.70, text:'SEE YOU' },
+    { start:39.75, end:41.60, text:'INSIDE' },
+  ];
+
+  // zoom keyframes per clip — each clip has 2-3 kf (in, peak, out)
+  const zoomKFs = [
+    { t: 0.0,  teal:true }, { t: 2.4 }, { t: 4.8, teal:true },
+    { t: 4.8, teal:true }, { t: 8.8 }, { t: 11.0, teal:true },
+    { t: 11.0, teal:true }, { t: 14.5 }, { t: 18.4, teal:true },
+    { t: 18.4, teal:true }, { t: 22.0 }, { t: 26.5, teal:true },
+    { t: 26.5, teal:true }, { t: 30.0 }, { t: 34.2, teal:true },
+    { t: 34.2, teal:true }, { t: 38.0 }, { t: 42.0, teal:true },
+  ];
+
+  function build(){
+    // ruler
+    const ruler = document.getElementById('tl-ruler');
+    if(!ruler) return;
+    let r = '';
+    for(let s = 0; s <= 42; s++){
+      const p = pct(s);
+      if(s % 5 === 0){
+        r += `<div class="tick" style="left:${p}%;"></div>`;
+        r += `<div class="lbl" style="left:calc(${p}% + 4px);">00:${String(s).padStart(2,'0')}.0</div>`;
+      } else {
+        r += `<div class="tick m" style="left:${p}%;"></div>`;
+      }
+    }
+    // half-seconds for density
+    for(let h = 0.5; h < 42; h += 1){
+      r += `<div class="tick m" style="left:${pct(h)}%; opacity:.3;"></div>`;
+    }
+    ruler.innerHTML = r;
+
+    // segments on V1
+    const laneV = document.querySelector('.tl-lane[data-lane="v1"]');
+    segments.forEach(seg => {
+      const el = document.createElement('div');
+      el.className = 'clip-block clip-v' + (seg.selected ? ' selected' : '');
+      el.style.left = pct(seg.start) + '%';
+      el.style.width = pct(seg.dur) + '%';
+      el.innerHTML = `
+        <span class="handle l"></span>
+        <div class="lbl">${seg.name} · ${seg.dur.toFixed(1)}s</div>
+        <div class="body"></div>
+        <span class="handle r"></span>`;
+      laneV.appendChild(el);
+    });
+
+    // voice clips on A1
+    const laneA1 = document.querySelector('.tl-lane[data-lane="a1"]');
+    voices.forEach((v, idx) => {
+      const el = document.createElement('div');
+      el.className = 'clip-block clip-a' + (v.selected ? ' selected' : '');
+      el.style.left = pct(v.start) + '%';
+      el.style.width = pct(v.dur) + '%';
+      // generate waveform bars inside
+      const nbars = Math.max(12, Math.floor(v.dur * 12));
+      let wave = '';
+      let s = 17 + idx*31;
+      function rnd(){ s = (s * 9301 + 49297) % 233280; return s / 233280; }
+      for(let i=0; i<nbars; i++){
+        const h = 10 + Math.abs(Math.sin(i/2 + rnd()*2)) * 14 + rnd()*6;
+        wave += `<b style="height:${h}px"></b>`;
+      }
+      el.innerHTML = `
+        <span class="handle l"></span>
+        <div class="lbl">${v.id}.mp3</div>
+        <div class="wave">${wave}</div>
+        <span class="handle r"></span>`;
+      laneA1.appendChild(el);
+    });
+
+    // music A2
+    const laneA2 = document.querySelector('.tl-lane[data-lane="a2"]');
+    music.forEach(m => {
+      const el = document.createElement('div');
+      el.className = 'clip-block clip-m';
+      el.style.left = pct(m.start) + '%';
+      el.style.width = pct(m.dur) + '%';
+      const nbars = 90; let s = 99;
+      function rnd(){ s = (s * 9301 + 49297) % 233280; return s / 233280; }
+      let wave = '';
+      for(let i=0;i<nbars;i++){
+        const h = 4 + Math.abs(Math.sin(i/4 + rnd()*2))*10 + rnd()*4;
+        wave += `<b style="height:${h}px"></b>`;
+      }
+      el.innerHTML = `
+        <span class="handle l"></span>
+        <div class="lbl">${m.name} · loop · −18dB</div>
+        <div class="wave">${wave}</div>
+        <span class="handle r"></span>`;
+      laneA2.appendChild(el);
+    });
+
+    // captions C1
+    const laneC1 = document.querySelector('.tl-lane[data-lane="c1"]');
+    capChunks.forEach(c => {
+      const el = document.createElement('div');
+      el.className = 'clip-block clip-c';
+      el.style.left = pct(c.start) + '%';
+      el.style.width = pct(c.end - c.start) + '%';
+      el.textContent = c.text;
+      laneC1.appendChild(el);
+    });
+
+    // FX ZOOM keyframes with curve
+    const laneFX = document.querySelector('.tl-lane[data-lane="fx"]');
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('class', 'kf-curve');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    svg.setAttribute('viewBox', '0 0 1000 40');
+    // curve path: baseline low, peak mid of each clip
+    let d = `M 0 32`;
+    segments.forEach(seg => {
+      const a = seg.start / TOTAL * 1000;
+      const mid = (seg.start + seg.dur/2) / TOTAL * 1000;
+      const b = (seg.start + seg.dur) / TOTAL * 1000;
+      d += ` L ${a} 32 C ${a+20} 32 ${mid-20} 6 ${mid} 6 C ${mid+20} 6 ${b-20} 32 ${b} 32`;
+    });
+    const path = document.createElementNS(svgNS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#e879f9');
+    path.setAttribute('stroke-width', '1.2');
+    path.setAttribute('opacity', '0.75');
+    svg.appendChild(path);
+    laneFX.appendChild(svg);
+    zoomKFs.forEach(kf => {
+      const d = document.createElement('div');
+      d.className = 'kf' + (kf.teal ? ' teal' : '');
+      d.style.left = pct(kf.t) + '%';
+      laneFX.appendChild(d);
+    });
+
+    // OUTRO block (last 1.4s)
+    const laneO = document.querySelector('.tl-lane[data-lane="outro"]');
+    const ob = document.createElement('div');
+    ob.className = 'clip-block clip-o';
+    ob.style.left = pct(40.6) + '%';
+    ob.style.width = pct(1.4) + '%';
+    ob.innerHTML = `
+      <span class="handle l"></span>
+      <div class="lbl">cyberpunk outro · 1.4s</div>
+      <div class="body"></div>
+      <span class="handle r"></span>`;
+    laneO.appendChild(ob);
+
+    // playhead at 23.45s — relative to lanes container
+    const ph = document.getElementById('playhead');
+    ph.style.left = pct(23.45) + '%';
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    build();
+    if(window.lucide) lucide.createIcons({ attrs: { 'stroke-width': 1.75 } });
+  });
+
+  // 1..5 key shortcuts
+  window.addEventListener('keydown', (e) => {
+    if(e.key >= '1' && e.key <= '5'){
+      const i = parseInt(e.key, 10) - 1;
+      btns[i]?.click();
+    }
+  });
+</script>
+</body>
+</html>
