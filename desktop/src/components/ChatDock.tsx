@@ -7,6 +7,7 @@ import {
   loadSessionTranscript,
 } from "../lib/ipc";
 import type { ClaudeEvent } from "../lib/types";
+import { I } from "../lib/icons";
 
 interface Msg {
   role: "user" | "assistant" | "tool" | "plan" | "error";
@@ -140,61 +141,79 @@ export function ChatDock({
 
   return (
     <aside className="flex min-h-0 flex-1 flex-col overflow-hidden border-l border-border">
-      <div className="flex items-center justify-between border-b border-border px-3 py-2 font-mono text-xs">
-        <span className="text-accent">CLAUDE // full-access</span>
-        <span className="text-[10px] text-muted">
-          {activeId ? `◉ ${activeId.slice(0, 8)}` : "◌ new"}
+      <div className="flex items-center justify-between border-b border-border bg-panel/40 px-3 py-2 font-mono text-xs">
+        <span className="flex items-center gap-1.5 text-accent">
+          <I.Bot size={13} />
+          <span>CLAUDE</span>
+          <span className="text-muted/70">// full-access</span>
+        </span>
+        <span className="flex items-center gap-1 text-[10px] text-muted">
+          {activeId ? (
+            <>
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-accent" />
+              <span>{activeId.slice(0, 8)}</span>
+            </>
+          ) : (
+            <>
+              <span className="inline-block h-1.5 w-1.5 rounded-full border border-muted" />
+              <span>new</span>
+            </>
+          )}
         </span>
       </div>
+
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 font-mono text-xs">
         {messages.length === 0 && !busy && (
           <p className="text-muted">// ask claude to refine scripts, zooms, pacing, etc.</p>
         )}
-        {messages.map((m, i) => (
-          <div key={i} className="mb-3">
-            <div className="text-[10px] uppercase text-muted">
-              {m.role}{m.tool ? ` · ${m.tool}` : ""}
+        {messages.map((m, i) => {
+          const { icon, label, cls } = roleStyle(m);
+          return (
+            <div key={i} className="mb-3">
+              <div className="flex items-center gap-1.5 text-[10px] uppercase text-muted">
+                {icon}
+                <span>
+                  {label}
+                  {m.tool ? ` · ${m.tool}` : ""}
+                </span>
+              </div>
+              <div className={`mt-1 whitespace-pre-wrap ${cls}`}>
+                {m.role === "plan" ? (
+                  <div className="rounded border border-accent/50 bg-panel p-2 text-fg">
+                    {m.content}
+                  </div>
+                ) : (
+                  m.content
+                )}
+              </div>
             </div>
-            <div
-              className={
-                m.role === "plan"
-                  ? "mt-1 whitespace-pre-wrap rounded border border-accent/50 bg-panel p-2 text-fg"
-                  : m.role === "user"
-                  ? "mt-1 whitespace-pre-wrap text-accent"
-                  : m.role === "error"
-                  ? "mt-1 whitespace-pre-wrap text-accent2"
-                  : m.role === "tool"
-                  ? "mt-1 whitespace-pre-wrap text-muted"
-                  : "mt-1 whitespace-pre-wrap text-fg"
-              }
-            >
-              {m.content}
-            </div>
-          </div>
-        ))}
+          );
+        })}
         {busy && (
-          <div className="mb-3 text-[10px] uppercase text-muted">
-            <span className="animate-pulse">▪ thinking…</span>
+          <div className="mb-3 flex items-center gap-1.5 text-[10px] uppercase text-muted">
+            <I.Loader size={10} className="animate-spin text-accent" />
+            <span>thinking…</span>
           </div>
         )}
         {pendingPlan && (
           <div className="sticky bottom-0 flex gap-2 border-t border-border bg-panel py-2">
             <button
               onClick={approve}
-              className="flex-1 rounded border border-accent bg-accent/10 px-2 py-1 text-accent hover:bg-accent/20"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded border border-accent bg-accent/10 px-2 py-1 text-accent hover:bg-accent/20"
             >
-              APPROVE
+              <I.Check size={12} /> APPROVE
             </button>
             <button
               onClick={() => setPendingPlan(false)}
-              className="flex-1 rounded border border-border px-2 py-1 text-muted hover:text-fg"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded border border-border px-2 py-1 text-muted hover:text-fg"
             >
-              REJECT
+              <I.X size={12} /> REJECT
             </button>
           </div>
         )}
       </div>
-      <div className="shrink-0 border-t border-border p-2">
+
+      <div className="shrink-0 border-t border-border bg-panel/40 p-2">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -213,12 +232,34 @@ export function ChatDock({
           <button
             onClick={send}
             disabled={busy || !input.trim()}
-            className="rounded border border-accent bg-accent/10 px-3 py-1 font-mono text-xs text-accent hover:bg-accent/20 disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded border border-accent bg-accent/10 px-3 py-1 font-mono text-xs text-accent hover:bg-accent/20 disabled:opacity-40"
           >
-            {busy ? "…" : "SEND"}
+            <I.Send size={12} />
+            <span>{busy ? "…" : "SEND"}</span>
           </button>
         </div>
       </div>
     </aside>
   );
+}
+
+function roleStyle(m: Msg): { icon: React.ReactNode; label: string; cls: string } {
+  switch (m.role) {
+    case "user":
+      return { icon: <I.User size={10} className="text-accent" />, label: "user", cls: "text-accent" };
+    case "assistant":
+      return { icon: <I.Bot size={10} className="text-accent/80" />, label: "assistant", cls: "text-fg" };
+    case "plan":
+      return {
+        icon: <I.Sparkles size={10} className="text-accent" />,
+        label: "plan",
+        cls: "text-fg",
+      };
+    case "tool":
+      return { icon: <I.Terminal size={10} className="text-muted" />, label: "tool", cls: "text-muted" };
+    case "error":
+      return { icon: <I.Zap size={10} className="text-accent2" />, label: "error", cls: "text-accent2" };
+    default:
+      return { icon: null, label: m.role, cls: "text-fg" };
+  }
 }

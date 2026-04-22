@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { VideoState } from "../lib/types";
 import { createVideo, deleteVideo, renameVideo } from "../lib/ipc";
+import { I } from "../lib/icons";
 
 function slugify(s: string): string {
   return s
@@ -15,12 +16,16 @@ export function VideoRail({
   videos,
   activeSlug,
   onSelect,
+  onEdit,
   onReload,
 }: {
   projectPath: string;
   videos: VideoState[];
   activeSlug: string | null;
   onSelect: (slug: string) => void;
+  /** Click the pencil glyph on a tab: selects that video AND flips Workspace
+   *  into timeline mode. Gated on hasSegments — the glyph is hidden otherwise. */
+  onEdit?: (slug: string) => void;
   onReload: () => Promise<void>;
 }) {
   const [modalOpen, setModalOpen] = useState(false);
@@ -79,36 +84,65 @@ export function VideoRail({
   return (
     <>
       <div
-        className="flex items-center gap-1 overflow-x-auto border-b border-border bg-panel/60 px-2 py-1 font-mono text-[11px]"
+        className="flex items-center gap-1 overflow-x-auto border-b border-border bg-panel/60 px-2 pt-1 font-mono text-[11px]"
         onClick={() => setMenu(null)}
       >
         {videos.map((v) => {
           const active = v.slug === activeSlug;
+          const canEdit = !!onEdit && v.hasSegments;
           return (
-            <button
+            <div
               key={v.slug}
-              onClick={() => onSelect(v.slug)}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setMenu({ slug: v.slug, x: e.clientX, y: e.clientY });
               }}
-              className={`flex items-center gap-2 rounded border px-2 py-1 whitespace-nowrap ${
+              className={`group flex items-center gap-1 rounded-t border-x border-t px-1 py-0 -mb-px whitespace-nowrap transition-colors ${
                 active
-                  ? "border-accent bg-accent/10 text-accent"
-                  : "border-border text-muted hover:border-accent hover:text-fg"
+                  ? "border-border border-b-bg bg-bg text-fg"
+                  : "border-transparent text-muted hover:bg-panel hover:text-fg"
               }`}
             >
-              <span>{v.title || v.slug}</span>
-              <span className="text-[9px] opacity-70">▸ {v.phase}</span>
-              {active && <span className="text-[9px] uppercase">current</span>}
-            </button>
+              <button
+                onClick={() => onSelect(v.slug)}
+                className="flex items-center gap-2 py-1.5 pl-1.5 pr-1"
+              >
+                {active ? (
+                  <I.Clapperboard size={13} className="text-accent" />
+                ) : (
+                  <I.Film size={13} className="text-accent/60" />
+                )}
+                <span className="max-w-[18ch] truncate">{v.title || v.slug}</span>
+                <span
+                  className={`rounded px-1 text-[9px] uppercase ${
+                    active ? "bg-accent/10 text-accent" : "text-muted/80"
+                  }`}
+                >
+                  {v.phase}
+                </span>
+              </button>
+              {canEdit && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit!(v.slug);
+                  }}
+                  title="Open in timeline editor"
+                  className="flex items-center justify-center rounded px-1 py-0.5 text-muted/60 opacity-0 transition-opacity hover:text-accent2 group-hover:opacity-100 data-[active=true]:opacity-100"
+                  data-active={active}
+                >
+                  <I.Pencil size={11} />
+                </button>
+              )}
+            </div>
           );
         })}
         <button
           onClick={() => setModalOpen(true)}
-          className="ml-1 rounded border border-dashed border-border px-2 py-1 text-muted hover:border-accent hover:text-accent"
+          className="ml-1 flex items-center gap-1 rounded border border-dashed border-border px-2 py-1 text-muted hover:border-accent hover:text-accent"
         >
-          + NEW VIDEO
+          <I.Plus size={12} />
+          <span>NEW VIDEO</span>
         </button>
       </div>
 
@@ -122,9 +156,9 @@ export function VideoRail({
               handleRename(menu.slug);
               setMenu(null);
             }}
-            className="block w-full px-3 py-1.5 text-left font-mono text-[11px] hover:bg-accent/10"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-[11px] hover:bg-accent/10"
           >
-            rename
+            <I.Pencil size={12} /> rename
           </button>
           <button
             onClick={() => {
@@ -132,9 +166,9 @@ export function VideoRail({
               handleDelete(menu.slug, !!v?.hasFinal);
               setMenu(null);
             }}
-            className="block w-full px-3 py-1.5 text-left font-mono text-[11px] text-red-400 hover:bg-accent/10"
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-[11px] text-accent2 hover:bg-accent2/10"
           >
-            delete
+            <I.Trash size={12} /> delete
           </button>
         </div>
       )}
@@ -149,7 +183,9 @@ export function VideoRail({
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-md rounded border border-border bg-bg p-4 font-mono text-sm"
           >
-            <h2 className="text-accent">NEW VIDEO</h2>
+            <h2 className="flex items-center gap-2 text-accent">
+              <I.Clapperboard size={16} /> NEW VIDEO
+            </h2>
             <label className="mt-3 block text-[11px] uppercase text-muted">title</label>
             <input
               autoFocus
@@ -184,7 +220,7 @@ export function VideoRail({
                 </select>
               </>
             )}
-            {err && <p className="mt-3 text-xs text-red-400">{err}</p>}
+            {err && <p className="mt-3 text-xs text-accent2">{err}</p>}
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"

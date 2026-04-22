@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listKnownProjects, forgetProject, type KnownProject } from "../lib/ipc";
+import { I } from "../lib/icons";
 
 export function ProjectRail({
   activePath,
@@ -33,23 +34,26 @@ export function ProjectRail({
     >
       <div className="flex items-center justify-between border-b border-border px-2 py-2">
         {expanded && (
-          <span className="font-mono text-[11px] uppercase text-muted">projects</span>
+          <span className="flex items-center gap-1.5 font-mono text-[11px] uppercase text-muted">
+            <I.Layers size={12} strokeWidth={1.75} className="text-accent/70" />
+            <span>projects</span>
+          </span>
         )}
         <button
           onClick={() => setExpanded((v) => !v)}
-          className="font-mono text-[11px] text-muted hover:text-fg"
+          className="flex items-center rounded p-1 text-muted hover:bg-panel hover:text-fg"
           title={expanded ? "Collapse" : "Expand"}
         >
-          {expanded ? "◂" : "▸"}
+          {expanded ? <I.PanelLeftClose size={14} /> : <I.PanelLeft size={14} />}
         </button>
       </div>
 
       <button
         onClick={onNew}
-        className="m-2 flex items-center gap-2 rounded border border-border px-2 py-1 text-left font-mono text-[11px] text-accent hover:border-accent hover:bg-accent/5"
+        className="m-2 flex items-center gap-2 rounded border border-border px-2 py-1.5 text-left font-mono text-[11px] text-accent hover:border-accent hover:bg-accent/5"
         title="New or open project"
       >
-        <span>＋</span>
+        <I.FolderPlus size={14} className="shrink-0" />
         {expanded && <span>NEW / OPEN</span>}
       </button>
 
@@ -73,17 +77,21 @@ export function ProjectRail({
               }
               title={expanded ? p.path : `${p.name} — ${p.path}`}
             >
-              <span className="shrink-0 text-accent">▸</span>
+              {isActive ? (
+                <I.FolderOpen size={13} className="shrink-0 text-accent" />
+              ) : (
+                <I.Folder size={13} className="shrink-0 text-accent/70" />
+              )}
               {expanded && (
                 <>
                   <span className="min-w-0 flex-1 truncate">{p.name}</span>
                   {!p.exists && <span className="text-[9px] text-accent2">missing</span>}
                   <button
                     onClick={(e) => forget(e, p.path)}
-                    className="hidden shrink-0 text-[10px] text-muted hover:text-accent2 group-hover:inline"
+                    className="hidden shrink-0 rounded p-0.5 text-muted hover:bg-accent2/10 hover:text-accent2 group-hover:inline-flex"
                     title="Forget this project (does not delete files)"
                   >
-                    ✕
+                    <I.X size={11} />
                   </button>
                 </>
               )}

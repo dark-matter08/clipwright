@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { readTextFile } from "../lib/ipc";
+import { I } from "../lib/icons";
 
 export function FileViewer({
   absPath,
@@ -23,9 +24,18 @@ export function FileViewer({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex items-center justify-between border-b border-border bg-panel/60 px-3 py-1 font-mono text-xs">
-        <span className="text-accent">{rel}</span>
-        <button onClick={onClose} className="text-muted hover:text-fg">CLOSE ✕</button>
+      <div className="flex items-center justify-between border-b border-border bg-panel/60 px-3 py-1.5 font-mono text-xs">
+        <span className="flex items-center gap-1.5 text-accent">
+          <I.FileText size={12} />
+          <span>{rel}</span>
+        </span>
+        <button
+          onClick={onClose}
+          className="flex items-center gap-1 rounded p-1 text-muted hover:bg-panel hover:text-fg"
+        >
+          <I.X size={12} />
+          <span className="text-[10px] uppercase">close</span>
+        </button>
       </div>
       <div className="flex-1 overflow-auto px-3 py-2 font-mono text-xs">
         {error && <p className="text-accent2">{error}</p>}

@@ -5,6 +5,7 @@ import {
   clearActiveSession,
   type SessionInfo,
 } from "../lib/ipc";
+import { I } from "../lib/icons";
 
 export function SessionsPane({
   projectPath,
@@ -52,12 +53,13 @@ export function SessionsPane({
 
   return (
     <div className="flex max-h-[40%] shrink-0 flex-col overflow-hidden border-b border-border">
-      <div className="flex items-center justify-between border-b border-border px-2 py-1">
+      <div className="flex items-center justify-between border-b border-border bg-panel/40 px-2 py-1">
         <button
           onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-2 font-mono text-[11px] uppercase text-muted hover:text-fg"
+          className="flex items-center gap-1.5 font-mono text-[11px] uppercase text-muted hover:text-fg"
         >
-          <span>{open ? "▾" : "▸"}</span>
+          {open ? <I.ChevronDown size={11} /> : <I.ChevronRight size={11} />}
+          <I.Bot size={11} className="text-accent/70" />
           <span>sessions</span>
           <span className="normal-case text-[10px] text-muted">
             ({sessions.length}
@@ -66,10 +68,11 @@ export function SessionsPane({
         </button>
         <button
           onClick={newSession}
-          className="font-mono text-[10px] text-accent hover:underline"
+          className="flex items-center gap-1 rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-accent hover:border-accent hover:bg-accent/5"
           title="Start a new session — prior sessions remain available below"
         >
-          + NEW
+          <I.Plus size={10} />
+          <span>NEW</span>
         </button>
       </div>
       {open && (
@@ -80,7 +83,7 @@ export function SessionsPane({
           {active && <SessionRow session={active} onResume={activate} isActive />}
           {!active && sessions.length > 0 && (
             <p className="border-b border-border px-2 py-1 font-mono text-[10px] text-muted">
-              // no active session — RESUME one below, or send a message to start fresh
+              // no active session — resume one below, or send a message to start fresh
             </p>
           )}
           {others.map((s) => (
@@ -104,13 +107,19 @@ function SessionRow({
   return (
     <div
       className={
-        "flex items-start justify-between gap-2 border-b border-border px-2 py-1 font-mono text-[10px] " +
+        "flex items-start justify-between gap-2 border-b border-border px-2 py-1.5 font-mono text-[10px] " +
         (isActive ? "border-l-2 border-l-accent bg-panel" : "hover:bg-panel/50")
       }
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-fg">{session.id.slice(0, 8)}</span>
+          <I.Bot
+            size={10}
+            className={isActive ? "text-accent" : "text-muted/70"}
+          />
+          <span className={isActive ? "text-fg" : "text-muted"}>
+            {session.id.slice(0, 8)}
+          </span>
           {isActive && (
             <span className="rounded bg-accent/20 px-1 text-[9px] uppercase text-accent">
               current
@@ -120,7 +129,7 @@ function SessionRow({
             {fmtDate(session.lastModified)} · {session.messageCount}
           </span>
         </div>
-        <div className="mt-1 truncate text-muted">{session.firstMessage || "(empty)"}</div>
+        <div className="mt-0.5 truncate text-muted">{session.firstMessage || "(empty)"}</div>
       </div>
       {!isActive && (
         <button
