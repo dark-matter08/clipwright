@@ -27,11 +27,15 @@ def test_flat_on_navigate():
     assert zooms == {1.0}
 
 
-def test_click_produces_punch():
+def test_click_is_flat():
+    # Camera was flattened to 1.0 for all action types to avoid jitter
+    # (see keyframes.py module docstring). Verify click doesn't produce
+    # any zoom above 1.0.
     moments = [{"t": 1.0, "type": "click", "label": "tap", "fields": {}}]
     plan = build_keyframes([_seg(0.5, 3.0, moments)])
-    peaks = [k.zoom for k in plan.keyframes if k.zoom > 1.0]
-    assert peaks and max(peaks) == ZOOM_BY_TYPE["click"]
+    assert ZOOM_BY_TYPE["click"] == 1.0, "click zoom must stay flat until camera motion is re-enabled"
+    zooms = {round(k.zoom, 2) for k in plan.keyframes}
+    assert zooms == {1.0}
 
 
 def test_type_peaks_higher_than_click():

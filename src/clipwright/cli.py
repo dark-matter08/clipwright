@@ -1,6 +1,7 @@
 """Typer entrypoint. One subcommand per pipeline stage."""
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -13,9 +14,11 @@ from .captions.png_renderer import CaptionStyle, render_all
 from .edit import keyframes as keyframes_mod
 from .edit import segments as segments_mod
 from .edit.trim import trim as trim_impl
+from .errors import ClipwrightError
 from .ffmpeg import probe_duration, require, stretch_audio
 from .outro.brand import BrandConfig
 from .outro.render import render_outro
+from .pipeline import Pipeline
 from .plan import script_skeleton
 from .record.playwright_recorder import record as record_impl
 from .render import remotion_backend
@@ -31,6 +34,21 @@ def _root(path: Path | None) -> Path:
 
 def _load_cfg(root: Path) -> config.ProjectConfig:
     return config.load(root)
+
+
+def _cache_hash(*parts: str) -> str:
+    return hashlib.sha256("\0".join(parts).encode()).hexdigest()
+
+
+def _read_cache(path: Path) -> str | None:
+    try:
+        return json.loads(path.read_text()).get("hash")
+    except Exception:
+        return None
+
+
+def _write_cache(path: Path, h: str) -> None:
+    path.write_text(json.dumps({"hash": h}))
 
 
 @app.callback()
@@ -56,41 +74,29 @@ def init(
     )
     config.write(directory, cfg)
 
-    (directory / "browse-plan.json").write_text(
-        json.dumps(
+    browse_plan = {
+        "viewport": {"width": 540, "height": 960, "mobile": True},
+        "base_url": url,
+        "actions": [
             {
-                "viewport": {"width": 540, "height": 960, "mobile": True},
-                "base_url": url,
-                "actions": [
-                    {
-                        "type": "navigate",
-                        "label": "Open the landing page",
-                        "fields": {"url": "/"},
-                        "wait": 1.5,
-                    },
-                    {
-                        "type": "scroll",
-                        "label": "Browse what's on offer",
-                        "fields": {"by_y": 600},
-                        "wait": 1.2,
-                    },
-                ],
+                "type": "navigate",
+                "label": "Open the landing page",
+                "chapter": "intro",
+                "fields": {"url": "/"},
+                "wait": 2.5,
             },
-            indent=2,
-        )
-        + "\n"
-    )
-    # Legacy demo.py — still supported, but `browse-plan.json` is preferred.
-    (directory / "demo.py").write_text(
-        '"""Legacy Playwright user script. Prefer browse-plan.json.\n\n'
-        'Run: clipwright record   (reads demo.py)\n'
-        'Or:  clipwright record --plan browse-plan.json\n"""\n\n\n'
-        "async def run(page, mark):\n"
-        '    await page.wait_for_load_state("networkidle")\n'
-        "    await page.wait_for_timeout(800)\n"
-        '    await mark("settle")\n'
-    )
+            {
+                "type": "scroll",
+                "label": "Browse what's on offer",
+                "chapter": "intro",
+                "fields": {"by_y": 600},
+                "wait": 2.5,
+            },
+        ],
+    }
+    (directory / "browse-plan.json").write_text(json.dumps(browse_plan, indent=2) + "\n")
     rprint(f"[green]Initialized[/green] {directory}")
+    rprint("[dim]Next: edit browse-plan.json, then run `clipwright build`[/dim]")
 
 
 @app.command()
@@ -193,12 +199,18 @@ app.add_typer(script_app, name="script")
 def script_init(
     project: Path = typer.Option(None, "--project"),
     overwrite: bool = typer.Option(False, "--overwrite", help="Discard any existing text."),
+    draft: bool = typer.Option(
+        False,
+        "--draft",
+        help="Auto-fill text fields with heuristic copy derived from action hints. "
+        "Good starting point for non-Claude-Code users; refine before TTS.",
+    ),
 ) -> None:
     """Generate a script.json skeleton from segments.json.
 
     Writes one clip per segment with `target_seconds` + `hint` (from moment
     labels). Claude Code fills each clip's `text` field next — the CLI
-    never calls an LLM.
+    never calls an LLM. Pass --draft to pre-fill copy from action hints.
     """
     root = _root(project)
     cfg = _load_cfg(root)
@@ -207,7 +219,7 @@ def script_init(
     if not segments_path.exists():
         raise typer.BadParameter(f"missing {segments_path} — run `clipwright segments` first")
     script_path = (root / cfg.voice_script).resolve()
-    skeleton = script_skeleton.run(segments_path, script_path, overwrite=overwrite)
+    skeleton = script_skeleton.run(segments_path, script_path, overwrite=overwrite, draft=draft)
     clips = skeleton.get("clips") or []
     missing = [c["id"] for c in clips if not c.get("text")]
     rprint(
@@ -216,7 +228,7 @@ def script_init(
     )
 
 
-@app.command("edit-plan")
+@app.command("review")
 def edit_plan(
     project: Path = typer.Option(None, "--project"),
 ) -> None:
@@ -247,11 +259,21 @@ def edit_plan(
         rprint("[yellow]No camera.json — run `clipwright keyframes`.[/yellow]")
 
 
+@app.command("edit-plan", hidden=True)
+def edit_plan_deprecated(
+    project: Path = typer.Option(None, "--project"),
+) -> None:
+    """Deprecated alias for `clipwright review`."""
+    rprint("[yellow]`edit-plan` is deprecated — use `clipwright review` instead.[/yellow]")
+    edit_plan(project=project)
+
+
 @app.command()
 def tts(
     script_path: Path = typer.Argument(None, help="Voiceover script JSON (defaults to config.voice_script)."),
     project: Path = typer.Option(None, "--project"),
     provider: str = typer.Option(None, "--provider", help="Override tts_provider (kokoro | piper | elevenlabs)."),
+    force: bool = typer.Option(False, "--force", help="Re-synthesize even when cache is valid."),
 ) -> None:
     """Synthesize voiceover per beat, emitting audio + char-level timestamps."""
     root = _root(project)
@@ -269,11 +291,23 @@ def tts(
             rprint(f"[yellow]Skip[/yellow] {cid}: empty text")
             continue
         voice = clip.get("voice") or clip.get("voice_id") or (cfg.voice_id or None)
+        target = clip.get("target_seconds")
         mp3 = audio_dir / f"{cid}.mp3"
         ts = audio_dir / f"{cid}.timestamps.json"
+        cache_file = audio_dir / f"{cid}.cache.json"
+
+        clip_hash = _cache_hash(
+            clip["text"],
+            voice or "",
+            provider_name,
+            str(target or ""),
+        )
+        if not force and mp3.exists() and ts.exists() and _read_cache(cache_file) == clip_hash:
+            rprint(f"[dim]TTS[/dim] ({provider_name}) {cid}: [dim]cached[/dim]")
+            continue
+
         tts_provider.synthesize(clip["text"], out_mp3=mp3, out_timestamps=ts, voice=voice)
 
-        target = clip.get("target_seconds")
         if target:
             cur = probe_duration(mp3)
             # Only speed up if audio is longer than the segment — never slow
@@ -289,11 +323,13 @@ def tts(
                     if key in align:
                         align[key] = [round(t / ratio, 4) for t in align[key]]
                 ts.write_text(json.dumps(align))
+                _write_cache(cache_file, clip_hash)
                 rprint(
                     f"[green]TTS[/green] ({provider_name}) {cid}: "
                     f"{cur:.2f}s → {float(target):.2f}s (ratio {ratio:.3f})"
                 )
                 continue
+        _write_cache(cache_file, clip_hash)
         rprint(f"[green]TTS[/green] ({provider_name}) {cid}")
 
 
@@ -301,6 +337,7 @@ def tts(
 def caption(
     project: Path = typer.Option(None, "--project"),
     style_path: Path = typer.Option(None, "--style", help="CaptionStyle JSON override."),
+    force: bool = typer.Option(False, "--force", help="Re-render PNGs even when cache is valid."),
 ) -> None:
     """Chunk timestamps into 2-word UPPERCASE frames and render caption PNGs."""
     root = _root(project)
@@ -314,12 +351,23 @@ def caption(
         if style_path
         else CaptionStyle(width=cfg.resolution[0], height=cfg.resolution[1])
     )
+    style_key = style_path.read_text() if style_path else f"{cfg.resolution[0]}x{cfg.resolution[1]}"
     for ts_path in sorted(audio_dir.glob("*.timestamps.json")):
         cid = ts_path.name.removesuffix(".timestamps.json")
-        align = json.loads(ts_path.read_text())
+        ts_content = ts_path.read_text()
+        cap_hash = _cache_hash(ts_content, style_key)
+        cache_file = subs_dir / f"{cid}.cache.json"
+        png_dir = subs_dir / cid
+        if not force and png_dir.exists() and _read_cache(cache_file) == cap_hash:
+            align = json.loads(ts_content)
+            chunks = chunk_words(chars_to_words(align), n=2, upper=True)
+            rprint(f"[dim]Caption[/dim] {cid}: [dim]cached ({len(chunks)} chunks)[/dim]")
+            continue
+        align = json.loads(ts_content)
         words = chars_to_words(align)
         chunks = chunk_words(words, n=2, upper=True)
-        render_all(chunks, style, subs_dir / cid)
+        render_all(chunks, style, png_dir)
+        _write_cache(cache_file, cap_hash)
         rprint(f"[green]Caption[/green] {cid}: {len(chunks)} chunks")
 
 
@@ -489,6 +537,156 @@ def _render_remotion(
         out=out_final,
     )
     rprint(f"[green]Rendered (remotion)[/green] {out_final}")
+
+
+def _handle_error(exc: ClipwrightError) -> None:
+    rprint(exc.rich_message())
+    raise typer.Exit(1)
+
+
+@app.command()
+def build(
+    project: Path = typer.Option(None, "--project"),
+    backend: str = typer.Option("remotion", "--backend", help="ffmpeg | remotion"),
+    provider: str = typer.Option(None, "--provider", help="Override tts_provider."),
+    force: bool = typer.Option(False, "--force", help="Force re-run TTS and captions."),
+    no_outro: bool = typer.Option(False, "--no-outro"),
+    no_captions: bool = typer.Option(False, "--no-captions"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip TTS confirmation prompt."),
+) -> None:
+    """Run the full pipeline in one command (segments → render), skipping up-to-date stages."""
+    import sys
+
+    root = _root(project)
+
+    def on_event(ev: object) -> None:
+        from .pipeline import (
+            ConfirmRequested,
+            StageCompleted,
+            StageFailed,
+            StageSkipped,
+            StageStarted,
+        )
+        if isinstance(ev, StageStarted):
+            rprint(f"[bold cyan]→[/bold cyan] {ev.stage}")
+        elif isinstance(ev, StageCompleted):
+            detail = f" [dim]{ev.detail}[/dim]" if ev.detail else ""
+            rprint(f"[green]✓[/green] {ev.stage}{detail}")
+        elif isinstance(ev, StageSkipped):
+            rprint(f"[dim]–[/dim] [dim]{ev.stage}: {ev.reason}[/dim]")
+        elif isinstance(ev, StageFailed):
+            rprint(ev.error.rich_message())
+        elif isinstance(ev, ConfirmRequested):
+            rprint(ev.prompt)
+
+    def confirm_tts() -> bool:
+        if yes:
+            return True
+        return typer.confirm("Proceed with TTS synthesis?", default=True)
+
+    pipeline = Pipeline.from_dir(root, on_event=on_event)
+    try:
+        out = pipeline.build(
+            provider=provider,
+            backend=backend,
+            force_tts=force,
+            force_captions=force,
+            no_outro=no_outro,
+            no_captions=no_captions,
+            confirm_tts=confirm_tts,
+        )
+        rprint(f"\n[bold green]Done[/bold green] → {out}")
+    except ClipwrightError as exc:
+        _handle_error(exc)
+    except Exception as exc:
+        rprint(f"[red]Error:[/red] {exc}")
+        sys.exit(1)
+
+
+@app.command()
+def status(
+    project: Path = typer.Option(None, "--project"),
+) -> None:
+    """Show which pipeline artifacts exist for the current project."""
+    root = _root(project)
+    pipeline = Pipeline.from_dir(root)
+    state = pipeline.status()
+    rprint(f"[bold]Project:[/bold] {root}")
+    for a in state.artifacts:
+        if a.exists:
+            rprint(f"  [green]✓[/green] {a.name:<12} {a.path}")
+        else:
+            rprint(f"  [dim]–[/dim] [dim]{a.name:<12} (missing)[/dim]")
+
+
+@app.command()
+def doctor(
+    project: Path = typer.Option(None, "--project"),
+) -> None:
+    """Preflight check: verify tools, Python version, API keys, and project config."""
+    import shutil
+    import sys
+
+    ok = True
+
+    def check(label: str, passed: bool, fix: str = "") -> None:
+        nonlocal ok
+        if passed:
+            rprint(f"  [green]✓[/green] {label}")
+        else:
+            ok = False
+            rprint(f"  [red]✗[/red] {label}" + (f"\n    [yellow]Fix:[/yellow] {fix}" if fix else ""))
+
+    rprint("[bold]Clipwright doctor[/bold]")
+    rprint("")
+
+    rprint("[bold]Runtime[/bold]")
+    v = sys.version_info
+    check(
+        f"Python {v.major}.{v.minor}.{v.micro}",
+        v >= (3, 10) and v < (3, 13),
+        "Use Python 3.10–3.12. Python 3.13+ is not yet supported by ML TTS backends.",
+    )
+    check("ffmpeg on PATH", shutil.which("ffmpeg") is not None, "Install ffmpeg: brew install ffmpeg")
+    check("ffprobe on PATH", shutil.which("ffprobe") is not None, "Install ffmpeg (includes ffprobe)")
+    node_ok = shutil.which("node") is not None
+    check("node on PATH (optional, for remotion backend)", node_ok, "Install Node ≥ 18 to use --backend remotion")
+
+    rprint("")
+    root = _root(project)
+    rprint(f"[bold]Project ({root})[/bold]")
+    cfg_path = root / config.CONFIG_NAME
+    check(
+        ".clipwright.json found",
+        cfg_path.exists(),
+        "clipwright init <dir>",
+    )
+    if cfg_path.exists():
+        cfg = _load_cfg(root)
+        check(
+            f"tts_provider={cfg.tts_provider!r} configured",
+            cfg.tts_provider in ("kokoro", "piper", "elevenlabs"),
+            "Set tts_provider to kokoro, piper, or elevenlabs in .clipwright.json",
+        )
+        if cfg.tts_provider == "elevenlabs":
+            import os
+            env_path = root / ".env"
+            key_in_env = False
+            if env_path.exists():
+                key_in_env = "ELEVENLABS_API_KEY" in env_path.read_text()
+            key_in_os = bool(os.environ.get("ELEVENLABS_API_KEY"))
+            check(
+                "ELEVENLABS_API_KEY set",
+                key_in_env or key_in_os,
+                "Add ELEVENLABS_API_KEY=... to .env in the project root",
+            )
+
+    rprint("")
+    if ok:
+        rprint("[green]All checks passed.[/green]")
+    else:
+        rprint("[yellow]Some checks failed — fix the issues above and re-run `clipwright doctor`.[/yellow]")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":
