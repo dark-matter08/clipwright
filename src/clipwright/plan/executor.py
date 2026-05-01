@@ -40,10 +40,37 @@ def _load_auth_helper(spec: str, plan_dir: Path) -> Callable[[Any], Awaitable[No
     return fn
 
 
+async def _get_bbox(page, action: Action) -> dict | None:
+    """Return {x, y, w, h} in CSS pixels for locator-bearing actions, else None.
+
+    Called BEFORE the action so the element is still in its pre-interaction state.
+    Failures are silently swallowed — bbox is best-effort metadata.
+    """
+    if action.type not in {"click", "type", "hover"}:
+        return None
+    if not any(action.fields.get(k) for k in ("selector", "test_id", "role", "text")):
+        return None
+    try:
+        loc = _resolve_locator(page, action.fields)
+        bb = await loc.bounding_box()
+        if bb:
+            return {
+                "x": round(bb["x"], 1),
+                "y": round(bb["y"], 1),
+                "w": round(bb["width"], 1),
+                "h": round(bb["height"], 1),
+            }
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 async def _execute_action(page, action: Action, base_url: str, mark) -> None:
     handler = _HANDLERS.get(action.type)
     if handler is None:
         raise ValueError(f"no handler for action type {action.type!r}")
+    # Capture bbox before the action so element state is pre-interaction.
+    bbox = await _get_bbox(page, action)
     await handler(page, action, base_url)
     await page.wait_for_timeout(int(action.wait * 1000))
     await mark(
@@ -52,6 +79,7 @@ async def _execute_action(page, action: Action, base_url: str, mark) -> None:
         fields=action.fields,
         wait=action.wait,
         chapter=action.chapter,
+        bbox=bbox,
     )
 
 

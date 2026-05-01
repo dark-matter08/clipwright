@@ -132,6 +132,7 @@ class Pipeline:
             ("moments", od / "moments.json"),
             ("segments", od / "segments.json"),
             ("camera", od / "camera.json"),
+            ("annotations", od / "annotations.json"),
             ("script", self.root / self.cfg.voice_script),
             ("audio", od / "audio"),
             ("captions", od / "subs"),
@@ -182,6 +183,19 @@ class Pipeline:
             )
         plan = keyframes_mod.run(segs_path, od / "camera.json", fps=self.cfg.fps)
         return len(plan.keyframes)
+
+    def run_annotations(self) -> int:
+        from .edit import annotations as annotations_mod
+        od = self.out_dir
+        segs_path = od / "segments.json"
+        if not segs_path.exists():
+            raise ClipwrightError(
+                "segments.json not found",
+                fix="clipwright segments",
+                docs="docs/troubleshooting.md#missing-segments",
+            )
+        result = annotations_mod.run(segs_path, od / "annotations.json")
+        return len(result.get("events", []))
 
     def run_script_init(self, *, overwrite: bool = False, draft: bool = False) -> dict[str, Any]:
         from .plan import script_skeleton
@@ -494,6 +508,12 @@ class Pipeline:
             _stage("keyframes", self.run_keyframes, lambda n: f"{n} keyframes")
         else:
             ev(StageSkipped("keyframes"))
+
+        # annotations (best-effort — may produce 0 events if no bbox data yet)
+        if not (od / "annotations.json").exists():
+            _stage("annotations", self.run_annotations, lambda n: f"{n} annotation event(s)")
+        else:
+            ev(StageSkipped("annotations"))
 
         # script init
         script_path = (self.root / self.cfg.voice_script).resolve()

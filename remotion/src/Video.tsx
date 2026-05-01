@@ -13,6 +13,9 @@ export const ClipwrightVideo: React.FC<Inputs> = ({
   keyframes,
   outro,
   outro_duration,
+  viewport_w,
+  viewport_h,
+  annotations,
 }) => {
   let offsetFrames = 0;
   return (
@@ -32,6 +35,9 @@ export const ClipwrightVideo: React.FC<Inputs> = ({
                 width={width}
                 height={height}
                 gradient={gradient}
+                annotations={annotations}
+                viewportW={viewport_w}
+                viewportH={viewport_h}
               />
             </Series.Sequence>
           );

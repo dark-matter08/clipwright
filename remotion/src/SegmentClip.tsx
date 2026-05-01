@@ -2,7 +2,8 @@ import React from "react";
 import { AbsoluteFill, Audio, OffthreadVideo, Img, staticFile, useVideoConfig } from "remotion";
 import { CameraWrapper } from "./CameraWrapper";
 import { Captions } from "./Captions";
-import type { Keyframe, Segment } from "./schema";
+import { AnnotationOverlay } from "./components/AnnotationOverlay";
+import type { AnnotationEvent, Keyframe, Segment } from "./schema";
 
 /**
  * Renders one segment: gradient background + zoomable video crop + audio + captions.
@@ -17,7 +18,10 @@ export const SegmentClip: React.FC<{
   width: number;
   height: number;
   gradient: string | null;
-}> = ({ segment, sourceVideo, keyframes, offsetFrames, width, height, gradient }) => {
+  annotations?: AnnotationEvent[];
+  viewportW?: number;
+  viewportH?: number;
+}> = ({ segment, sourceVideo, keyframes, offsetFrames, width, height, gradient, annotations = [], viewportW = 540, viewportH = 960 }) => {
   const { fps } = useVideoConfig();
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
@@ -54,6 +58,17 @@ export const SegmentClip: React.FC<{
             }}
           />
         </div>
+
+        {/* Motion-graphic annotation overlays (click ripples, highlight rings).
+            Placed inside CameraWrapper so they follow zoom/pan transforms. */}
+        <AnnotationOverlay
+          annotations={annotations}
+          offsetFrames={offsetFrames}
+          viewportW={viewportW}
+          viewportH={viewportH}
+          canvasW={width}
+          canvasH={height}
+        />
       </CameraWrapper>
 
       {segment.audio_path ? <Audio src={staticFile(segment.audio_path)} /> : null}

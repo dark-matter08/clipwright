@@ -65,6 +65,8 @@ def build_inputs(
 ) -> dict:
     segments_doc = json.loads((out_dir / "segments.json").read_text())
     camera_doc = json.loads((out_dir / "camera.json").read_text())
+    annotations_path = out_dir / "annotations.json"
+    annotations_doc = json.loads(annotations_path.read_text()) if annotations_path.exists() else {}
     audio_dir = out_dir / "audio"
     subs_dir = out_dir / "subs"
 
@@ -121,6 +123,9 @@ def build_inputs(
         "outro": outro_key,
         "outro_duration": float(outro_duration) if outro else 0.0,
         "brand_title": brand_title,
+        "viewport_w": int(annotations_doc.get("viewport_w", 540)),
+        "viewport_h": int(annotations_doc.get("viewport_h", 960)),
+        "annotations": annotations_doc.get("events", []),
     }
 
 

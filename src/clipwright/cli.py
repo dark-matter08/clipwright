@@ -11,6 +11,7 @@ from rich import print as rprint
 from . import __version__, config
 from .captions.chunker import chars_to_words, chunk_words
 from .captions.png_renderer import CaptionStyle, render_all
+from .edit import annotations as annotations_mod
 from .edit import keyframes as keyframes_mod
 from .edit import segments as segments_mod
 from .edit.trim import trim as trim_impl
@@ -189,6 +190,25 @@ def keyframes(
         f"[green]Keyframes[/green] {len(plan.keyframes)} over "
         f"{plan.total_duration:.2f}s -> {out_dir / 'camera.json'}"
     )
+
+
+@app.command()
+def annotations(
+    project: Path = typer.Option(None, "--project"),
+) -> None:
+    """Build annotations.json — motion-graphic overlay events — from segments.json."""
+    root = _root(project)
+    cfg = _load_cfg(root)
+    out_dir = cfg.resolve_out(root)
+    segs_path = out_dir / "segments.json"
+    if not segs_path.exists():
+        raise ClipwrightError(
+            f"missing {segs_path} — run `clipwright segments` first",
+            fix="clipwright segments",
+        )
+    result = annotations_mod.run(segs_path, out_dir / "annotations.json")
+    n = len(result.get("events", []))
+    rprint(f"[green]Annotations[/green] {n} event(s) -> {out_dir / 'annotations.json'}")
 
 
 script_app = typer.Typer(no_args_is_help=True, help="Voiceover script utilities.")

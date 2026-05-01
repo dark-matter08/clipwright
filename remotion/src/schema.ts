@@ -6,6 +6,24 @@ export const MomentSchema = z.object({
   label: z.string().default(""),
 });
 
+/**
+ * One motion-graphic overlay event on the output timeline.
+ * cx/cy/bw/bh are in recording CSS pixels (e.g. 540×960 viewport).
+ * Remotion components divide by viewport_w/viewport_h to get normalized
+ * coords, then multiply by the canvas size (1080×1920) for final positions.
+ */
+export const AnnotationEventSchema = z.object({
+  t_in: z.number(),
+  t_out: z.number(),
+  action_type: z.string(),
+  cx: z.number(),
+  cy: z.number(),
+  bw: z.number(),
+  bh: z.number(),
+  label: z.string().default(""),
+  chapter: z.string().default(""),
+});
+
 export const SegmentSchema = z.object({
   source_start: z.number(),
   source_end: z.number(),
@@ -34,8 +52,13 @@ export const InputsSchema = z.object({
   outro: z.string().nullable().default(null),
   outro_duration: z.number().default(0),
   brand_title: z.string().default("Clipwright"),
+  // Annotation overlays (motion graphics per action moment).
+  viewport_w: z.number().default(540),
+  viewport_h: z.number().default(960),
+  annotations: z.array(AnnotationEventSchema).default([]),
 });
 
 export type Inputs = z.infer<typeof InputsSchema>;
 export type Segment = z.infer<typeof SegmentSchema>;
 export type Keyframe = z.infer<typeof KeyframeSchema>;
+export type AnnotationEvent = z.infer<typeof AnnotationEventSchema>;
