@@ -133,6 +133,7 @@ class Pipeline:
             ("segments", od / "segments.json"),
             ("camera", od / "camera.json"),
             ("annotations", od / "annotations.json"),
+            ("brand", od / "brand"),
             ("script", self.root / self.cfg.voice_script),
             ("audio", od / "audio"),
             ("captions", od / "subs"),
@@ -183,6 +184,11 @@ class Pipeline:
             )
         plan = keyframes_mod.run(segs_path, od / "camera.json", fps=self.cfg.fps)
         return len(plan.keyframes)
+
+    def run_inspire(self, url: str) -> dict:
+        from .inspire.extractor import extract
+        brand_dir = self.out_dir / "brand"
+        return extract(url, brand_dir)
 
     def run_annotations(self) -> int:
         from .edit import annotations as annotations_mod

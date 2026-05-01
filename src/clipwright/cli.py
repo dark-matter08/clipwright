@@ -392,6 +392,43 @@ def caption(
 
 
 @app.command()
+def inspire(
+    url: str = typer.Argument(..., help="URL to extract brand assets from."),
+    project: Path = typer.Option(None, "--project"),
+) -> None:
+    """Extract brand assets (color, logo, hero, copy) from a URL into out/brand/.
+
+    Writes:
+      out/brand/copy.json        — {title, description, h1}
+      out/brand/primary_color    — hex color string
+      out/brand/hero.png         — OG image or full-page screenshot
+      out/brand/logo.png         — largest favicon (if found)
+
+    Re-running is safe — assets are regenerated deterministically from the URL.
+    Run this before `clipwright render --backend remotion` to activate branded
+    TitleCard and Outro scene components.
+    """
+    require()
+    root = _root(project)
+    cfg = _load_cfg(root)
+    out_dir = cfg.resolve_out(root)
+    brand_dir = out_dir / "brand"
+    rprint(f"[cyan]Fetching[/cyan] {url} …")
+    try:
+        from .inspire.extractor import extract
+        result = extract(url, brand_dir)
+    except Exception as exc:
+        raise ClipwrightError(
+            f"inspire failed: {exc}",
+            fix="Check the URL is reachable and Playwright is installed",
+            docs="docs/troubleshooting.md#inspire-failures",
+        ) from exc
+    rprint(f"[green]Brand color[/green]  {result['primary_color']}")
+    rprint(f"[green]Title[/green]        {result['copy'].get('title', '')[:60]}")
+    rprint(f"[green]Assets[/green]       {brand_dir}")
+
+
+@app.command()
 def outro(
     project: Path = typer.Option(None, "--project"),
     preset: str = typer.Option("cyberpunk", "--preset", help="Template name under templates/outros/."),

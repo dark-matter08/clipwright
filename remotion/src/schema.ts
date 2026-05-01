@@ -56,6 +56,11 @@ export const InputsSchema = z.object({
   viewport_w: z.number().default(540),
   viewport_h: z.number().default(960),
   annotations: z.array(AnnotationEventSchema).default([]),
+  // Brand assets from `clipwright inspire <url>`.
+  brand_color: z.string().default("#1a1a2e"),
+  brand_description: z.string().default(""),
+  brand_hero: z.string().nullable().default(null),
+  brand_logo: z.string().nullable().default(null),
 });
 
 export type Inputs = z.infer<typeof InputsSchema>;
