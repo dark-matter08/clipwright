@@ -185,6 +185,44 @@ class Pipeline:
         plan = keyframes_mod.run(segs_path, od / "camera.json", fps=self.cfg.fps)
         return len(plan.keyframes)
 
+    def run_generate(
+        self,
+        slot: str,
+        provider: str,
+        prompt: str,
+        *,
+        duration: float = 3.0,
+        fallback: bool = False,
+    ) -> dict:
+        from .generate.base import GenerateRequest, get_provider
+        gen_dir = self.out_dir / "generated"
+        gen_dir.mkdir(parents=True, exist_ok=True)
+        suffix = ".mp4" if slot in ("intro", "outro") or slot.startswith("broll") else ".png"
+        out_path = gen_dir / f"{slot}{suffix}"
+        brand_dir = self.out_dir / "brand"
+        image_refs = [brand_dir / n for n in ("hero.png", "logo.png") if (brand_dir / n).exists()]
+        prov = get_provider(provider)
+        if fallback:
+            try:
+                prov.validate_env()
+            except Exception:  # noqa: BLE001
+                return {"slot": slot, "cached": False, "fallback": True}
+        request = GenerateRequest(
+            slot=slot,
+            prompt=prompt,
+            image_refs=image_refs,
+            duration=duration,
+            width=self.cfg.resolution[0],
+            height=self.cfg.resolution[1],
+        )
+        try:
+            result = prov.generate(request, out_path)
+            return {"slot": slot, "path": str(result.path), "cached": result.cached, "fallback": False}
+        except Exception as exc:
+            if fallback:
+                return {"slot": slot, "cached": False, "fallback": True, "reason": str(exc)}
+            raise
+
     def run_inspire(self, url: str) -> dict:
         from .inspire.extractor import extract
         brand_dir = self.out_dir / "brand"

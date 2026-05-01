@@ -451,6 +451,158 @@ def outro(
     rprint(f"[green]Outro[/green] -> {out_path}")
 
 
+generate_app = typer.Typer(no_args_is_help=True, help="Generative scene utilities (BYOK, opt-in).")
+app.add_typer(generate_app, name="generate")
+
+
+def _generate_slot(
+    slot: str,
+    *,
+    project: Path | None,
+    provider: str,
+    prompt: str,
+    duration: float,
+    fallback: bool,
+    force: bool,
+) -> None:
+    """Shared implementation for all `generate <slot>` sub-commands."""
+    require()
+    root = _root(project)
+    cfg = _load_cfg(root)
+    out_dir = cfg.resolve_out(root)
+    gen_dir = out_dir / "generated"
+    gen_dir.mkdir(parents=True, exist_ok=True)
+
+    suffix = ".mp4" if slot in ("intro", "broll", "outro") else ".png"
+    out_path = gen_dir / f"{slot}{suffix}"
+
+    # Collect brand image refs for image-to-video conditioning.
+    brand_dir = out_dir / "brand"
+    image_refs: list[Path] = []
+    for name in ("hero.png", "logo.png"):
+        p = brand_dir / name
+        if p.exists():
+            image_refs.append(p)
+
+    if not image_refs and not fallback:
+        rprint("[yellow]Warning:[/yellow] No brand assets found. "
+               "Run `clipwright inspire <url>` first for brand-consistent output.")
+
+    from .generate.base import GenerateRequest, get_provider
+
+    try:
+        prov = get_provider(provider)
+        prov.validate_env()
+    except ClipwrightError as exc:
+        if fallback:
+            rprint(f"[yellow]Fallback:[/yellow] {exc} — using static scene")
+            return
+        _handle_error(exc)
+        return
+
+    request = GenerateRequest(
+        slot=slot,
+        prompt=prompt,
+        image_refs=image_refs,
+        duration=duration,
+        width=cfg.resolution[0],
+        height=cfg.resolution[1],
+    )
+
+    try:
+        result = prov.generate(request, out_path)
+        status_str = "[dim]cached[/dim]" if result.cached else "[green]generated[/green]"
+        rprint(f"{status_str} {out_path}")
+    except ClipwrightError as exc:
+        if fallback:
+            rprint(f"[yellow]Fallback:[/yellow] {exc} — using static scene")
+            return
+        _handle_error(exc)
+
+
+@generate_app.command("intro")
+def generate_intro(
+    project: Path = typer.Option(None, "--project"),
+    provider: str = typer.Option("veo", "--provider", help="veo | runway | dalle"),
+    prompt: str = typer.Option(
+        "Cinematic product reveal, atmospheric, minimal, dark background, 9:16 vertical",
+        "--prompt",
+        help="Generation prompt",
+    ),
+    duration: float = typer.Option(3.0, "--duration", help="Clip duration in seconds"),
+    fallback: bool = typer.Option(False, "--fallback", help="Fall back to static on failure"),
+    force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate"),
+) -> None:
+    """Generate a cinematic intro scene (uses brand image refs if available).
+
+    Requires `clipwright inspire <url>` to have been run first for on-brand output.
+    Writes out/generated/intro.mp4.
+    """
+    _generate_slot("intro", project=project, provider=provider, prompt=prompt,
+                   duration=duration, fallback=fallback, force=force)
+
+
+@generate_app.command("broll")
+def generate_broll(
+    chapter: str = typer.Argument(..., help="Chapter name to generate b-roll for"),
+    project: Path = typer.Option(None, "--project"),
+    provider: str = typer.Option("veo", "--provider", help="veo | runway | dalle"),
+    prompt: str = typer.Option("", "--prompt", help="Generation prompt (auto-derived from chapter if empty)"),
+    duration: float = typer.Option(2.5, "--duration", help="Clip duration in seconds"),
+    fallback: bool = typer.Option(False, "--fallback", help="Fall back to static on failure"),
+    force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate"),
+) -> None:
+    """Generate atmospheric b-roll for a chapter divider.
+
+    Writes out/generated/broll_<chapter>.mp4.
+    """
+    effective_prompt = prompt or f"Smooth atmospheric transition for {chapter!r} chapter, abstract motion"
+    _generate_slot(f"broll_{chapter}", project=project, provider=provider, prompt=effective_prompt,
+                   duration=duration, fallback=fallback, force=force)
+
+
+@generate_app.command("outro")
+def generate_outro_gen(
+    project: Path = typer.Option(None, "--project"),
+    provider: str = typer.Option("veo", "--provider", help="veo | runway | dalle"),
+    prompt: str = typer.Option(
+        "Branded outro reveal, elegant, minimal, dark background, vertical 9:16",
+        "--prompt",
+        help="Generation prompt",
+    ),
+    duration: float = typer.Option(3.0, "--duration", help="Clip duration in seconds"),
+    fallback: bool = typer.Option(False, "--fallback", help="Fall back to BrandedOutro on failure"),
+    force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate"),
+) -> None:
+    """Generate a cinematic outro (replaces BrandedOutro scene).
+
+    Writes out/generated/outro.mp4.
+    """
+    _generate_slot("outro", project=project, provider=provider, prompt=prompt,
+                   duration=duration, fallback=fallback, force=force)
+
+
+@generate_app.command("hero")
+def generate_hero(
+    project: Path = typer.Option(None, "--project"),
+    provider: str = typer.Option("dalle", "--provider", help="dalle (image only)"),
+    prompt: str = typer.Option(
+        "Minimalist product hero illustration, dark mode, clean, professional",
+        "--prompt",
+        help="Generation prompt",
+    ),
+    fallback: bool = typer.Option(False, "--fallback", help="Fall back to OG image on failure"),
+    force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate"),
+) -> None:
+    """Generate a static hero illustration for the TitleCard background.
+
+    Writes out/generated/hero.png and symlinks it as out/brand/hero.png.
+    Requires OPENAI_API_KEY.
+    """
+    _generate_slot("hero", project=project, provider=provider, prompt=prompt,
+                   duration=0.0, fallback=fallback, force=force)
+
+
 @app.command()
 def assets(
     gradient: str = typer.Option("dark", "--gradient", help="dark | light | <path to .jpg>"),
