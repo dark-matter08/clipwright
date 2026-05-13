@@ -32,11 +32,14 @@ from pathlib import Path
 from . import __version__
 from .ffmpeg import probe_duration, require, stretch_audio
 from .schema import (
+    Project,
     Segment,
     load_project,
-    load_timeline,
+    load_video,
 )
-from .schema.v1.project import Project
+from .schema import (
+    paths as schema_paths,
+)
 from .tts import PROVIDERS, get_provider
 
 
@@ -66,6 +69,7 @@ def tts_segment(
     project_dir: Path,
     seg_id: str,
     *,
+    video_id: str = "main",
     force: bool = False,
 ) -> TTSSegmentResult:
     """Synthesize, stretch, and persist TTS outputs for one segment.
@@ -73,31 +77,32 @@ def tts_segment(
     Args:
         project_dir: project root.
         seg_id: stable segment id.
+        video_id: which video's timeline owns this segment. Default "main".
         force: bypass the content-hash cache.
     """
     project_dir = Path(project_dir).resolve()
     project = load_project(project_dir)
-    timeline = load_timeline(project_dir)
+    video = load_video(project_dir, video_id)
 
-    seg = timeline.by_id(seg_id)
+    seg = video.by_id(seg_id)
     if seg is None:
         raise TTSSegmentError(
-            f"segment {seg_id!r} not found in timeline.json",
-            fix="Run `clipwright status` to see valid segment ids.",
+            f"segment {seg_id!r} not found in video {video_id!r}",
+            fix="Run `clipwright video list` and `clipwright status` to see valid ids.",
         )
 
     if not seg.voiceover.enabled:
         raise TTSSegmentError(
             f"segment {seg_id}: voiceover is disabled",
-            fix="Set `voiceover.enabled = true` on the segment in timeline.json.",
+            fix=f"Set `voiceover.enabled = true` on the segment in videos/{video_id}.json.",
         )
 
-    clip = _resolve_clip(project_dir, seg)
+    clip = _resolve_clip(project_dir, video_id, seg)
     text = (clip.get("text") or "").strip()
     if not text:
         raise TTSSegmentError(
             f"segment {seg_id}: script clip has no text",
-            fix=f"Fill `text` for clip {clip.get('id', '?')!r} in voiceover/script.json.",
+            fix=f"Fill `text` for clip {clip.get('id', '?')!r} in voiceover/scripts/{video_id}.json.",
         )
 
     provider_name, voice_id = _resolve_provider_and_voice(project, clip)
@@ -118,11 +123,11 @@ def tts_segment(
             fix="Fix `target_duration` on the segment or `target_seconds` on the clip.",
         )
 
-    audio_dir = project_dir / "voiceover" / "audio"
+    audio_dir = schema_paths.video_audio_dir(project_dir, video_id)
     audio_dir.mkdir(parents=True, exist_ok=True)
-    mp3_path = audio_dir / f"{seg_id}.mp3"
-    ts_path = audio_dir / f"{seg_id}.timestamps.json"
-    cache_path = audio_dir / f"{seg_id}.cache.json"
+    mp3_path = schema_paths.video_audio_mp3(project_dir, video_id, seg_id)
+    ts_path = schema_paths.video_audio_timestamps(project_dir, video_id, seg_id)
+    cache_path = schema_paths.video_audio_cache(project_dir, video_id, seg_id)
 
     input_hash = _compute_input_hash(
         text=text,
@@ -186,25 +191,26 @@ def tts_segment(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_clip(project_dir: Path, seg: Segment) -> dict:
-    """Find the `voiceover/script.json` clip linked to this segment.
+def _resolve_clip(project_dir: Path, video_id: str, seg: Segment) -> dict:
+    """Find the per-video `voiceover/scripts/<video>.json` clip linked to this segment.
 
     Lookup order matches `agent/prompt.py#_find_script_clip`:
       1. Clip whose `id` equals `seg.voiceover.script_clip_id`.
       2. Clip whose `segment_id` references this segment.
     """
-    script_path = project_dir / "voiceover" / "script.json"
+    script_path = schema_paths.video_script_path(project_dir, video_id)
+    rel_path = f"voiceover/scripts/{video_id}.json"
     if not script_path.exists():
         raise TTSSegmentError(
-            f"voiceover/script.json not found in {project_dir}",
-            fix="Create voiceover/script.json with a clip for this segment.",
+            f"{rel_path} not found in {project_dir}",
+            fix=f"Create {rel_path} with a clip for this segment.",
         )
     try:
         payload = json.loads(script_path.read_text())
     except json.JSONDecodeError as e:
         raise TTSSegmentError(
-            f"voiceover/script.json: invalid JSON: {e}",
-            fix="Validate the file with `python -m json.tool voiceover/script.json`.",
+            f"{rel_path}: invalid JSON: {e}",
+            fix=f"Validate with `python -m json.tool {rel_path}`.",
         ) from e
 
     clips = payload.get("clips") or []
@@ -218,7 +224,7 @@ def _resolve_clip(project_dir: Path, seg: Segment) -> dict:
     raise TTSSegmentError(
         f"no script clip linked to segment {seg.id!r}",
         fix=(
-            f"Add a clip to voiceover/script.json with id={seg.voiceover.script_clip_id!r} "
+            f"Add a clip to {rel_path} with id={seg.voiceover.script_clip_id!r} "
             f"or segment_id={seg.id!r}."
         ),
     )

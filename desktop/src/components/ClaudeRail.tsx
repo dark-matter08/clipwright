@@ -44,26 +44,29 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
   }, []);
 
   useEffect(() => {
-    if (!project) {
+    if (!project?.video) {
       setHistory([]);
       return;
     }
-    loadChatHistory(project.project_dir).then(setHistory).catch(() => setHistory([]));
-  }, [project?.project_dir]);
+    loadChatHistory(project.project_dir, project.video.video_id)
+      .then(setHistory)
+      .catch(() => setHistory([]));
+  }, [project?.project_dir, project?.video?.video_id]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [history.length, pending, busy]);
 
   async function send() {
-    if (!project || !draft.trim()) return;
+    if (!project?.video || !draft.trim()) return;
     const message = draft.trim();
     const segId = askSegId;
+    const videoId = project.video.video_id;
     setDraft("");
     setPending({ role: "user", text: message });
     setBusy(true);
     try {
-      const res = await claudeChat(project.project_dir, { message, segId });
+      const res = await claudeChat(project.project_dir, { message, videoId, segId });
       const now = new Date().toISOString();
       setHistory((h) => [
         ...h,

@@ -40,7 +40,8 @@ from pathlib import Path
 from . import __version__
 from .captions.chunker import chars_to_words, chunk_words
 from .captions.png_renderer import CaptionStyle, render_chunk_png
-from .schema import load_project, load_timeline
+from .schema import load_project, load_video
+from .schema import paths as schema_paths
 
 
 class CaptionSegmentError(Exception):
@@ -73,6 +74,7 @@ def caption_segment(
     project_dir: Path,
     seg_id: str,
     *,
+    video_id: str = "main",
     force: bool = False,
 ) -> CaptionResult:
     """Generate caption PNGs + index for one segment.
@@ -80,40 +82,39 @@ def caption_segment(
     Args:
         project_dir: project root.
         seg_id: stable segment id, e.g. "seg_001".
+        video_id: which video the segment belongs to. Default "main".
         force: bypass cache.
     """
     project_dir = Path(project_dir).resolve()
     project = load_project(project_dir)
-    timeline = load_timeline(project_dir)
+    video = load_video(project_dir, video_id)
 
-    seg = timeline.by_id(seg_id)
+    seg = video.by_id(seg_id)
     if seg is None:
         raise CaptionSegmentError(
-            f"segment {seg_id!r} not found in timeline.json",
-            fix="Run `clipwright status` to see valid segment ids.",
+            f"segment {seg_id!r} not found in video {video_id!r}",
+            fix="Run `clipwright video list` to see valid video + segment ids.",
         )
 
     if not seg.captions.enabled:
         raise CaptionSegmentError(
             f"segment {seg_id}: captions are disabled",
-            fix="Set `captions.enabled = true` on the segment in timeline.json.",
+            fix=f"Set `captions.enabled = true` on the segment in videos/{video_id}.json.",
         )
 
-    timestamps_path = (
-        project_dir / "voiceover" / "audio" / f"{seg_id}.timestamps.json"
-    )
+    timestamps_path = schema_paths.video_audio_timestamps(project_dir, video_id, seg_id)
     if not timestamps_path.exists():
         raise CaptionSegmentError(
             f"voiceover timestamps not found at {timestamps_path}",
             fix=(
-                "Run the TTS stage to produce voiceover/audio/<seg>.mp3 + "
+                "Run the TTS stage to produce voiceover/audio/<video>/<seg>.mp3 + "
                 ".timestamps.json before captioning."
             ),
         )
 
     style, style_blob = _resolve_style(project_dir, project.aspect)
 
-    out_dir = project_dir / "captions" / seg_id
+    out_dir = schema_paths.video_captions_dir(project_dir, video_id, seg_id)
     index_path = out_dir / "index.json"
     cache_path = out_dir / ".cache.json"
 

@@ -23,7 +23,7 @@ export function Preview() {
   const loadProject = useApp((s) => s.loadProject);
   const setError = useApp((s) => s.setError);
   const selectedId = useApp((s) => s.selectedSegmentId);
-  const seg = project?.timeline.segments.find((s) => s.id === selectedId) ?? null;
+  const seg = project?.video?.segments.find((s) => s.id === selectedId) ?? null;
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [busy, setBusy] = useState(false);
@@ -31,8 +31,13 @@ export function Preview() {
   const [renderToken, setRenderToken] = useState(0);
 
   const mp4Path = useMemo(() => {
-    if (!project || !seg) return null;
-    return joinPath(project.project_dir, ["out", "segments", `${seg.id}.mp4`]);
+    if (!project || !seg || !project.video) return null;
+    return joinPath(project.project_dir, [
+      "out",
+      "segments",
+      project.video.video_id,
+      `${seg.id}.mp4`,
+    ]);
   }, [project, seg]);
 
   // convertFileSrc + a cachebuster so the <video> reloads after a re-render
@@ -53,10 +58,15 @@ export function Preview() {
   }, [videoSrc]);
 
   async function onRender() {
-    if (!project || !seg) return;
+    if (!project || !seg || !project.video) return;
     setBusy(true);
     try {
-      const state = await renderSegment(project.project_dir, seg.id, false);
+      const state = await renderSegment(
+        project.project_dir,
+        project.video.video_id,
+        seg.id,
+        false,
+      );
       loadProject(state);
       setRenderToken((t) => t + 1);
     } catch (e) {

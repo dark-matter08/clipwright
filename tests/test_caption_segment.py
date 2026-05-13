@@ -17,9 +17,9 @@ from clipwright.schema import (
     Segment,
     SegmentRef,
     SegmentVoiceover,
-    Timeline,
+    Video,
     save_project,
-    save_timeline,
+    save_video,
 )
 
 # ---------------------------------------------------------------------------
@@ -54,9 +54,9 @@ def _make_project(tmp_path: Path, *, aspect: str = "9:16") -> Path:
         Project(title="t", aspect=aspect, fps=30,
                 render_backend="remotion", tts_provider="kokoro"),
     )
-    save_timeline(
+    save_video(
         project_dir,
-        Timeline(segments=[
+        Video(video_id="main", segments=[
             Segment(
                 id="seg_001",
                 source="sources/main.mp4",
@@ -70,8 +70,8 @@ def _make_project(tmp_path: Path, *, aspect: str = "9:16") -> Path:
         ]),
     )
 
-    # Write a synthetic VO timestamps file
-    audio_dir = project_dir / "voiceover" / "audio"
+    # Write a synthetic VO timestamps file (per-video path)
+    audio_dir = project_dir / "voiceover" / "audio" / "main"
     audio_dir.mkdir(parents=True)
     (audio_dir / "seg_001.timestamps.json").write_text(
         json.dumps(_elevenlabs_alignment())
@@ -93,7 +93,7 @@ def test_caption_segment_produces_pngs_and_index(tmp_path: Path) -> None:
     assert result.n_chunks > 0
 
     # PNG files written
-    pngs = sorted((project_dir / "captions" / "seg_001").glob("*.png"))
+    pngs = sorted((project_dir / "captions" / "main" / "seg_001").glob("*.png"))
     assert len(pngs) == result.n_chunks
     assert pngs[0].name == "000.png"
 
@@ -106,7 +106,7 @@ def test_caption_segment_produces_pngs_and_index(tmp_path: Path) -> None:
     assert first["png"] == "000.png"
 
     # cache sidecar written
-    assert (project_dir / "captions" / "seg_001" / ".cache.json").exists()
+    assert (project_dir / "captions" / "main" / "seg_001" / ".cache.json").exists()
 
 
 def test_caption_segment_uppercase_text(tmp_path: Path) -> None:
@@ -145,7 +145,7 @@ def test_caption_segment_invalidated_by_timestamps_change(tmp_path: Path) -> Non
     caption_segment(project_dir, "seg_001")
 
     # New text → new fingerprint
-    (project_dir / "voiceover" / "audio" / "seg_001.timestamps.json").write_text(
+    (project_dir / "voiceover" / "audio" / "main" / "seg_001.timestamps.json").write_text(
         json.dumps(_elevenlabs_alignment("Different words entirely. Fresh take."))
     )
     result = caption_segment(project_dir, "seg_001")
@@ -170,11 +170,11 @@ def test_caption_segment_stale_pngs_pruned_on_regen(tmp_path: Path) -> None:
     first = caption_segment(project_dir, "seg_001")
 
     # shorten the script — fewer chunks expected
-    (project_dir / "voiceover" / "audio" / "seg_001.timestamps.json").write_text(
+    (project_dir / "voiceover" / "audio" / "main" / "seg_001.timestamps.json").write_text(
         json.dumps(_elevenlabs_alignment("Hi."))
     )
     second = caption_segment(project_dir, "seg_001")
-    pngs = sorted((project_dir / "captions" / "seg_001").glob("*.png"))
+    pngs = sorted((project_dir / "captions" / "main" / "seg_001").glob("*.png"))
     assert len(pngs) == second.n_chunks
     assert second.n_chunks < first.n_chunks
 
@@ -192,7 +192,7 @@ def test_caption_segment_missing_id_raises(tmp_path: Path) -> None:
 
 def test_caption_segment_captions_disabled_raises(tmp_path: Path) -> None:
     project_dir = _make_project(tmp_path)
-    timeline = Timeline(segments=[
+    timeline = Video(video_id="main", segments=[
         Segment(
             id="seg_001", source="sources/main.mp4",
             source_start=0.0, source_end=5.0, target_duration=5.0,
@@ -203,7 +203,7 @@ def test_caption_segment_captions_disabled_raises(tmp_path: Path) -> None:
             annotations=SegmentRef(enabled=False, ref=""),
         ),
     ])
-    save_timeline(project_dir, timeline)
+    save_video(project_dir, timeline)
 
     with pytest.raises(CaptionSegmentError, match="disabled"):
         caption_segment(project_dir, "seg_001")
@@ -211,7 +211,7 @@ def test_caption_segment_captions_disabled_raises(tmp_path: Path) -> None:
 
 def test_caption_segment_missing_timestamps_raises(tmp_path: Path) -> None:
     project_dir = _make_project(tmp_path)
-    (project_dir / "voiceover" / "audio" / "seg_001.timestamps.json").unlink()
+    (project_dir / "voiceover" / "audio" / "main" / "seg_001.timestamps.json").unlink()
 
     with pytest.raises(CaptionSegmentError, match="timestamps not found"):
         caption_segment(project_dir, "seg_001")

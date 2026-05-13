@@ -33,9 +33,9 @@ from .schema import (
     Segment,
     SegmentRef,
     SegmentVoiceover,
-    Timeline,
+    Video,
     save_project,
-    save_timeline,
+    save_video,
 )
 from .schema.v1.timeline import next_segment_id
 
@@ -274,9 +274,9 @@ class ImportResult:
 
     project_dir: Path
     project: Project
-    timeline: Timeline
+    video: Video
     source_path: Path  # destination path inside the project
-    n_segments: int
+    n_segments: int     # total segments in the video after this import
 
 
 _SOURCE_NAME_SAFE = re.compile(r"[^a-zA-Z0-9_-]+")
@@ -315,26 +315,32 @@ def import_video(
     use_scene_detection: bool = True,
     copy_source: bool = True,
     append: bool = False,
+    video_id: str = "main",
+    video_title: str = "",
 ) -> ImportResult:
     """Copy `src` into `project_dir/sources/<name>.mp4` and seed schema files.
 
     Args:
         src: path to the input MP4/MOV/WebM.
         project_dir: directory to create. Will be created if missing.
-        title: human-readable project title. Defaults to the project dir name.
-        aspect: "9:16", "16:9", or "1:1".
+        title: project-level title. Defaults to the project dir name. Ignored
+            on append against an existing project.
+        aspect: "9:16", "16:9", or "1:1". Same caveat as ``title``.
         auto_segment: when False, produces a single segment spanning the full
             source (per F-UPL-2 opt-out).
-        use_scene_detection: when False, only silence detection is used. Saves
-            a few seconds on long clips where scene detection is unhelpful.
+        use_scene_detection: when False, only silence detection is used.
         copy_source: when False, write a relative symlink instead of copying.
-            Useful for tests and large files.
-        append: when True (SRS F-UPL-3 multi-source), add the new video to an
-            existing project. The destination filename is derived from the
-            video's stem with a uniqueness suffix; new segments append to
-            timeline.json with stable seg IDs (no renumbering); project.json
-            is left unchanged. The first import of a project always uses
-            ``append=False`` and writes ``sources/main.mp4``.
+        append: when True (SRS F-UPL-3 multi-source), add a new source video
+            to an existing video's timeline. The destination filename is
+            derived from the source stem with a uniqueness suffix; new
+            segments append to ``videos/<video_id>.json`` with stable
+            seg IDs (no renumbering).
+        video_id: which video the new segments land in. Default "main" —
+            the canonical first-video slot. Use a distinct id (e.g.
+            "chapter-1-recap") to start a new video deliverable inside
+            the project.
+        video_title: human title for the video on first creation. Ignored
+            if the video already exists.
 
     Returns the loaded models so callers can mutate further if needed.
     """
@@ -361,7 +367,6 @@ def import_video(
     if copy_source:
         shutil.copy2(src, dst)
     else:
-        # use a relative symlink so the project is portable when moved together
         dst.symlink_to(src)
 
     duration = probe_duration(dst)
@@ -378,7 +383,7 @@ def import_video(
     else:
         cuts = [(0.0, duration)]
 
-    # Project record: load existing on append; create fresh otherwise.
+    # Project manifest: load existing on append; create fresh otherwise.
     if append and (project_dir / "project.json").exists():
         from .schema import load_project
         project = load_project(project_dir)
@@ -394,19 +399,26 @@ def import_video(
             created_at=datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
         )
 
-    # Existing segments preserved on append; new segments get stable IDs
-    # that don't collide with what's already there.
-    if append and (project_dir / "timeline.json").exists():
-        from .schema import load_timeline
-        existing = load_timeline(project_dir).segments
+    # Video manifest: load existing or create a new one. Two paths into
+    # the existing-video branch: (a) append=True with the video already
+    # on disk, or (b) the v2 layout has `videos/<id>.json` from a prior
+    # import to this same video_id.
+    from .schema import load_video
+    from .schema import paths as schema_paths
+    video_path = schema_paths.video_manifest_path(project_dir, video_id)
+    if video_path.exists():
+        video = load_video(project_dir, video_id)
     else:
-        existing = []
+        video = Video(
+            video_id=video_id,
+            title=video_title or video_id,
+            segments=[],
+        )
 
     rel_source = dst.relative_to(project_dir).as_posix()
-    segments: list[Segment] = list(existing)
     new_count = 0
     for start, end in cuts:
-        sid = next_segment_id([s.id for s in segments])
+        sid = next_segment_id([s.id for s in video.segments])
         seg = Segment(
             id=sid,
             source=rel_source,
@@ -421,19 +433,16 @@ def import_video(
             camera=SegmentRef(enabled=False, ref=""),
             annotations=SegmentRef(enabled=False, ref=""),
         )
-        segments.append(seg)
+        video.segments.append(seg)
         new_count += 1
-    timeline = Timeline(segments=segments)
 
-    # On append, project.json was loaded from disk unchanged — re-save only
-    # to refresh `extra` if loaders normalized anything. Idempotent.
     save_project(project_dir, project)
-    save_timeline(project_dir, timeline)
+    save_video(project_dir, video)
 
     return ImportResult(
         project_dir=project_dir,
         project=project,
-        timeline=timeline,
+        video=video,
         source_path=dst,
-        n_segments=len(segments),
+        n_segments=len(video.segments),
     )

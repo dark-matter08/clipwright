@@ -1,8 +1,5 @@
 // Inspector — SRS §8.5.3 + §6.3. Vertical accordion with five groups.
-// P1.5 wires Voiceover + Trim; P1.6 wires Captions + Camera + Annotations
-// (Camera + Annotations editing surfaces lean on existing camera.json /
-// annotations.json schema but real per-property editors land later — for
-// now we expose enable toggles + sensible read-only summaries).
+// Operates on the currently-loaded Video inside the open Project.
 
 import { useEffect, useState } from "react";
 import { useApp } from "../lib/store";
@@ -11,20 +8,21 @@ import {
   listSources,
   loadScript,
   saveScriptClip,
-  saveTimeline,
+  saveVideo,
   ttsSegment,
   type ScriptClip,
   type SourceEntry,
 } from "../lib/tauri";
-import type { Segment, SegmentRef, Timeline } from "../lib/types";
+import type { Segment, SegmentRef, Video } from "../lib/types";
 import { cn } from "../lib/cn";
 
 export function Inspector() {
   const project = useApp((s) => s.project);
   const selectedId = useApp((s) => s.selectedSegmentId);
-  const seg = project?.timeline.segments.find((s) => s.id === selectedId) ?? null;
+  const video = project?.video ?? null;
+  const seg = video?.segments.find((s) => s.id === selectedId) ?? null;
 
-  if (!seg || !project) {
+  if (!seg || !project || !video) {
     return (
       <div className="flex h-full w-full items-center justify-center px-6 py-4 text-sm text-fg-muted">
         Select a segment on the timeline to edit its properties.
@@ -43,19 +41,15 @@ export function Inspector() {
         </span>
       </header>
       <div className="flex flex-col gap-1.5 pb-3">
-        <VoiceoverGroup seg={seg} projectDir={project.project_dir} />
-        <CaptionsGroup seg={seg} projectDir={project.project_dir} />
-        <CameraGroup seg={seg} projectDir={project.project_dir} timeline={project.timeline} />
-        <AnnotationsGroup seg={seg} projectDir={project.project_dir} timeline={project.timeline} />
-        <TrimGroup seg={seg} projectDir={project.project_dir} timeline={project.timeline} />
+        <VoiceoverGroup seg={seg} projectDir={project.project_dir} videoId={video.video_id} />
+        <CaptionsGroup seg={seg} projectDir={project.project_dir} videoId={video.video_id} />
+        <CameraGroup seg={seg} projectDir={project.project_dir} videoId={video.video_id} video={video} />
+        <AnnotationsGroup seg={seg} projectDir={project.project_dir} videoId={video.video_id} video={video} />
+        <TrimGroup seg={seg} projectDir={project.project_dir} videoId={video.video_id} video={video} />
       </div>
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Accordion shell
-// ---------------------------------------------------------------------------
 
 interface AccordionProps {
   title: string;
@@ -84,16 +78,21 @@ function Accordion({ title, summary, defaultOpen, children }: AccordionProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Voiceover group — P1.5
-// ---------------------------------------------------------------------------
+interface GroupProps {
+  seg: Segment;
+  projectDir: string;
+  videoId: string;
+  video: Video;
+}
 
 function VoiceoverGroup({
   seg,
   projectDir,
+  videoId,
 }: {
   seg: Segment;
   projectDir: string;
+  videoId: string;
 }) {
   const setError = useApp((s) => s.setError);
   const loadProject = useApp((s) => s.loadProject);
@@ -105,7 +104,7 @@ function VoiceoverGroup({
   const clipId = seg.voiceover.script_clip_id || `vo_${seg.id.replace("seg_", "")}`;
 
   useEffect(() => {
-    loadScript(projectDir)
+    loadScript(projectDir, videoId)
       .then((script) => {
         const found =
           script.clips.find((c) => c.id === clipId) ??
@@ -117,7 +116,7 @@ function VoiceoverGroup({
         setProvider(found?.voice?.provider ?? "");
       })
       .catch(() => setClip(null));
-  }, [projectDir, seg.id, clipId]);
+  }, [projectDir, videoId, seg.id, clipId]);
 
   const dirty =
     (clip?.text ?? "") !== text ||
@@ -127,14 +126,11 @@ function VoiceoverGroup({
   async function onSave() {
     setBusy("save");
     try {
-      const patch: Partial<ScriptClip> = {
-        text,
-        target_seconds: seg.target_duration,
-      };
+      const patch: Partial<ScriptClip> = { text, target_seconds: seg.target_duration };
       if (provider || voiceId) {
         patch.voice = { provider: provider || undefined, voice_id: voiceId || undefined };
       }
-      await saveScriptClip(projectDir, clipId, seg.id, patch);
+      await saveScriptClip(projectDir, videoId, clipId, seg.id, patch);
       setClip((c) => ({
         id: clipId,
         segment_id: seg.id,
@@ -150,12 +146,10 @@ function VoiceoverGroup({
   }
 
   async function onRegen() {
-    if (dirty) {
-      await onSave();
-    }
+    if (dirty) await onSave();
     setBusy("regen");
     try {
-      const state = await ttsSegment(projectDir, seg.id, true);
+      const state = await ttsSegment(projectDir, videoId, seg.id, true);
       loadProject(state);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -166,9 +160,7 @@ function VoiceoverGroup({
 
   const summary = !seg.voiceover.enabled
     ? "disabled"
-    : text.trim()
-      ? truncate(text, 40)
-      : "(empty)";
+    : text.trim() ? truncate(text, 40) : "(empty)";
 
   return (
     <Accordion title="Voiceover" summary={summary} defaultOpen>
@@ -181,37 +173,20 @@ function VoiceoverGroup({
           className="w-full resize-y rounded border border-border-subtle bg-bg-inset px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:focus-ring"
         />
         <div className="grid grid-cols-2 gap-2">
-          <LabeledInput
-            label="Provider"
-            value={provider}
-            onChange={setProvider}
-            placeholder="kokoro · piper · elevenlabs"
-          />
-          <LabeledInput
-            label="Voice"
-            value={voiceId}
-            onChange={setVoiceId}
-            placeholder="af_sky"
-          />
+          <LabeledInput label="Provider" value={provider} onChange={setProvider}
+                        placeholder="kokoro · piper · elevenlabs" />
+          <LabeledInput label="Voice" value={voiceId} onChange={setVoiceId}
+                        placeholder="af_sky" />
         </div>
         <div className="flex items-center justify-between gap-2 pt-1">
           <span className="font-mono text-[10px] text-fg-muted">
-            target {seg.target_duration.toFixed(1)}s · ~{wordsAtRate(text).toFixed(0)} wps to fit
+            target {seg.target_duration.toFixed(1)}s · {wordsAtRate(text).toFixed(0)} words
           </span>
           <div className="flex gap-1">
-            <ActionBtn
-              label={dirty ? "Save" : "Saved"}
-              onClick={onSave}
-              busy={busy === "save"}
-              disabled={!dirty}
-            />
-            <ActionBtn
-              label="Regenerate"
-              variant="accent"
-              onClick={onRegen}
-              busy={busy === "regen"}
-              disabled={!text.trim()}
-            />
+            <ActionBtn label={dirty ? "Save" : "Saved"} onClick={onSave}
+                       busy={busy === "save"} disabled={!dirty} />
+            <ActionBtn label="Regenerate" variant="accent" onClick={onRegen}
+                       busy={busy === "regen"} disabled={!text.trim()} />
           </div>
         </div>
       </div>
@@ -219,16 +194,14 @@ function VoiceoverGroup({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Captions group — P1.6
-// ---------------------------------------------------------------------------
-
 function CaptionsGroup({
   seg,
   projectDir,
+  videoId,
 }: {
   seg: Segment;
   projectDir: string;
+  videoId: string;
 }) {
   const setError = useApp((s) => s.setError);
   const loadProject = useApp((s) => s.loadProject);
@@ -237,7 +210,7 @@ function CaptionsGroup({
   async function onRegen() {
     setBusy(true);
     try {
-      const state = await captionSegment(projectDir, seg.id, true);
+      const state = await captionSegment(projectDir, videoId, seg.id, true);
       loadProject(state);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -246,112 +219,48 @@ function CaptionsGroup({
     }
   }
 
-  const summary = seg.captions.enabled ? "enabled · default style" : "disabled";
-
   return (
-    <Accordion title="Captions" summary={summary}>
+    <Accordion title="Captions" summary={seg.captions.enabled ? "enabled" : "disabled"}>
       <div className="flex flex-col gap-2">
-        <RefToggle
-          seg={seg}
-          field="captions"
-          projectDir={projectDir}
-        />
+        <RefToggle seg={seg} field="captions" projectDir={projectDir} videoId={videoId} />
         <p className="text-xs text-fg-muted">
-          Style overrides land in P2 — for now the default 2-word UPPERCASE
-          chunks render at the project's aspect resolution.
+          Style overrides land in P2 — for now the default 2-word UPPERCASE chunks
+          render at the project's aspect resolution.
         </p>
         <div className="flex justify-end pt-1">
-          <ActionBtn
-            label="Regenerate"
-            variant="accent"
-            onClick={onRegen}
-            busy={busy}
-            disabled={!seg.captions.enabled}
-          />
+          <ActionBtn label="Regenerate" variant="accent" onClick={onRegen}
+                     busy={busy} disabled={!seg.captions.enabled} />
         </div>
       </div>
     </Accordion>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Camera group — P1.6 (toggle only; per-keyframe editor is P2)
-// ---------------------------------------------------------------------------
-
-function CameraGroup({
-  seg,
-  projectDir,
-  timeline,
-}: {
-  seg: Segment;
-  projectDir: string;
-  timeline: Timeline;
-}) {
-  const summary = seg.camera.enabled ? "enabled" : "disabled";
+function CameraGroup({ seg, projectDir, videoId, video }: GroupProps) {
   return (
-    <Accordion title="Camera" summary={summary}>
+    <Accordion title="Camera" summary={seg.camera.enabled ? "enabled" : "disabled"}>
       <div className="flex flex-col gap-2 text-xs text-fg-muted">
-        <RefToggle
-          seg={seg}
-          field="camera"
-          projectDir={projectDir}
-          timeline={timeline}
-        />
-        <p>
-          Per-keyframe editing (zoom curve + focus xy) lands in P2. For
-          now, the auto-generated camera plan from recording continues to
-          drive zoom on click/type actions.
-        </p>
+        <RefToggle seg={seg} field="camera" projectDir={projectDir}
+                   videoId={videoId} video={video} />
+        <p>Per-keyframe editing (zoom curve + focus xy) lands in P2.</p>
       </div>
     </Accordion>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Annotations group — P1.6 (toggle only; overlay editor is P2)
-// ---------------------------------------------------------------------------
-
-function AnnotationsGroup({
-  seg,
-  projectDir,
-  timeline,
-}: {
-  seg: Segment;
-  projectDir: string;
-  timeline: Timeline;
-}) {
-  const summary = seg.annotations.enabled ? "enabled" : "disabled";
+function AnnotationsGroup({ seg, projectDir, videoId, video }: GroupProps) {
   return (
-    <Accordion title="Annotations" summary={summary}>
+    <Accordion title="Annotations" summary={seg.annotations.enabled ? "enabled" : "disabled"}>
       <div className="flex flex-col gap-2 text-xs text-fg-muted">
-        <RefToggle
-          seg={seg}
-          field="annotations"
-          projectDir={projectDir}
-          timeline={timeline}
-        />
-        <p>
-          Click-ripple + highlight overlays from the Playwright bbox capture
-          are honored if enabled. Manual overlay authoring is P2.
-        </p>
+        <RefToggle seg={seg} field="annotations" projectDir={projectDir}
+                   videoId={videoId} video={video} />
+        <p>Click-ripple + highlight overlays are honored if enabled. Manual overlay authoring is P2.</p>
       </div>
     </Accordion>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Trim group — P1.5
-// ---------------------------------------------------------------------------
-
-function TrimGroup({
-  seg,
-  projectDir,
-  timeline,
-}: {
-  seg: Segment;
-  projectDir: string;
-  timeline: Timeline;
-}) {
+function TrimGroup({ seg, projectDir, videoId, video }: GroupProps) {
   const setError = useApp((s) => s.setError);
   const loadProject = useApp((s) => s.loadProject);
   const [start, setStart] = useState(seg.source_start.toFixed(2));
@@ -361,9 +270,6 @@ function TrimGroup({
   const [sources, setSources] = useState<SourceEntry[]>([]);
   const [busy, setBusy] = useState(false);
 
-  // Refresh source list whenever this group opens for a new segment.
-  // Showing the picker only when >1 source exists keeps the single-source
-  // common case clutter-free.
   useEffect(() => {
     listSources(projectDir).then(setSources).catch(() => setSources([]));
   }, [projectDir, seg.id]);
@@ -390,16 +296,17 @@ function TrimGroup({
     if (!valid) return;
     setBusy(true);
     try {
-      const next: Timeline = {
-        ...timeline,
-        segments: timeline.segments.map((g) =>
+      const next: Video = {
+        ...video,
+        segments: video.segments.map((g) =>
           g.id === seg.id
             ? { ...g, source, source_start: s, source_end: e, target_duration: t }
             : g,
         ),
       };
-      await saveTimeline(projectDir, next);
-      loadProject({ project_dir: projectDir, project: useApp.getState().project!.project, timeline: next });
+      await saveVideo(projectDir, videoId, next);
+      const state = useApp.getState().project!;
+      loadProject({ ...state, video: next });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -407,18 +314,17 @@ function TrimGroup({
     }
   }
 
-  const summary = sources.length > 1
-    ? `${source.replace(/^sources\//, "")} · ${seg.source_start.toFixed(1)}s → ${seg.source_end.toFixed(1)}s`
-    : `${seg.source_start.toFixed(1)}s → ${seg.source_end.toFixed(1)}s`;
+  const summary =
+    sources.length > 1
+      ? `${source.replace(/^sources\//, "")} · ${seg.source_start.toFixed(1)}s → ${seg.source_end.toFixed(1)}s`
+      : `${seg.source_start.toFixed(1)}s → ${seg.source_end.toFixed(1)}s`;
 
   return (
     <Accordion title="Trim" summary={summary}>
       <div className="flex flex-col gap-2">
         {sources.length > 1 && (
           <label className="flex flex-col gap-1">
-            <span className="text-[10px] uppercase tracking-wider text-fg-muted">
-              Source
-            </span>
+            <span className="text-[10px] uppercase tracking-wider text-fg-muted">Source</span>
             <select
               value={source}
               onChange={(ev) => setSource(ev.target.value)}
@@ -429,8 +335,6 @@ function TrimGroup({
                   {entry.path.replace(/^sources\//, "")}
                 </option>
               ))}
-              {/* If the segment's source isn't in the list (e.g. deleted file),
-                  keep it visible so the user sees the broken reference. */}
               {!sources.some((s2) => s2.path === source) && (
                 <option value={source}>
                   {source.replace(/^sources\//, "")} (missing on disk)
@@ -440,46 +344,39 @@ function TrimGroup({
           </label>
         )}
         <div className="grid grid-cols-3 gap-2">
-          <LabeledInput label="Source in"  value={start}  onChange={setStart}  mono />
-          <LabeledInput label="Source out" value={end}    onChange={setEnd}    mono />
+          <LabeledInput label="Source in" value={start} onChange={setStart} mono />
+          <LabeledInput label="Source out" value={end} onChange={setEnd} mono />
           <LabeledInput label="Target dur" value={target} onChange={setTarget} mono />
         </div>
         {!valid && (
           <p className="text-xs text-danger">
-            Source out must be greater than source in, and target duration must
-            be positive.
+            Source out must be greater than source in, and target duration must be positive.
           </p>
         )}
         <div className="flex justify-end pt-1">
-          <ActionBtn
-            label={dirty ? "Save" : "Saved"}
-            onClick={onSave}
-            busy={busy}
-            disabled={!dirty}
-          />
+          <ActionBtn label={dirty ? "Save" : "Saved"} onClick={onSave}
+                     busy={busy} disabled={!dirty} />
         </div>
       </div>
     </Accordion>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Shared bits
-// ---------------------------------------------------------------------------
-
 function RefToggle({
   seg,
   field,
   projectDir,
-  timeline: passed,
+  videoId,
+  video: passedVideo,
 }: {
   seg: Segment;
   field: "captions" | "camera" | "annotations";
   projectDir: string;
-  timeline?: Timeline;
+  videoId: string;
+  video?: Video;
 }) {
-  const projectTimeline = useApp((s) => s.project!.timeline);
-  const timeline = passed ?? projectTimeline;
+  const storeVideo = useApp((s) => s.project!.video!);
+  const video = passedVideo ?? storeVideo;
   const loadProject = useApp((s) => s.loadProject);
   const setError = useApp((s) => s.setError);
   const ref = seg[field];
@@ -487,15 +384,15 @@ function RefToggle({
   async function toggle() {
     try {
       const newRef: SegmentRef = { ...ref, enabled: !ref.enabled };
-      const next: Timeline = {
-        ...timeline,
-        segments: timeline.segments.map((g) =>
+      const next: Video = {
+        ...video,
+        segments: video.segments.map((g) =>
           g.id === seg.id ? { ...g, [field]: newRef } : g,
         ),
       };
-      await saveTimeline(projectDir, next);
+      await saveVideo(projectDir, videoId, next);
       const state = useApp.getState().project!;
-      loadProject({ ...state, timeline: next });
+      loadProject({ ...state, video: next });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -503,17 +400,10 @@ function RefToggle({
 
   return (
     <label className="flex cursor-pointer items-center gap-2 text-xs text-fg-subtle">
-      <input
-        type="checkbox"
-        checked={ref.enabled}
-        onChange={toggle}
-        className="accent-accent"
-      />
+      <input type="checkbox" checked={ref.enabled} onChange={toggle} className="accent-accent" />
       Enabled
       {ref.ref && (
-        <span className="ml-2 truncate font-mono text-[10px] text-fg-muted">
-          {ref.ref}
-        </span>
+        <span className="ml-2 truncate font-mono text-[10px] text-fg-muted">{ref.ref}</span>
       )}
     </label>
   );
@@ -534,9 +424,7 @@ function LabeledInput({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[10px] uppercase tracking-wider text-fg-muted">
-        {label}
-      </span>
+      <span className="text-[10px] uppercase tracking-wider text-fg-muted">{label}</span>
       <input
         type="text"
         value={value}
@@ -584,9 +472,5 @@ function truncate(s: string, n: number): string {
 }
 
 function wordsAtRate(text: string): number {
-  // ~2.5 words per second is the SKILL.md target; this returns the rate
-  // the current text would land at given the segment target duration.
-  // It's intentionally informational — no hard validation.
-  const words = text.trim().split(/\s+/).filter(Boolean).length;
-  return words; // displayed as a count, not divided — keep it simple
+  return text.trim().split(/\s+/).filter(Boolean).length;
 }

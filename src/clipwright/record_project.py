@@ -45,10 +45,14 @@ from .schema import (
     Segment,
     SegmentRef,
     SegmentVoiceover,
-    Timeline,
+    Video,
     load_project,
+    load_video,
     save_project,
-    save_timeline,
+    save_video,
+)
+from .schema import (
+    paths as schema_paths,
 )
 from .schema.v1.timeline import next_segment_id
 
@@ -73,6 +77,8 @@ def record_project(
     viewport: tuple[int, int] | None = None,
     mobile: bool = False,
     user_agent: str = "",
+    video_id: str = "main",
+    video_title: str = "",
 ) -> ImportResult:
     """Run the Playwright recorder against `browse-plan.json` and seed schemas.
 
@@ -141,6 +147,8 @@ def record_project(
             title=title,
             aspect=aspect,
             base_url=base_url,
+            video_id=video_id,
+            video_title=video_title,
         )
 
 
@@ -153,10 +161,12 @@ def _seed_from_recording(
     aspect: str = "9:16",
     base_url: str = "",
     copy_source: bool = True,
+    video_id: str = "main",
+    video_title: str = "",
 ) -> ImportResult:
     """Pure file ops + schema writes. No Playwright. Easy to test.
 
-    Given a captured video and its `moments.json` content, lay out the v1
+    Given a captured video and its `moments.json` content, lay out the v2
     project files. Idempotent — running twice produces the same result.
     """
     project_dir = Path(project_dir).resolve()
@@ -174,32 +184,26 @@ def _seed_from_recording(
     if duration <= 0:
         raise FFmpegError(f"could not determine duration of {dst}")
 
-    # Persist the raw moments at the project root — Record-mode marker, and a
-    # re-record input (F-REC-6 will read this to preserve segment IDs).
+    # Persist the raw moments at the project root — Record-mode marker.
     (project_dir / "moments.json").write_text(
         json.dumps(moments, indent=2) + "\n"
     )
 
-    # Convert chapter-grouped recorder segments → schema v1 Segments.
-    # `build_segments` returns the legacy Segment dataclass (chapter + range
-    # + moments); we translate the relevant fields into the v1 shape.
+    # Convert chapter-grouped recorder segments → v2 Segments.
     legacy_segments = build_segments(moments, duration)
 
-    # TODO(P1, F-REC-6): when re-recording, read an existing timeline.json
-    # and re-use stable segment IDs by matching `chapter` labels. For now
-    # we always start fresh with `seg_001`, `seg_002`, ...
+    # TODO(P1, F-REC-6): when re-recording, match by chapter label to
+    # preserve segment IDs and downstream edits. For now: start fresh.
 
-    v1_segments: list[Segment] = []
+    v2_segments: list[Segment] = []
     chapter_label = ""
     for idx, lseg in enumerate(legacy_segments):
-        sid = next_segment_id([s.id for s in v1_segments])
+        sid = next_segment_id([s.id for s in v2_segments])
         chapter = lseg.chapter or ""
-        # The label is the first moment's label when present — it's the most
-        # human-meaningful summary of the chapter for the UI.
         label = ""
         if lseg.moments:
             label = lseg.moments[0].label or chapter
-        v1_segments.append(
+        v2_segments.append(
             Segment(
                 id=sid,
                 source="sources/main.mp4",
@@ -215,13 +219,9 @@ def _seed_from_recording(
                 annotations=SegmentRef(enabled=True, ref=f"annotations.json#{sid}"),
             )
         )
-        # last seen chapter label, used only for debugging clarity
         chapter_label = chapter or chapter_label
 
-    timeline = Timeline(segments=v1_segments)
-
-    # If a project.json already exists (re-record case), preserve user-tuned
-    # fields and only refresh title/aspect/base_url when explicitly passed.
+    # Project manifest: preserve on re-record.
     project_json = project_dir / "project.json"
     if project_json.exists():
         project = load_project(project_dir)
@@ -242,13 +242,27 @@ def _seed_from_recording(
             created_at=datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
         )
 
+    # Video manifest: load existing on re-record, otherwise create.
+    video_path = schema_paths.video_manifest_path(project_dir, video_id)
+    if video_path.exists():
+        existing = load_video(project_dir, video_id)
+        # Re-record replaces the segment list wholesale (until F-REC-6).
+        existing.segments = v2_segments
+        video = existing
+    else:
+        video = Video(
+            video_id=video_id,
+            title=video_title or project.title or video_id,
+            segments=v2_segments,
+        )
+
     save_project(project_dir, project)
-    save_timeline(project_dir, timeline)
+    save_video(project_dir, video)
 
     return ImportResult(
         project_dir=project_dir,
         project=project,
-        timeline=timeline,
+        video=video,
         source_path=dst,
-        n_segments=len(v1_segments),
+        n_segments=len(v2_segments),
     )

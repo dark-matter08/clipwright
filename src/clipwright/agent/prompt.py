@@ -21,9 +21,9 @@ from pathlib import Path
 from ..schema import (
     Project,
     Segment,
-    Timeline,
+    Video,
     load_project,
-    load_timeline,
+    load_video,
 )
 
 # How many words from the transcript to surround the segment with.
@@ -47,31 +47,41 @@ class PromptError(Exception):
 # ---------------------------------------------------------------------------
 
 
-def build_project_prompt(project_dir: Path) -> str:
-    """Build the Mode A (persistent chat) system prompt for a whole project."""
+def build_project_prompt(project_dir: Path, *, video_id: str = "main") -> str:
+    """Build the Mode A (persistent chat) system prompt for one video.
+
+    A v2 project holds multiple videos; "project-scoped" Mode A is
+    therefore really "video-scoped" — the chat is anchored to the
+    currently-selected video, not the entire collection.
+    """
     project_dir = Path(project_dir).resolve()
     project = load_project(project_dir)
-    timeline = load_timeline(project_dir)
+    video = load_video(project_dir, video_id)
     return _assemble(
         project_dir=project_dir,
         project=project,
-        timeline=timeline,
+        video=video,
         focus=None,
-        script_payload=_load_script(project_dir),
+        script_payload=_load_script(project_dir, video_id),
         transcript_payload=None,
     )
 
 
-def build_segment_prompt(project_dir: Path, seg_id: str) -> str:
+def build_segment_prompt(
+    project_dir: Path,
+    seg_id: str,
+    *,
+    video_id: str = "main",
+) -> str:
     """Build the Mode B (one-shot) system prompt focused on one segment."""
     project_dir = Path(project_dir).resolve()
     project = load_project(project_dir)
-    timeline = load_timeline(project_dir)
-    seg = timeline.by_id(seg_id)
+    video = load_video(project_dir, video_id)
+    seg = video.by_id(seg_id)
     if seg is None:
         raise PromptError(
-            f"segment {seg_id!r} not found in {project_dir / 'timeline.json'}",
-            fix="Run `clipwright status` to list valid segment ids.",
+            f"segment {seg_id!r} not found in video {video_id!r}",
+            fix="Run `clipwright video list` / `clipwright status` for valid ids.",
         )
 
     transcript = _load_transcript_window(
@@ -83,9 +93,9 @@ def build_segment_prompt(project_dir: Path, seg_id: str) -> str:
     return _assemble(
         project_dir=project_dir,
         project=project,
-        timeline=timeline,
+        video=video,
         focus=seg,
-        script_payload=_load_script(project_dir),
+        script_payload=_load_script(project_dir, video_id),
         transcript_payload=transcript,
     )
 
@@ -99,17 +109,17 @@ def _assemble(
     *,
     project_dir: Path,
     project: Project,
-    timeline: Timeline,
+    video: Video,
     focus: Segment | None,
     script_payload: dict | None,
     transcript_payload: list[dict] | None,
 ) -> str:
     parts: list[str] = []
-    parts.append(_section_header(project_dir, project))
-    parts.append(_section_timeline(timeline, focus=focus))
+    parts.append(_section_header(project_dir, project, video))
+    parts.append(_section_timeline(video, focus=focus))
     if focus is not None:
         parts.append(_section_focus(focus, script_payload))
-        parts.append(_section_neighbors(timeline, focus))
+        parts.append(_section_neighbors(video, focus))
         parts.append(_section_transcript(focus, transcript_payload))
     parts.append(_section_skill())
     parts.append(_section_constraints(focus=focus))
@@ -117,7 +127,7 @@ def _assemble(
     return "\n\n".join(parts).rstrip() + "\n"
 
 
-def _section_header(project_dir: Path, project: Project) -> str:
+def _section_header(project_dir: Path, project: Project, video: Video) -> str:
     lines = [
         "# Clipwright project context",
         "",
@@ -134,14 +144,18 @@ def _section_header(project_dir: Path, project: Project) -> str:
         lines.append(f"- Voice id: {project.voice_id}")
     if project.base_url:
         lines.append(f"- Base URL: {project.base_url}")
+    lines.append("")
+    lines.append("## Video")
+    lines.append(f"- ID: {video.video_id}")
+    lines.append(f"- Title: {video.title or '(untitled)'}")
     return "\n".join(lines)
 
 
-def _section_timeline(timeline: Timeline, *, focus: Segment | None) -> str:
-    if not timeline.segments:
+def _section_timeline(video: Video, *, focus: Segment | None) -> str:
+    if not video.segments:
         return "## Timeline\n(empty — no segments yet)"
-    lines = [f"## Timeline ({len(timeline.segments)} segments)"]
-    for s in timeline.segments:
+    lines = [f"## Timeline ({len(video.segments)} segments)"]
+    for s in video.segments:
         marker = " ← focus" if focus and s.id == focus.id else ""
         chap = f" [{s.chapter}]" if s.chapter else ""
         label = s.label or "(no label)"
@@ -180,20 +194,20 @@ def _section_focus(seg: Segment, script_payload: dict | None) -> str:
     return "\n".join(lines)
 
 
-def _section_neighbors(timeline: Timeline, focus: Segment) -> str:
-    ids = timeline.ids()
+def _section_neighbors(video: Video, focus: Segment) -> str:
+    ids = video.ids()
     try:
         idx = ids.index(focus.id)
     except ValueError:
         return ""
     lo = max(0, idx - NEIGHBOR_RADIUS)
     hi = min(len(ids), idx + NEIGHBOR_RADIUS + 1)
-    surrounding = [timeline.segments[i] for i in range(lo, hi) if i != idx]
+    surrounding = [video.segments[i] for i in range(lo, hi) if i != idx]
     if not surrounding:
         return "## Neighbors\n(none)"
     lines = ["## Neighbors"]
     for s in surrounding:
-        rel = "prev" if timeline.segments.index(s) < idx else "next"
+        rel = "prev" if video.segments.index(s) < idx else "next"
         chap = f" [{s.chapter}]" if s.chapter else ""
         lines.append(
             f"- {rel} {s.id}: \"{s.label or '(no label)'}\" · {s.target_duration:.1f}s{chap}"
@@ -241,9 +255,9 @@ def _section_constraints(*, focus: Segment | None) -> str:
         "2. Do not make network requests.",
         "3. Do not modify `schema_version` fields in any project JSON file.",
         "4. Preserve segment IDs across edits. Splitting `seg_001` yields a new id; never renumber.",
-        "5. Downstream artifacts are content-hash-cached. After editing `voiceover/script.json`, "
-        "`captions/style.json`, or `timeline.json`, the cache invalidates automatically — do not "
-        "manually delete `.cache.json` sidecars or `out/segments/` files.",
+        "5. Downstream artifacts are content-hash-cached. After editing `voiceover/scripts/<video>.json`, "
+        "`captions/style.json`, or `videos/<video>.json`, the cache invalidates automatically — do not "
+        "manually delete `.cache.json` sidecars or `out/segments/<video>/` files.",
         "6. When done, report which files you changed and why. Do not describe what you would have done.",
     ]
     if focus is not None:
@@ -259,9 +273,10 @@ def _section_constraints(*, focus: Segment | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _load_script(project_dir: Path) -> dict | None:
-    """Read `voiceover/script.json` if present. Returns None otherwise."""
-    path = project_dir / "voiceover" / "script.json"
+def _load_script(project_dir: Path, video_id: str) -> dict | None:
+    """Read `voiceover/scripts/<video_id>.json` if present. None otherwise."""
+    from ..schema import paths as schema_paths
+    path = schema_paths.video_script_path(project_dir, video_id)
     if not path.exists():
         return None
     try:

@@ -32,7 +32,7 @@ export function Timeline() {
 
   const [menu, setMenu] = useState<MenuState | null>(null);
 
-  const segments = project?.timeline.segments ?? [];
+  const segments = project?.video?.segments ?? [];
   const total = segments.reduce((acc, s) => acc + s.target_duration, 0);
   const pxPerSec =
     pxPerSecOverride !== null

@@ -121,8 +121,18 @@ def import_(
     ),
     add: bool = typer.Option(
         False, "--add",
-        help="Append the video as an additional source to an existing project. "
+        help="Append the video as an additional source to an existing video. "
              "Without --add, the target directory must be empty.",
+    ),
+    video_id: str = typer.Option(
+        "main", "--video",
+        help="Which video inside the project to write to. Default 'main'. "
+             "With --add, points segments at this video; without --add, names "
+             "the first video the project creates.",
+    ),
+    video_title: str = typer.Option(
+        "", "--video-title",
+        help="Human title for the video. Ignored if the video already exists.",
     ),
     title: str = typer.Option("", help="Project title (defaults to project dir name). Ignored with --add."),
     aspect: str = typer.Option("9:16", help="9:16, 16:9, or 1:1. Ignored with --add."),
@@ -177,6 +187,8 @@ def import_(
         auto_segment=auto_segment,
         use_scene_detection=scene_detection,
         append=add,
+        video_id=video_id,
+        video_title=video_title,
     )
     label = "Added" if add else "Imported"
     rprint(
@@ -196,12 +208,17 @@ def record_project_cmd(
     title: str = typer.Option("", help="Project title (defaults to project dir name)."),
     aspect: str = typer.Option("9:16", help="9:16, 16:9, or 1:1."),
     mobile: bool = typer.Option(False, "--mobile/--desktop", help="Emulate a mobile viewport."),
+    video_id: str = typer.Option(
+        "main", "--video", help="Which video inside the project (default 'main').",
+    ),
+    video_title: str = typer.Option(
+        "", "--video-title", help="Human title for the video.",
+    ),
 ) -> None:
-    """Create a project by recording a Playwright session (Record mode).
+    """Create or update a video by recording a Playwright session (Record mode).
 
     Runs `browse-plan.json` via Playwright, captures the video, and seeds
-    project.json + timeline.json with one segment per chapter. Output layout
-    matches `clipwright import`.
+    a v2 project with one segment per chapter under `videos/<video>.json`.
     """
     try:
         result = record_project_impl(
@@ -210,6 +227,8 @@ def record_project_cmd(
             title=title,
             aspect=aspect,
             mobile=mobile,
+            video_id=video_id,
+            video_title=video_title,
         )
     except RecordError as e:
         raise ClipwrightError(e.message, fix=e.fix) from e
@@ -221,21 +240,27 @@ def record_project_cmd(
     rprint("[dim]Next: open in Clipwright Studio, or run `clipwright build`[/dim]")
 
 
+_VIDEO_OPTION = typer.Option(
+    "main", "--video", help="Which video in the project (default 'main').",
+)
+
+
 @app.command(name="render-segment")
 def render_segment_cmd(
     seg_id: str = typer.Argument(..., help="Segment id, e.g. seg_001."),
     project_dir: Path = typer.Option(
         None, "--project", help="Project root (defaults to CWD).",
     ),
+    video_id: str = _VIDEO_OPTION,
     force: bool = typer.Option(False, "--force", help="Bypass cache."),
 ) -> None:
-    """Render one segment from the v1 schema, writing out/segments/<seg_id>.mp4.
+    """Render one segment, writing out/segments/<video>/<seg_id>.mp4.
 
     Cached by content hash — unchanged inputs are a no-op.
     """
     root = (project_dir or Path.cwd()).resolve()
     try:
-        result = render_segment_impl(root, seg_id, force=force)
+        result = render_segment_impl(root, seg_id, video_id=video_id, force=force)
     except RenderSegmentError as e:
         raise ClipwrightError(str(e), fix=e.fix) from e
 
@@ -248,12 +273,13 @@ def render_final_cmd(
     project_dir: Path = typer.Option(
         None, "--project", help="Project root (defaults to CWD).",
     ),
+    video_id: str = _VIDEO_OPTION,
     force: bool = typer.Option(False, "--force", help="Bypass per-segment caches."),
 ) -> None:
-    """Render every segment (using cache where possible) and concat to out/final.mp4."""
+    """Render every segment of one video and concat to out/final/<video>.mp4."""
     root = (project_dir or Path.cwd()).resolve()
     try:
-        result = render_final_impl(root, force=force)
+        result = render_final_impl(root, video_id=video_id, force=force)
     except RenderFinalError as e:
         raise ClipwrightError(str(e), fix=e.fix) from e
     rprint(
@@ -268,16 +294,17 @@ def caption_segment_cmd(
     project_dir: Path = typer.Option(
         None, "--project", help="Project root (defaults to CWD).",
     ),
+    video_id: str = _VIDEO_OPTION,
     force: bool = typer.Option(False, "--force", help="Bypass cache."),
 ) -> None:
-    """Generate caption PNGs + index.json for one segment (v1 layout).
+    """Generate caption PNGs + index.json for one segment.
 
-    Reads voiceover/audio/<seg_id>.timestamps.json and writes
-    captions/<seg_id>/. Cached by content hash.
+    Reads voiceover/audio/<video>/<seg_id>.timestamps.json and writes
+    captions/<video>/<seg_id>/. Cached by content hash.
     """
     root = (project_dir or Path.cwd()).resolve()
     try:
-        result = caption_segment_impl(root, seg_id, force=force)
+        result = caption_segment_impl(root, seg_id, video_id=video_id, force=force)
     except CaptionSegmentError as e:
         raise ClipwrightError(str(e), fix=e.fix) from e
 
@@ -291,17 +318,18 @@ def tts_segment_cmd(
     project_dir: Path = typer.Option(
         None, "--project", help="Project root (defaults to CWD).",
     ),
+    video_id: str = _VIDEO_OPTION,
     force: bool = typer.Option(False, "--force", help="Bypass cache."),
 ) -> None:
-    """Synthesize voiceover for one segment (v1 layout).
+    """Synthesize voiceover for one segment.
 
-    Reads voiceover/script.json, picks the configured provider/voice,
-    writes voiceover/audio/<seg_id>.mp3 + .timestamps.json. Cached by
-    content hash. Stretches to target_seconds when audio is too long.
+    Reads voiceover/scripts/<video>.json, picks the configured provider/voice,
+    writes voiceover/audio/<video>/<seg_id>.mp3 + .timestamps.json. Cached
+    by content hash. Stretches to target_seconds when audio is too long.
     """
     root = (project_dir or Path.cwd()).resolve()
     try:
-        result = tts_segment_impl(root, seg_id, force=force)
+        result = tts_segment_impl(root, seg_id, video_id=video_id, force=force)
     except TTSSegmentError as e:
         raise ClipwrightError(str(e), fix=e.fix) from e
 
@@ -326,27 +354,76 @@ app.add_typer(agent_app, name="agent")
 def agent_prompt_cmd(
     seg_id: str = typer.Argument(
         None,
-        help="Optional segment id (e.g. seg_001). Omit for a project-scoped prompt.",
+        help="Optional segment id (e.g. seg_001). Omit for a video-scoped prompt.",
     ),
     project_dir: Path = typer.Option(
         None, "--project", help="Project root (defaults to CWD).",
     ),
+    video_id: str = _VIDEO_OPTION,
 ) -> None:
     """Print the system prompt Claude Code would receive (SRS §9.2).
 
-    With no seg_id, builds the Mode A persistent-chat prompt.
-    With a seg_id, builds the Mode B segment-scoped prompt.
+    With no seg_id, builds the Mode A persistent-chat prompt scoped to
+    the named video. With a seg_id, builds the Mode B segment-scoped prompt.
     """
     root = (project_dir or Path.cwd()).resolve()
     try:
         if seg_id:
-            text = build_segment_prompt(root, seg_id)
+            text = build_segment_prompt(root, seg_id, video_id=video_id)
         else:
-            text = build_project_prompt(root)
+            text = build_project_prompt(root, video_id=video_id)
     except PromptError as e:
         raise ClipwrightError(str(e), fix=e.fix) from e
     # Plain stdout so the output can be piped into `claude --append-system-prompt`.
     print(text, end="")
+
+
+# Sub-app: `clipwright video <subcommand>` — manage videos in a project.
+video_app = typer.Typer(
+    no_args_is_help=True,
+    help="Manage the videos inside a v2 project (list / create).",
+)
+app.add_typer(video_app, name="video")
+
+
+@video_app.command("list")
+def video_list_cmd(
+    project_dir: Path = typer.Option(
+        None, "--project", help="Project root (defaults to CWD).",
+    ),
+) -> None:
+    """List every video in the project."""
+    from .schema import list_videos, load_video
+    root = (project_dir or Path.cwd()).resolve()
+    ids = list_videos(root)
+    if not ids:
+        rprint("[dim](no videos in this project — run `clipwright import`)[/dim]")
+        return
+    for vid in ids:
+        v = load_video(root, vid)
+        n = len(v.segments)
+        rprint(f"  [cyan]{vid}[/cyan] · \"{v.title}\" · {n} segment{'' if n == 1 else 's'}")
+
+
+@video_app.command("new")
+def video_new_cmd(
+    video_id: str = typer.Argument(..., help="New video id (e.g. chapter-1-recap)."),
+    title: str = typer.Option("", "--title", help="Human title (defaults to video id)."),
+    project_dir: Path = typer.Option(
+        None, "--project", help="Project root (defaults to CWD).",
+    ),
+) -> None:
+    """Create an empty video inside the project, ready for `clipwright import --video <id> --add`."""
+    from .schema import SchemaError, create_video
+    root = (project_dir or Path.cwd()).resolve()
+    try:
+        video = create_video(root, video_id, title)
+    except SchemaError as e:
+        raise ClipwrightError(str(e), fix="Pick a different id or use `clipwright video list` to see existing.") from e
+    rprint(
+        f"[green]Created video[/green] {video.video_id} · \"{video.title}\" · "
+        f"add segments with `clipwright import <video.mp4> --video {video.video_id} --add`"
+    )
 
 
 @app.command()

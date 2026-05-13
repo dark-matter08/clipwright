@@ -72,7 +72,7 @@ pub async fn import_video_cmd(
     args.push(if scene_detection { "--scene-detection" } else { "--no-scene-detection" });
 
     clipwright::run(&args)?;
-    project::open_project(app, project_dir).await.map_err(Into::into)
+    project::open_project(app, project_dir, Some("main".into())).await.map_err(Into::into)
 }
 
 /// Record mode (F-REC-1/2/4/5): scaffold a starter `browse-plan.json`,
@@ -128,7 +128,7 @@ pub async fn record_project_cmd(
     args.push(if mobile { "--mobile" } else { "--desktop" });
 
     clipwright::run(&args)?;
-    project::open_project(app, project_dir).await.map_err(Into::into)
+    project::open_project(app, project_dir, Some("main".into())).await.map_err(Into::into)
 }
 
 /// Check whether the `clipwright` binary is reachable. Used by the New
@@ -152,6 +152,8 @@ pub async fn add_source_cmd(
     app: tauri::AppHandle,
     video_path: String,
     project_dir: String,
+    video_id: String,
+    video_title: String,
     auto_segment: bool,
     scene_detection: bool,
 ) -> Result<ProjectState, NewProjectError> {
@@ -167,12 +169,16 @@ pub async fn add_source_cmd(
         "import", &video_path,
         "--into", &project_dir,
         "--add",
+        "--video", &video_id,
     ];
+    if !video_title.is_empty() {
+        args.extend(["--video-title", &video_title]);
+    }
     args.push(if auto_segment { "--auto-segment" } else { "--no-auto-segment" });
     args.push(if scene_detection { "--scene-detection" } else { "--no-scene-detection" });
 
     clipwright::run(&args)?;
-    project::open_project(app, project_dir).await.map_err(Into::into)
+    project::open_project(app, project_dir, Some(video_id)).await.map_err(Into::into)
 }
 
 #[derive(Debug, serde::Serialize)]

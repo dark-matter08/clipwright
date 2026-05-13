@@ -4,17 +4,40 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { Aspect, ProjectState, RecentProject, Timeline } from "./types";
+import type { Aspect, ProjectState, RecentProject, Video, VideoMeta } from "./types";
 
-export async function openProject(projectDir: string): Promise<ProjectState> {
-  return invoke<ProjectState>("open_project", { projectDir });
+export async function openProject(
+  projectDir: string,
+  videoId?: string | null,
+): Promise<ProjectState> {
+  return invoke<ProjectState>("open_project", { projectDir, videoId: videoId ?? null });
 }
 
-export async function saveTimeline(
+export async function saveVideo(
   projectDir: string,
-  timeline: Timeline,
+  videoId: string,
+  video: Video,
 ): Promise<void> {
-  await invoke("save_timeline", { projectDir, timeline });
+  await invoke("save_video", { projectDir, videoId, video });
+}
+
+export async function listVideos(projectDir: string): Promise<VideoMeta[]> {
+  return invoke<VideoMeta[]>("list_videos_cmd", { projectDir });
+}
+
+export async function loadVideo(
+  projectDir: string,
+  videoId: string,
+): Promise<Video> {
+  return invoke<Video>("load_video_cmd", { projectDir, videoId });
+}
+
+export async function createVideo(
+  projectDir: string,
+  videoId: string,
+  title: string,
+): Promise<Video> {
+  return invoke<Video>("create_video_cmd", { projectDir, videoId, title });
 }
 
 export async function listRecents(): Promise<RecentProject[]> {
@@ -74,11 +97,16 @@ export async function recordProject(args: RecordProjectArgs): Promise<ProjectSta
 export interface AddSourceArgs {
   videoPath: string;
   projectDir: string;
+  /** Which video in the project the new segments attach to. Use the
+   *  current video to add B-roll; use a new video id (with a hint via
+   *  next_video_id from `lib/timeline.ts`) to start a new deliverable. */
+  videoId: string;
+  videoTitle: string;
   autoSegment: boolean;
   sceneDetection: boolean;
 }
 
-/** Append a video to the currently-open project as an additional source. */
+/** Append source video to a project, optionally creating a new video. */
 export async function addSource(args: AddSourceArgs): Promise<ProjectState> {
   return invoke<ProjectState>("add_source_cmd", { ...args });
 }
@@ -108,26 +136,29 @@ export async function clipwrightDoctor(): Promise<ClipwrightDoctorReport> {
 
 export async function ttsSegment(
   projectDir: string,
+  videoId: string,
   segId: string,
   force = false,
 ): Promise<ProjectState> {
-  return invoke<ProjectState>("tts_segment_cmd", { projectDir, segId, force });
+  return invoke<ProjectState>("tts_segment_cmd", { projectDir, videoId, segId, force });
 }
 
 export async function captionSegment(
   projectDir: string,
+  videoId: string,
   segId: string,
   force = false,
 ): Promise<ProjectState> {
-  return invoke<ProjectState>("caption_segment_cmd", { projectDir, segId, force });
+  return invoke<ProjectState>("caption_segment_cmd", { projectDir, videoId, segId, force });
 }
 
 export async function renderSegment(
   projectDir: string,
+  videoId: string,
   segId: string,
   force = false,
 ): Promise<ProjectState> {
-  return invoke<ProjectState>("render_segment_cmd", { projectDir, segId, force });
+  return invoke<ProjectState>("render_segment_cmd", { projectDir, videoId, segId, force });
 }
 
 export interface RenderFinalReport {
@@ -137,9 +168,10 @@ export interface RenderFinalReport {
 
 export async function renderFinal(
   projectDir: string,
+  videoId: string,
   force = false,
 ): Promise<RenderFinalReport> {
-  return invoke<RenderFinalReport>("render_final_cmd", { projectDir, force });
+  return invoke<RenderFinalReport>("render_final_cmd", { projectDir, videoId, force });
 }
 
 // ---------------------------------------------------------------------------
@@ -160,18 +192,23 @@ export interface ScriptPayload {
   clips: ScriptClip[];
 }
 
-export async function loadScript(projectDir: string): Promise<ScriptPayload> {
-  return invoke<ScriptPayload>("load_script", { projectDir });
+export async function loadScript(
+  projectDir: string,
+  videoId: string,
+): Promise<ScriptPayload> {
+  return invoke<ScriptPayload>("load_script", { projectDir, videoId });
 }
 
 export async function saveScriptClip(
   projectDir: string,
+  videoId: string,
   clipId: string,
   segmentId: string,
   patch: Partial<ScriptClip>,
 ): Promise<void> {
   await invoke("save_script_clip", {
     projectDir,
+    videoId,
     clipId,
     segmentId,
     patch,
@@ -184,6 +221,7 @@ export async function saveScriptClip(
 
 export interface ChatTurn {
   message: string;
+  videoId: string;
   segId?: string | null;
 }
 
@@ -199,7 +237,11 @@ export async function claudeChat(
 ): Promise<ChatResponse> {
   return invoke<ChatResponse>("claude_chat", {
     projectDir,
-    turn: { message: turn.message, seg_id: turn.segId ?? null },
+    turn: {
+      message: turn.message,
+      video_id: turn.videoId,
+      seg_id: turn.segId ?? null,
+    },
   });
 }
 
@@ -211,8 +253,9 @@ export interface ChatHistoryEntry {
 
 export async function loadChatHistory(
   projectDir: string,
+  videoId: string,
 ): Promise<ChatHistoryEntry[]> {
-  return invoke<ChatHistoryEntry[]>("load_chat_history", { projectDir });
+  return invoke<ChatHistoryEntry[]>("load_chat_history", { projectDir, videoId });
 }
 
 export interface ClaudeDoctorReport {

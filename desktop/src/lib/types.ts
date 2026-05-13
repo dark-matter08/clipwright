@@ -50,16 +50,30 @@ export interface Segment {
   annotations: SegmentRef;
 }
 
-export interface Timeline {
+export interface Video {
   schema_version: number;
+  video_id: string;
+  title: string;
+  chat_session_id: string;
   segments: Segment[];
+}
+
+export interface VideoMeta {
+  video_id: string;
+  title: string;
+  n_segments: number;
 }
 
 /** Wire shape returned by the Rust `open_project` command. */
 export interface ProjectState {
   project_dir: string;
   project: Project;
-  timeline: Timeline;
+  /** Every video in the project, surfaced for the sidebar. */
+  videos: VideoMeta[];
+  /** The currently-loaded video id (the one in `video`). */
+  current_video_id: string | null;
+  /** The fully-loaded current video manifest. Null when project has 0 videos. */
+  video: Video | null;
 }
 
 /** Entry in the recents list shown on the Hub. */

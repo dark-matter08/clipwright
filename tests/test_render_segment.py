@@ -20,7 +20,7 @@ from clipwright.render_segment import (
     _stat_fingerprint,
     render_segment,
 )
-from clipwright.schema import load_project, load_timeline, save_timeline
+from clipwright.schema import load_project, load_video, save_video
 
 
 def _ffmpeg_available() -> bool:
@@ -153,10 +153,10 @@ def test_render_segment_missing_id_raises(imported_project: Path) -> None:
 
 
 def test_render_segment_rejects_non_recording_kind(imported_project: Path) -> None:
-    timeline = load_timeline(imported_project)
+    timeline = load_video(imported_project, "main")
     timeline.segments[0].kind = "scene"
     timeline.segments[0].scene_type = "title"
-    save_timeline(imported_project, timeline)
+    save_video(imported_project, timeline)
 
     with pytest.raises(RenderSegmentError, match="only 'recording' is"):
         render_segment(imported_project, timeline.segments[0].id)
@@ -180,7 +180,7 @@ def test_render_segment_produces_mp4_first_time(imported_project: Path) -> None:
     assert result.cached is False
     assert result.out_path.exists()
     assert result.out_path.name == "seg_001.mp4"
-    assert result.out_path.parent == imported_project / "out" / "segments"
+    assert result.out_path.parent == imported_project / "out" / "segments" / "main"
 
     # cache sidecar written
     cache = result.out_path.with_suffix(".mp4.cache.json")
@@ -209,11 +209,11 @@ def test_render_segment_invalidated_by_segment_edit(imported_project: Path) -> N
     """Editing the segment in timeline.json invalidates the cache."""
     render_segment(imported_project, "seg_001")
 
-    timeline = load_timeline(imported_project)
+    timeline = load_video(imported_project, "main")
     # shorten the segment
     timeline.segments[0].source_end = 4.0
     timeline.segments[0].target_duration = 4.0
-    save_timeline(imported_project, timeline)
+    save_video(imported_project, timeline)
 
     result = render_segment(imported_project, "seg_001")
     assert result.cached is False, "edit to source_end should bust the cache"
@@ -241,9 +241,9 @@ def test_render_segment_output_has_correct_resolution(imported_project: Path) ->
 @pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg not on PATH")
 def test_render_segment_silent_when_no_voiceover(imported_project: Path) -> None:
     """Segment with voiceover.enabled=False produces a silent output."""
-    timeline = load_timeline(imported_project)
+    timeline = load_video(imported_project, "main")
     timeline.segments[0].voiceover.enabled = False
-    save_timeline(imported_project, timeline)
+    save_video(imported_project, timeline)
 
     result = render_segment(imported_project, "seg_001")
     # ffprobe: count audio streams

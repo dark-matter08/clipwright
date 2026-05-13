@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from clipwright.record_project import RecordError, _seed_from_recording, record_project
-from clipwright.schema import load_project, load_timeline
+from clipwright.schema import load_project, load_video
 
 
 def _ffmpeg_available() -> bool:
@@ -86,7 +86,7 @@ def test_seed_produces_one_segment_per_chapter(tmp_path: Path, synth_video: Path
     )
 
     assert result.n_segments == 3
-    timeline = load_timeline(project_dir)
+    timeline = load_video(project_dir, "main")
     chapters = [s.chapter for s in timeline.segments]
     assert chapters == ["intro", "library", "reader"]
 
@@ -104,7 +104,7 @@ def test_seed_writes_v1_files_with_correct_layout(
 
     # required files exist exactly where SRS §5.1 says
     assert (project_dir / "project.json").exists()
-    assert (project_dir / "timeline.json").exists()
+    assert (project_dir / "videos" / "main.json").exists()
     assert (project_dir / "moments.json").exists()
     assert (project_dir / "sources" / "main.mp4").exists()
 
@@ -125,7 +125,7 @@ def test_seed_segments_reference_correct_paths(
         source_video=synth_video,
         moments=_moments_three_chapters(),
     )
-    timeline = load_timeline(project_dir)
+    timeline = load_video(project_dir, "main")
 
     for s in timeline.segments:
         assert s.source == "sources/main.mp4"
@@ -145,7 +145,7 @@ def test_seed_segment_ids_are_sequential_and_unique(
         source_video=synth_video,
         moments=_moments_three_chapters(),
     )
-    timeline = load_timeline(project_dir)
+    timeline = load_video(project_dir, "main")
     ids = [s.id for s in timeline.segments]
     assert ids == ["seg_001", "seg_002", "seg_003"]
 
@@ -159,7 +159,7 @@ def test_seed_labels_use_first_moment_or_fallback(
         source_video=synth_video,
         moments=_moments_three_chapters(),
     )
-    timeline = load_timeline(project_dir)
+    timeline = load_video(project_dir, "main")
     # first moment of each chapter
     labels = [s.label for s in timeline.segments]
     assert labels == ["Open the app", "Open library", "Open the reader"]
@@ -228,7 +228,7 @@ def test_seed_with_empty_moments_produces_single_segment(
         project_dir, source_video=synth_video, moments=[],
     )
     assert result.n_segments == 1
-    timeline = load_timeline(project_dir)
+    timeline = load_video(project_dir, "main")
     assert timeline.segments[0].source_start == 0.0
     assert timeline.segments[0].source_end == pytest.approx(20.0, abs=0.2)
 

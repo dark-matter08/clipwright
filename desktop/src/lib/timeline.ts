@@ -1,8 +1,8 @@
 // Pure timeline mutations.
 //
 // Every editor operation (split / delete / duplicate / merge / reorder) is
-// expressed as a pure function `(Timeline, ...args) -> Timeline`. The store
-// composes these and persists via `saveTimeline()`. Same shape, no
+// expressed as a pure function `(Video, ...args) -> Video`. The store
+// composes these and persists via `saveVideo()`. Same shape, no
 // surprises — keeping mutations pure means undo/redo is "just" snapshot
 // rotation.
 //
@@ -11,7 +11,7 @@
 //   - splitting yields the original id + a new id; downstream ids are not
 //     renumbered
 
-import type { Segment, SegmentRef, Timeline } from "./types";
+import type { Segment, SegmentRef, Video } from "./types";
 
 const ID_PATTERN = /^seg_(\d+)([a-z]*)$/;
 const NUMERIC_PATTERN = /^seg_(\d+)$/;
@@ -53,7 +53,7 @@ function rebuildRef(ref: SegmentRef, oldId: string, newId: string): SegmentRef {
 /** Split a segment in half (at midpoint, in P1.4). The new segment inherits
  *  the original's properties; both pieces get unique ids. Per-segment refs
  *  are rewritten to point at the new ids. */
-export function splitSegment(tl: Timeline, segId: string): Timeline {
+export function splitSegment(tl: Video, segId: string): Video {
   const idx = tl.segments.findIndex((s) => s.id === segId);
   if (idx < 0) return tl;
   const seg = tl.segments[idx]!;
@@ -84,7 +84,7 @@ export function splitSegment(tl: Timeline, segId: string): Timeline {
 }
 
 /** Drop a segment from the timeline. */
-export function deleteSegment(tl: Timeline, segId: string): Timeline {
+export function deleteSegment(tl: Video, segId: string): Video {
   const next = clone(tl);
   next.segments = next.segments.filter((s) => s.id !== segId);
   return next;
@@ -92,7 +92,7 @@ export function deleteSegment(tl: Timeline, segId: string): Timeline {
 
 /** Duplicate a segment in place. The clone gets a fresh id; its refs are
  *  rewritten to point at the new id. */
-export function duplicateSegment(tl: Timeline, segId: string): Timeline {
+export function duplicateSegment(tl: Video, segId: string): Video {
   const idx = tl.segments.findIndex((s) => s.id === segId);
   if (idx < 0) return tl;
   const seg = tl.segments[idx]!;
@@ -117,10 +117,10 @@ export function duplicateSegment(tl: Timeline, segId: string): Timeline {
  *  source range is absorbed; the neighbor is dropped from the timeline.
  *  The merged segment keeps the focused segment's id and properties. */
 export function mergeSegment(
-  tl: Timeline,
+  tl: Video,
   segId: string,
   direction: "prev" | "next",
-): Timeline {
+): Video {
   const idx = tl.segments.findIndex((s) => s.id === segId);
   if (idx < 0) return tl;
   const neighborIdx = direction === "prev" ? idx - 1 : idx + 1;
@@ -141,10 +141,10 @@ export function mergeSegment(
 
 /** Move a segment forward/back by one position. */
 export function moveSegment(
-  tl: Timeline,
+  tl: Video,
   segId: string,
   direction: "prev" | "next",
-): Timeline {
+): Video {
   const idx = tl.segments.findIndex((s) => s.id === segId);
   if (idx < 0) return tl;
   const target = direction === "prev" ? idx - 1 : idx + 1;
@@ -158,7 +158,7 @@ export function moveSegment(
 /** Convenience: id of the segment offset from `segId` by N positions.
  *  Used for ←/→ keyboard navigation. */
 export function neighborId(
-  tl: Timeline,
+  tl: Video,
   segId: string | null,
   offset: number,
 ): string | null {
@@ -170,7 +170,7 @@ export function neighborId(
   return tl.segments[target]!.id;
 }
 
-export function findSegment(tl: Timeline, segId: string | null): Segment | null {
+export function findSegment(tl: Video, segId: string | null): Segment | null {
   if (!segId) return null;
   return tl.segments.find((s) => s.id === segId) ?? null;
 }

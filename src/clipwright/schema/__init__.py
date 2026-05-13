@@ -1,60 +1,63 @@
-"""Versioned project schemas.
+"""Versioned project schemas (currently v2: project = collection of videos).
 
-A clipwright project on disk is a directory of JSON + media files. The shapes
-of those JSON files are defined here, versioned, and atomically loaded/saved.
+A clipwright project on disk is a directory of JSON + media files. The
+current schema is v2; v1 projects auto-migrate on first load.
 
 Public surface:
 
     from clipwright.schema import (
         SCHEMA_VERSION,
-        Project, Timeline, Segment, SegmentVoiceover, SegmentRef,
+        Project, Video, Segment, SegmentRef, SegmentVoiceover,
+        next_video_id,
         load_project, save_project,
-        load_timeline, save_timeline,
+        load_video, save_video, list_videos, create_video,
         SchemaError, SchemaVersionError,
+        paths,
     )
 
-Versioning:
-
-    Every JSON file written by clipwright carries a `schema_version` integer.
-    The current version is `SCHEMA_VERSION`. Loaders refuse to read newer
-    versions and migrate older ones via `migrate.upgrade(payload, target)`.
-    For v1 there is nothing to migrate; the hook exists for future versions.
+The v1 dataclasses remain importable as `clipwright.schema.v1.*` because
+the migration code needs them. v1 IS NOT exposed at the top level.
 """
 from __future__ import annotations
 
+from . import paths
 from .io import (
+    SCHEMA_VERSION,
     SchemaError,
     SchemaVersionError,
+    create_video,
+    list_videos,
     load_project,
-    load_timeline,
+    load_video,
     save_project,
-    save_timeline,
+    save_video,
 )
-from .v1 import (
+from .v2 import (
     Project,
     Segment,
     SegmentRef,
     SegmentVoiceover,
-    Timeline,
+    Video,
+    migrate,
+    next_video_id,
 )
-from .v1 import migrate as _migrate_v1
-
-SCHEMA_VERSION = 1
 
 __all__ = [
     "SCHEMA_VERSION",
     "Project",
-    "Timeline",
+    "Video",
     "Segment",
     "SegmentRef",
     "SegmentVoiceover",
+    "next_video_id",
     "load_project",
     "save_project",
-    "load_timeline",
-    "save_timeline",
+    "load_video",
+    "save_video",
+    "list_videos",
+    "create_video",
     "SchemaError",
     "SchemaVersionError",
+    "paths",
+    "migrate",
 ]
-
-# Re-export migration hook so callers can `from clipwright.schema import migrate`
-migrate = _migrate_v1

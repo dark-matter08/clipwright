@@ -21,7 +21,7 @@ export function StatusBar() {
   const project = useApp((s) => s.project);
   const past = useApp((s) => s.past.length);
   const future = useApp((s) => s.future.length);
-  const segs = project?.timeline.segments.length ?? 0;
+  const segs = project?.video?.segments.length ?? 0;
   const [checks, setChecks] = useState<Check[]>([]);
 
   useEffect(() => {

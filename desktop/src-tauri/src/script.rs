@@ -22,39 +22,43 @@ impl Serialize for ScriptError {
     }
 }
 
-fn script_path(project_dir: &str) -> PathBuf {
-    PathBuf::from(project_dir).join("voiceover/script.json")
+fn script_path(project_dir: &str, video_id: &str) -> PathBuf {
+    PathBuf::from(project_dir)
+        .join("voiceover")
+        .join("scripts")
+        .join(format!("{video_id}.json"))
 }
 
-/// Read the full `voiceover/script.json` (or an empty skeleton if missing).
+/// Read `voiceover/scripts/<video>.json` (or an empty skeleton if missing).
 #[tauri::command]
-pub async fn load_script(project_dir: String) -> Result<Value, ScriptError> {
-    let path = script_path(&project_dir);
+pub async fn load_script(
+    project_dir: String,
+    video_id: String,
+) -> Result<Value, ScriptError> {
+    let path = script_path(&project_dir, &video_id);
     if !path.exists() {
-        return Ok(json!({ "schema_version": 1, "clips": [] }));
+        return Ok(json!({ "schema_version": 2, "clips": [] }));
     }
     let bytes = std::fs::read(&path)?;
     Ok(serde_json::from_slice(&bytes)?)
 }
 
-/// Upsert a clip by id. If the clip doesn't exist, append it (binding it
-/// to `segment_id`). If it does, merge the patch fields onto it.
-///
-/// The patch shape mirrors `voiceover/script.json#clips[]`:
-///   { "text"?: str, "target_seconds"?: float,
-///     "voice"?: { "provider"?: str, "voice_id"?: str }, "hint"?: str }
+/// Upsert a clip by id within the named video's script. If the clip
+/// doesn't exist, append (binding it to `segment_id`); if it does, merge
+/// the patch fields onto it.
 #[tauri::command]
 pub async fn save_script_clip(
     project_dir: String,
+    video_id: String,
     clip_id: String,
     segment_id: String,
     patch: Value,
 ) -> Result<(), ScriptError> {
-    let path = script_path(&project_dir);
+    let path = script_path(&project_dir, &video_id);
     let mut payload: Value = if path.exists() {
         serde_json::from_slice(&std::fs::read(&path)?)?
     } else {
-        json!({ "schema_version": 1, "clips": [] })
+        json!({ "schema_version": 2, "clips": [] })
     };
 
     let clips = payload

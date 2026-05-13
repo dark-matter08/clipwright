@@ -16,8 +16,8 @@ interface Props {
 }
 
 export function SegmentContextMenu({ segId, x, y, onClose }: Props) {
-  const seg = useApp((s) => s.project?.timeline.segments.find((g) => g.id === segId));
-  const segments = useApp((s) => s.project?.timeline.segments ?? []);
+  const seg = useApp((s) => s.project?.video?.segments.find((g) => g.id === segId));
+  const segments = useApp((s) => s.project?.video?.segments ?? []);
   const split = useApp((s) => s.splitSelected);
   const dup = useApp((s) => s.duplicateSelected);
   const del = useApp((s) => s.deleteSelected);

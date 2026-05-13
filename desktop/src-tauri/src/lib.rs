@@ -26,7 +26,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             project::open_project,
-            project::save_timeline,
+            project::save_video,
+            project::list_videos_cmd,
+            project::load_video_cmd,
+            project::create_video_cmd,
             recents::list_recents,
             new_project::import_video_cmd,
             new_project::record_project_cmd,

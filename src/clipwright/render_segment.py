@@ -48,11 +48,14 @@ from .ffmpeg import require
 from .render.composer import Segment as _ComposerSegment
 from .render.composer import SubtitleChunk, _compose_segment, _overlay_subtitles
 from .schema import (
+    Project,
     Segment,
     load_project,
-    load_timeline,
+    load_video,
 )
-from .schema.v1.project import Project
+from .schema import (
+    paths as schema_paths,
+)
 
 
 class RenderSegmentError(Exception):
@@ -82,6 +85,7 @@ def render_segment(
     project_dir: Path,
     seg_id: str,
     *,
+    video_id: str = "main",
     force: bool = False,
 ) -> RenderResult:
     """Render one segment. Returns its output path and whether the cache hit.
@@ -89,18 +93,19 @@ def render_segment(
     Args:
         project_dir: project root.
         seg_id: stable segment id (e.g. "seg_001").
+        video_id: which video the segment belongs to. Default "main".
         force: bypass the cache and recompute even if inputs are unchanged.
     """
     project_dir = Path(project_dir).resolve()
     project = load_project(project_dir)
-    timeline = load_timeline(project_dir)
-    seg = timeline.by_id(seg_id)
+    video = load_video(project_dir, video_id)
+    seg = video.by_id(seg_id)
     if seg is None:
         raise RenderSegmentError(
-            f"segment {seg_id!r} not found in {project_dir / 'timeline.json'}",
+            f"segment {seg_id!r} not found in video {video_id!r}",
             fix=(
-                "Check `clipwright status` for the list of segment ids, or "
-                "regenerate the timeline."
+                "Check `clipwright video list` for video ids; "
+                "`clipwright status` for segment ids."
             ),
         )
 
@@ -117,16 +122,16 @@ def render_segment(
     if not source.exists():
         raise RenderSegmentError(
             f"segment {seg_id}: source not found at {source}",
-            fix="Re-record or re-import to restore sources/main.mp4.",
+            fix=f"Re-record or re-import to restore {seg.source}.",
         )
 
-    vo_audio = _resolve_voiceover(project_dir, seg)
-    captions_index = _resolve_captions_index(project_dir, seg)
+    vo_audio = _resolve_voiceover(project_dir, video_id, seg)
+    captions_index = _resolve_captions_index(project_dir, video_id, seg)
 
-    out_dir = project_dir / "out" / "segments"
+    out_dir = schema_paths.video_render_dir(project_dir, video_id)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{seg_id}.mp4"
-    cache_path = out_path.with_suffix(".mp4.cache.json")
+    out_path = schema_paths.video_render_mp4(project_dir, video_id, seg_id)
+    cache_path = schema_paths.video_render_cache(project_dir, video_id, seg_id)
 
     input_hash = _compute_input_hash(
         project=project,
@@ -184,19 +189,19 @@ def render_segment(
 # ---------------------------------------------------------------------------
 
 
-def _resolve_voiceover(project_dir: Path, seg: Segment) -> Path | None:
+def _resolve_voiceover(project_dir: Path, video_id: str, seg: Segment) -> Path | None:
     """Return the per-segment VO audio path if it exists, else None."""
     if not seg.voiceover.enabled:
         return None
-    path = project_dir / "voiceover" / "audio" / f"{seg.id}.mp3"
+    path = schema_paths.video_audio_mp3(project_dir, video_id, seg.id)
     return path if path.exists() else None
 
 
-def _resolve_captions_index(project_dir: Path, seg: Segment) -> Path | None:
+def _resolve_captions_index(project_dir: Path, video_id: str, seg: Segment) -> Path | None:
     """Return the per-segment captions index JSON if it exists, else None."""
     if not seg.captions.enabled:
         return None
-    path = project_dir / "captions" / seg.id / "index.json"
+    path = schema_paths.video_captions_dir(project_dir, video_id, seg.id) / "index.json"
     return path if path.exists() else None
 
 

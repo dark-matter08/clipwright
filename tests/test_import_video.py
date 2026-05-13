@@ -20,7 +20,7 @@ from clipwright.import_video import (
     _filter_cuts,
     compute_cuts,
 )
-from clipwright.schema import load_project, load_timeline
+from clipwright.schema import load_project, load_video
 
 # ---------------------------------------------------------------------------
 # compute_cuts — the core algorithm
@@ -201,7 +201,7 @@ def test_import_video_end_to_end(tmp_path: Path) -> None:
 
     # project + timeline written and re-loadable
     project = load_project(project_dir)
-    timeline = load_timeline(project_dir)
+    timeline = load_video(project_dir, "main")
     assert project.title == "Test Project"
     assert project.aspect == "9:16"
     assert len(timeline.segments) >= 1
@@ -237,8 +237,8 @@ def test_import_video_no_auto_segment(tmp_path: Path) -> None:
         src, tmp_path / "proj", auto_segment=False,
     )
     assert result.n_segments == 1
-    assert result.timeline.segments[0].source_start == 0.0
-    assert result.timeline.segments[0].source_end == pytest.approx(4.0, abs=0.1)
+    assert result.video.segments[0].source_start == 0.0
+    assert result.video.segments[0].source_end == pytest.approx(4.0, abs=0.1)
 
 
 def test_import_video_missing_source_raises(tmp_path: Path) -> None:
@@ -271,7 +271,7 @@ def _make_clip(path: Path, *, color: str = "blue", duration: int = 4) -> None:
 @pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg not on PATH")
 def test_import_video_append_adds_second_source(tmp_path: Path) -> None:
     from clipwright.import_video import import_video
-    from clipwright.schema import load_project, load_timeline
+    from clipwright.schema import load_project, load_video
 
     main_src = tmp_path / "main.mp4"
     broll_src = tmp_path / "broll.mp4"
@@ -280,7 +280,7 @@ def test_import_video_append_adds_second_source(tmp_path: Path) -> None:
 
     project_dir = tmp_path / "proj"
     import_video(main_src, project_dir, title="Multi", auto_segment=False)
-    first = load_timeline(project_dir)
+    first = load_video(project_dir, "main")
     assert len(first.segments) == 1
     assert first.segments[0].source == "sources/main.mp4"
     first_project_title = load_project(project_dir).title
@@ -288,7 +288,7 @@ def test_import_video_append_adds_second_source(tmp_path: Path) -> None:
     # Add a second source — append=True.
     import_video(broll_src, project_dir, append=True, auto_segment=False)
 
-    second = load_timeline(project_dir)
+    second = load_video(project_dir, "main")
     # Existing segments untouched.
     assert second.segments[0].id == first.segments[0].id
     assert second.segments[0].source == "sources/main.mp4"
@@ -306,7 +306,7 @@ def test_import_video_append_adds_second_source(tmp_path: Path) -> None:
 @pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg not on PATH")
 def test_import_video_append_unique_filename_on_collision(tmp_path: Path) -> None:
     from clipwright.import_video import import_video
-    from clipwright.schema import load_timeline
+    from clipwright.schema import load_video
 
     # Two appended videos that resolve to the same stem ("broll")
     main_src = tmp_path / "main.mp4"
@@ -322,7 +322,7 @@ def test_import_video_append_unique_filename_on_collision(tmp_path: Path) -> Non
     import_video(broll_a, project_dir, append=True, auto_segment=False)
     import_video(broll_b, project_dir, append=True, auto_segment=False)
 
-    tl = load_timeline(project_dir)
+    tl = load_video(project_dir, "main")
     sources = {s.source for s in tl.segments}
     # Two appended broll files, distinguished by numeric suffix.
     assert "sources/broll.mp4" in sources
@@ -333,7 +333,7 @@ def test_import_video_append_unique_filename_on_collision(tmp_path: Path) -> Non
 @pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg not on PATH")
 def test_import_video_append_sanitizes_unsafe_stems(tmp_path: Path) -> None:
     from clipwright.import_video import import_video
-    from clipwright.schema import load_timeline
+    from clipwright.schema import load_video
 
     main_src = tmp_path / "main.mp4"
     unsafe_src = tmp_path / "B-Roll!! Final v2 (final).mp4"
@@ -344,7 +344,7 @@ def test_import_video_append_sanitizes_unsafe_stems(tmp_path: Path) -> None:
     import_video(main_src, project_dir, auto_segment=False)
     import_video(unsafe_src, project_dir, append=True, auto_segment=False)
 
-    tl = load_timeline(project_dir)
+    tl = load_video(project_dir, "main")
     # Lowercased, punctuation/spaces collapsed to single hyphens.
     appended_source = next(s.source for s in tl.segments if s.source != "sources/main.mp4")
     assert appended_source == "sources/b-roll-final-v2-final.mp4"
@@ -355,7 +355,7 @@ def test_import_video_append_against_empty_dir_is_forgiving(tmp_path: Path) -> N
     """Library-level append against an empty dir creates project.json
     from scratch (CLI surface enforces stricter 'must exist' check)."""
     from clipwright.import_video import import_video
-    from clipwright.schema import load_project, load_timeline
+    from clipwright.schema import load_project, load_video
 
     src = tmp_path / "src.mp4"
     _make_clip(src, duration=3)
@@ -363,5 +363,5 @@ def test_import_video_append_against_empty_dir_is_forgiving(tmp_path: Path) -> N
     result = import_video(src, project_dir, append=True, auto_segment=False)
 
     assert load_project(project_dir).title == "fresh"
-    assert len(load_timeline(project_dir).segments) == 1
+    assert len(load_video(project_dir, "main").segments) == 1
     assert result.source_path.name == "src.mp4"

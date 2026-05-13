@@ -21,9 +21,9 @@ from clipwright.schema import (
     Segment,
     SegmentRef,
     SegmentVoiceover,
-    Timeline,
+    Video,
     save_project,
-    save_timeline,
+    save_video,
 )
 from clipwright.tts_segment import (
     TTSSegmentError,
@@ -128,9 +128,9 @@ def _make_project(
             voice_id=voice,
         ),
     )
-    save_timeline(
+    save_video(
         project_dir,
-        Timeline(segments=[
+        Video(video_id="main", segments=[
             Segment(
                 id="seg_001",
                 source="sources/main.mp4",
@@ -144,8 +144,8 @@ def _make_project(
             ),
         ]),
     )
-    (project_dir / "voiceover").mkdir()
-    (project_dir / "voiceover" / "script.json").write_text(json.dumps({
+    (project_dir / "voiceover" / "scripts").mkdir(parents=True)
+    (project_dir / "voiceover" / "scripts" / "main.json").write_text(json.dumps({
         "schema_version": 1,
         "clips": [
             {
@@ -175,10 +175,10 @@ def test_tts_segment_writes_mp3_and_timestamps(tmp_path: Path) -> None:
     assert result.timestamps_path.exists()
     assert result.mp3_path.name == "seg_001.mp3"
     assert result.timestamps_path.name == "seg_001.timestamps.json"
-    assert result.mp3_path.parent == project_dir / "voiceover" / "audio"
+    assert result.mp3_path.parent == project_dir / "voiceover" / "audio" / "main"
 
-    # cache sidecar
-    assert (project_dir / "voiceover" / "audio" / "seg_001.cache.json").exists()
+    # cache sidecar (per-video path)
+    assert (project_dir / "voiceover" / "audio" / "main" / "seg_001.cache.json").exists()
 
 
 @pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg not on PATH")
@@ -226,7 +226,7 @@ def test_tts_segment_invalidated_by_text_change(
     tts_segment(project_dir, "seg_001")
 
     # Edit the script clip text
-    script_path = project_dir / "voiceover" / "script.json"
+    script_path = project_dir / "voiceover" / "scripts" / "main.json"
     payload = json.loads(script_path.read_text())
     payload["clips"][0]["text"] = "Different take entirely."
     script_path.write_text(json.dumps(payload))
@@ -286,7 +286,7 @@ def test_tts_segment_missing_id_raises(tmp_path: Path) -> None:
 
 def test_tts_segment_voiceover_disabled_raises(tmp_path: Path) -> None:
     project_dir = _make_project(tmp_path)
-    timeline = Timeline(segments=[
+    timeline = Video(video_id="main", segments=[
         Segment(
             id="seg_001", source="sources/main.mp4",
             source_start=0.0, source_end=3.0, target_duration=3.0,
@@ -297,21 +297,21 @@ def test_tts_segment_voiceover_disabled_raises(tmp_path: Path) -> None:
             annotations=SegmentRef(enabled=False, ref=""),
         ),
     ])
-    save_timeline(project_dir, timeline)
+    save_video(project_dir, timeline)
     with pytest.raises(TTSSegmentError, match="disabled"):
         tts_segment(project_dir, "seg_001")
 
 
 def test_tts_segment_missing_script_json_raises(tmp_path: Path) -> None:
     project_dir = _make_project(tmp_path)
-    (project_dir / "voiceover" / "script.json").unlink()
-    with pytest.raises(TTSSegmentError, match="script.json not found"):
+    (project_dir / "voiceover" / "scripts" / "main.json").unlink()
+    with pytest.raises(TTSSegmentError, match="scripts/main.json not found"):
         tts_segment(project_dir, "seg_001")
 
 
 def test_tts_segment_missing_clip_raises(tmp_path: Path) -> None:
     project_dir = _make_project(tmp_path)
-    (project_dir / "voiceover" / "script.json").write_text(json.dumps({
+    (project_dir / "voiceover" / "scripts" / "main.json").write_text(json.dumps({
         "schema_version": 1,
         "clips": [],
     }))
@@ -327,7 +327,7 @@ def test_tts_segment_empty_text_raises(tmp_path: Path) -> None:
 
 def test_tts_segment_invalid_json_raises(tmp_path: Path) -> None:
     project_dir = _make_project(tmp_path)
-    (project_dir / "voiceover" / "script.json").write_text("{not json")
+    (project_dir / "voiceover" / "scripts" / "main.json").write_text("{not json")
     with pytest.raises(TTSSegmentError, match="invalid JSON"):
         tts_segment(project_dir, "seg_001")
 

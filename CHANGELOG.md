@@ -7,10 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Added — schema v2: project as a collection of videos
 
-- **Multi-source projects (SRS F-UPL-3).** A project can now hold N
-  source videos. Use cases: B-roll over a primary track, intercut
+**Breaking change to the on-disk format** (auto-migrated). A project no
+longer maps 1:1 to a single deliverable. It's now a collection that
+holds **N videos**, each with its own timeline + audio + captions +
+render output. Use cases this unlocks:
+
+- **Recap channels:** one project per manhwa / show, one video per
+  chapter recap. Voice, aspect, brand stay shared.
+- **Demo libraries:** one project per app, one video per feature.
+- **Episode series:** one project per podcast/show, one video per
+  episode.
+
+New on-disk layout:
+
+```
+my-project/
+├── project.json                       (schema_version: 2)
+├── videos/
+│   ├── chapter-1-recap.json           ← was timeline.json
+│   └── chapter-2-recap.json
+├── voiceover/
+│   ├── audio/<video_id>/<seg>.{mp3,timestamps.json,cache.json}
+│   └── scripts/<video_id>.json        ← was voiceover/script.json
+├── captions/<video_id>/<seg>/...
+├── chat/sessions/<video_id>/<date>.jsonl
+└── out/
+    ├── segments/<video_id>/<seg>.mp4
+    └── final/<video_id>.mp4
+```
+
+Migration: v1 projects auto-upgrade on first `load_project`. Originals
+back up to `<project>/.clipwright/v1-backup/`. Re-runs are idempotent.
+
+CLI:
+- `clipwright video list` — show every video in the project.
+- `clipwright video new <id> [--title TEXT]` — create an empty video.
+- `clipwright import <video> --add --video <id>` — append source to a
+  specific video (B-roll) or create a new video on the fly.
+- All per-segment commands gain `--video <id>` (default `main`).
+
+Desktop:
+- **Videos sidebar** on the far left of the Workspace. Click a video
+  to switch the editor's focus. "+ New video" inline.
+- **Add Source dialog** has two modes: append to current video (B-roll)
+  or start a new video.
+- **Per-video Claude chat sessions.** Switching videos switches chat
+  context — each chapter / episode keeps its own conversation history.
+- Top bar, status bar, render dialog, inspector, preview — all wired
+  to the currently-selected video.
+
+### Added — multi-source per video (SRS F-UPL-3)
+
+A project can now hold N source videos per video. Use cases: B-roll over a primary track, intercut
   webcam reactions, recording a fix after the original capture.
   - `clipwright import <video> --add` appends a video to an existing
     project. Picks a unique `sources/<stem>.mp4` filename (with a

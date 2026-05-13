@@ -21,13 +21,14 @@ export function RenderDialog({ onClose }: Props) {
   const [done, setDone] = useState<{ path: string } | null>(null);
   const [force, setForce] = useState(false);
 
-  if (!project) return null;
-  const segs = project.timeline.segments;
+  if (!project || !project.video) return null;
+  const video = project.video;
+  const segs = video.segments;
 
   async function start() {
     setBusy(true);
     try {
-      const r = await renderFinal(project!.project_dir, force);
+      const r = await renderFinal(project!.project_dir, video.video_id, force);
       loadProject(r.project);
       setDone({ path: r.final_path });
     } catch (e) {

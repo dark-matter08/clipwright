@@ -1,4 +1,4 @@
-"""Concat per-segment MP4s into out/final.mp4 — SRS P1.10 / F-RND-3.
+"""Concat per-segment MP4s into out/final/<video_id>.mp4 — SRS P1.10 / F-RND-3.
 
 Consumes the per-segment outputs `render_segment` produces and stitches
 them into a final video using ffmpeg's concat demuxer (lossless when the
@@ -16,7 +16,8 @@ from pathlib import Path
 
 from .ffmpeg import FFmpegError, require
 from .render_segment import RenderSegmentError, render_segment
-from .schema import load_timeline
+from .schema import load_video
+from .schema import paths as schema_paths
 
 
 class RenderFinalError(Exception):
@@ -35,36 +36,42 @@ class RenderFinalResult:
     cached: int    # segments that hit the per-segment cache
 
 
-def render_final(project_dir: Path, *, force: bool = False) -> RenderFinalResult:
-    """Render every segment (or use cache) and concat into out/final.mp4.
+def render_final(
+    project_dir: Path,
+    *,
+    video_id: str = "main",
+    force: bool = False,
+) -> RenderFinalResult:
+    """Render every segment of one video and concat into out/final/<id>.mp4.
 
     Args:
         project_dir: project root.
+        video_id: which video to render. Default "main".
         force: bypass per-segment caches.
     """
     project_dir = Path(project_dir).resolve()
     require()
 
-    timeline = load_timeline(project_dir)
-    if not timeline.segments:
+    video = load_video(project_dir, video_id)
+    if not video.segments:
         raise RenderFinalError(
-            "timeline has no segments",
+            f"video {video_id!r} has no segments",
             fix="Import a video or record a session before rendering.",
         )
 
-    out_dir = project_dir / "out"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    final = out_dir / "final.mp4"
+    final = schema_paths.video_final_path(project_dir, video_id)
+    final.parent.mkdir(parents=True, exist_ok=True)
 
     rendered = 0
     cached = 0
     per_segment_paths: list[Path] = []
-    for seg in timeline.segments:
+    for seg in video.segments:
         try:
-            r = render_segment(project_dir, seg.id, force=force)
+            r = render_segment(project_dir, seg.id, video_id=video_id, force=force)
         except RenderSegmentError as e:
             raise RenderFinalError(
-                f"segment {seg.id}: {e}", fix=getattr(e, "fix", "")
+                f"video {video_id} segment {seg.id}: {e}",
+                fix=getattr(e, "fix", ""),
             ) from e
         per_segment_paths.append(r.out_path)
         if r.cached:
@@ -75,7 +82,7 @@ def render_final(project_dir: Path, *, force: bool = False) -> RenderFinalResult
     _concat(per_segment_paths, final)
     return RenderFinalResult(
         out_path=final,
-        n_segments=len(timeline.segments),
+        n_segments=len(video.segments),
         rendered=rendered,
         cached=cached,
     )

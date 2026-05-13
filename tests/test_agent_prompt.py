@@ -21,9 +21,9 @@ from clipwright.schema import (
     Segment,
     SegmentRef,
     SegmentVoiceover,
-    Timeline,
+    Video,
     save_project,
-    save_timeline,
+    save_video,
 )
 
 # ---------------------------------------------------------------------------
@@ -73,9 +73,9 @@ def project(tmp_path: Path) -> Path:
             base_url="https://example.com",
         ),
     )
-    save_timeline(
+    save_video(
         project_dir,
-        Timeline(segments=[
+        Video(video_id="main", segments=[
             _seg("seg_001", label="Intro",     chapter="intro",   start=0,  end=10, vo_clip="vo_001"),
             _seg("seg_002", label="Library",   chapter="library", start=10, end=22, vo_clip="vo_002"),
             _seg("seg_003", label="Reader",    chapter="reader",  start=22, end=34, vo_clip="vo_003"),
@@ -83,9 +83,9 @@ def project(tmp_path: Path) -> Path:
             _seg("seg_005", label="Outro",     chapter="outro",   start=44, end=52, vo_clip="vo_005"),
         ]),
     )
-    # voiceover/script.json
-    (project_dir / "voiceover").mkdir()
-    (project_dir / "voiceover" / "script.json").write_text(json.dumps({
+    # voiceover/scripts/main.json
+    (project_dir / "voiceover" / "scripts").mkdir(parents=True)
+    (project_dir / "voiceover" / "scripts" / "main.json").write_text(json.dumps({
         "schema_version": 1,
         "clips": [
             {"id": "vo_003", "segment_id": "seg_003", "target_seconds": 12.0,

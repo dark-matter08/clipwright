@@ -1,10 +1,9 @@
-// Project Workspace — SRS §8.5. Four regions: preview / inspector
-// (top-right column), timeline (bottom), Claude rail (right edge), plus
-// the top bar and status bar.
-//
-// P1.1 wires the static layout + reads the loaded project from the store.
-// Interactions land incrementally in P1.4–P1.9.
+// Project Workspace — SRS §8.5. Five regions:
+//   left rail: Videos sidebar (NEW for v2 — switch between videos in
+//   one project), then the four-region editor (preview + inspector +
+//   timeline + Claude rail) + status bar.
 
+import { useState } from "react";
 import { useApp } from "../lib/store";
 import { ClaudeRail } from "./ClaudeRail";
 import { Inspector } from "./Inspector";
@@ -12,10 +11,12 @@ import { Preview } from "./Preview";
 import { Timeline } from "./Timeline";
 import { TopBar } from "./TopBar";
 import { StatusBar } from "./StatusBar";
+import { VideoSidebar } from "./VideoSidebar";
 
 export function Workspace() {
   const project = useApp((s) => s.project);
   const railOpen = useApp((s) => s.claudeRailOpen);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   if (!project) return null;
 
@@ -23,11 +24,21 @@ export function Workspace() {
     <div className="flex h-full w-full flex-col">
       <TopBar />
       <div className="flex min-h-0 flex-1">
-        {/* Left column: preview (top) + inspector (bottom).
-            Preview takes more vertical room because the 9:16 frame is the
-            common case and most of the height is "tall canvas" pillarboxed
-            into the available width. Inspector stays scrollable so the
-            accordion never runs off the screen. */}
+        {/* Far-left: Videos rail */}
+        <div
+          className={
+            sidebarCollapsed
+              ? "w-[44px] shrink-0 transition-[width] duration-slow"
+              : "w-[200px] shrink-0 transition-[width] duration-slow"
+          }
+        >
+          <VideoSidebar
+            collapsed={sidebarCollapsed}
+            onToggle={() => setSidebarCollapsed((v) => !v)}
+          />
+        </div>
+
+        {/* Middle: preview (top) + inspector (bottom). */}
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-[2] border-b border-border-subtle">
             <Preview />
@@ -37,7 +48,7 @@ export function Workspace() {
           </div>
         </div>
 
-        {/* Right column: Claude rail (collapsible). Width animates per §8.5.5. */}
+        {/* Right: Claude rail. */}
         <aside
           className={
             railOpen
@@ -49,7 +60,7 @@ export function Workspace() {
         </aside>
       </div>
 
-      {/* Bottom: timeline (full width) */}
+      {/* Bottom: timeline full width. */}
       <div className="h-[160px] shrink-0 border-t border-border-subtle bg-bg-subtle">
         <Timeline />
       </div>

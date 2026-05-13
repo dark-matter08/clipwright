@@ -51,7 +51,8 @@ impl Serialize for ClaudeError {
 #[derive(Debug, Deserialize)]
 pub struct ChatTurn {
     pub message: String,
-    pub seg_id: Option<String>, // present → Mode B (per-segment scoped)
+    pub video_id: String,            // every chat is anchored to a video
+    pub seg_id: Option<String>,      // present → Mode B (per-segment scoped)
 }
 
 #[derive(Debug, Serialize)]
@@ -143,8 +144,13 @@ mod parse_tests {
     }
 }
 
-fn append_chat_log(project_dir: &str, role: &str, text: &str) -> std::io::Result<()> {
-    let dir = PathBuf::from(project_dir).join("chat/sessions");
+fn append_chat_log(
+    project_dir: &str,
+    video_id: &str,
+    role: &str,
+    text: &str,
+) -> std::io::Result<()> {
+    let dir = PathBuf::from(project_dir).join("chat/sessions").join(video_id);
     std::fs::create_dir_all(&dir)?;
     let today = Utc::now().format("%Y-%m-%d").to_string();
     let path = dir.join(format!("{today}.jsonl"));
@@ -175,12 +181,17 @@ pub async fn claude_chat(
     turn: ChatTurn,
 ) -> Result<ChatResponse, ClaudeError> {
     let start = std::time::Instant::now();
-    append_chat_log(&project_dir, "user", &turn.message)?;
+    let video_id = turn.video_id.clone();
+    append_chat_log(&project_dir, &video_id, "user", &turn.message)?;
 
     let (reply, new_session_id) = if let Some(seg_id) = turn.seg_id.as_deref() {
-        // Mode B — scoped, no session reuse
+        // Mode B — scoped to a single segment in a video; no session reuse.
         validate::seg_id(seg_id).map_err(ClaudeError::Bad)?;
-        let prompt_out = clipwright::run(&["agent", "prompt", seg_id, "--project", &project_dir])?;
+        let prompt_out = clipwright::run(&[
+            "agent", "prompt", seg_id,
+            "--project", &project_dir,
+            "--video", &video_id,
+        ])?;
         let system_prompt = String::from_utf8_lossy(&prompt_out.stdout).to_string();
         let stdout = run_claude(
             &[
@@ -193,11 +204,15 @@ pub async fn claude_chat(
             None,
         )?;
         let (text, _) = parse_claude_json_output(&stdout)?;
-        (text, None) // never persist Mode B session
+        (text, None)
     } else {
-        // Mode A — persistent, project-scoped
-        let prior = load_session_id(&project_dir);
-        let prompt_out = clipwright::run(&["agent", "prompt", "--project", &project_dir])?;
+        // Mode A — persistent, per-video session.
+        let prior = load_session_id(&project_dir, &video_id);
+        let prompt_out = clipwright::run(&[
+            "agent", "prompt",
+            "--project", &project_dir,
+            "--video", &video_id,
+        ])?;
         let system_prompt = String::from_utf8_lossy(&prompt_out.stdout).to_string();
         let mut args: Vec<&str> = vec!["--print", "--output-format", "json"];
         if let Some(id) = prior.as_deref() {
@@ -211,12 +226,11 @@ pub async fn claude_chat(
     };
 
     if let Some(id) = new_session_id {
-        // Best-effort persist; a write failure shouldn't drop the assistant's reply.
-        let _ = save_session_id(&project_dir, &id);
+        let _ = save_session_id(&project_dir, &video_id, &id);
     }
 
     let trimmed = reply.trim().to_string();
-    append_chat_log(&project_dir, "assistant", &trimmed)?;
+    append_chat_log(&project_dir, &video_id, "assistant", &trimmed)?;
     let elapsed_ms = start.elapsed().as_millis();
     Ok(ChatResponse {
         reply: trimmed,
@@ -257,12 +271,15 @@ fn parse_claude_json_output(stdout: &str) -> Result<(String, Option<String>), Cl
     Ok((text, session_id))
 }
 
-fn session_path(project_dir: &str) -> PathBuf {
-    PathBuf::from(project_dir).join(".clipwright/claude-session")
+fn session_path(project_dir: &str, video_id: &str) -> PathBuf {
+    PathBuf::from(project_dir)
+        .join(".clipwright")
+        .join("claude-sessions")
+        .join(format!("{video_id}.txt"))
 }
 
-fn load_session_id(project_dir: &str) -> Option<String> {
-    let path = session_path(project_dir);
+fn load_session_id(project_dir: &str, video_id: &str) -> Option<String> {
+    let path = session_path(project_dir, video_id);
     let s = std::fs::read_to_string(&path).ok()?;
     let trimmed = s.trim();
     if trimmed.is_empty() {
@@ -272,12 +289,11 @@ fn load_session_id(project_dir: &str) -> Option<String> {
     }
 }
 
-fn save_session_id(project_dir: &str, id: &str) -> std::io::Result<()> {
-    let path = session_path(project_dir);
+fn save_session_id(project_dir: &str, video_id: &str, id: &str) -> std::io::Result<()> {
+    let path = session_path(project_dir, video_id);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    // Atomic write so a crash mid-write can't poison the session file.
     let tmp = path.with_extension("tmp");
     std::fs::write(&tmp, id.trim().as_bytes())?;
     std::fs::rename(&tmp, &path)?;
@@ -306,13 +322,14 @@ pub struct ChatHistoryEntry {
     pub text: String,
 }
 
-/// Read the chat log for today (or the most recent file). The UI uses
-/// this to repopulate the rail across app restarts.
+/// Read every chat log for a given video. The UI uses this to repopulate
+/// the rail across app restarts and video switches.
 #[tauri::command]
 pub async fn load_chat_history(
     project_dir: String,
+    video_id: String,
 ) -> Result<Vec<ChatHistoryEntry>, ClaudeError> {
-    let dir = PathBuf::from(&project_dir).join("chat/sessions");
+    let dir = PathBuf::from(&project_dir).join("chat/sessions").join(&video_id);
     if !dir.exists() {
         return Ok(Vec::new());
     }

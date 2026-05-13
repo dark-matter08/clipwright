@@ -1,11 +1,15 @@
-//! Read a v1 project from disk and return its JSON shape to the frontend.
+//! Read a v2 project from disk and return its JSON shape to the frontend.
 //!
-//! We deserialize only the fields the UI needs (with serde's
-//! `#[serde(flatten)]` to keep unknown fields intact under `extra` where
-//! appropriate). Strict schema validation happens on the Python writer
-//! side; here we trust the file enough to render it.
+//! v2 introduces multi-video projects: `project.json` is a collection
+//! manifest and each editable deliverable lives at `videos/<id>.json`.
+//! Auto-migration from v1 is delegated to the Python side — `open_project`
+//! shells out to `clipwright video list` after a successful read so the
+//! frontend gets a clean post-migration view either way. (The Python
+//! `load_project` auto-migrates on first read.)
 //!
-//! On a successful read the project is appended to the recents file.
+//! The Rust side stays schema-agnostic: it returns parsed `serde_json::Value`
+//! so future schema additions don't require a rebuild for the desktop to
+//! surface them.
 
 use std::path::PathBuf;
 
@@ -21,8 +25,10 @@ pub enum ProjectError {
     NotFound(PathBuf),
     #[error("project.json missing in {0}")]
     NoProjectJson(PathBuf),
-    #[error("timeline.json missing in {0}")]
-    NoTimelineJson(PathBuf),
+    #[error("no videos in {0} — open via the CLI to trigger v1 migration if applicable")]
+    NoVideos(PathBuf),
+    #[error("video '{video_id}' not found in {dir}")]
+    VideoMissing { dir: PathBuf, video_id: String },
     #[error("invalid JSON in {file}: {source}")]
     BadJson {
         file: String,
@@ -30,6 +36,8 @@ pub enum ProjectError {
     },
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("clipwright cli: {0}")]
+    Cli(#[from] crate::clipwright::ClipwrightCliError),
 }
 
 impl serde::Serialize for ProjectError {
@@ -39,23 +47,35 @@ impl serde::Serialize for ProjectError {
 }
 
 #[derive(Debug, Serialize)]
+pub struct VideoMeta {
+    pub video_id: String,
+    pub title: String,
+    pub n_segments: usize,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ProjectState {
     pub project_dir: PathBuf,
     pub project: Value,
-    pub timeline: Value,
+    /// Catalogue of every video in the project — populated for the
+    /// Videos sidebar without reading every manifest's segments.
+    pub videos: Vec<VideoMeta>,
+    /// Which video the frontend should load into the editor by default.
+    /// First successful video id encountered (`main` if present).
+    pub current_video_id: Option<String>,
+    /// The currently-loaded video manifest.
+    pub video: Option<Value>,
 }
 
-/// Read `<project_dir>/project.json` + `<project_dir>/timeline.json`.
-///
-/// Returns the parsed payloads as untyped `serde_json::Value`. The
-/// TypeScript layer (`src/lib/types.ts`) is the source of truth for the
-/// UI-facing shape; the Rust side stays schema-agnostic so future schema
-/// additions don't require a backend rebuild for the desktop to surface
-/// them.
+/// Read `<project_dir>/project.json`, enumerate `videos/*.json`, and load
+/// the requested (or default) video. On a v1 project, auto-migration runs
+/// transparently because we delegate the initial read to the Python CLI
+/// (`clipwright video list` runs `load_project` which migrates).
 #[tauri::command]
 pub async fn open_project(
     app: tauri::AppHandle,
     project_dir: String,
+    video_id: Option<String>,
 ) -> Result<ProjectState, ProjectError> {
     let dir = PathBuf::from(&project_dir);
     if !dir.exists() {
@@ -66,39 +86,100 @@ pub async fn open_project(
     if !project_path.exists() {
         return Err(ProjectError::NoProjectJson(dir));
     }
-    let timeline_path = dir.join("timeline.json");
-    if !timeline_path.exists() {
-        return Err(ProjectError::NoTimelineJson(dir));
-    }
 
-    let project_bytes = std::fs::read(&project_path)?;
-    let project: Value = serde_json::from_slice(&project_bytes).map_err(|e| {
-        ProjectError::BadJson {
-            file: "project.json".into(),
-            source: e,
-        }
-    })?;
-    let timeline_bytes = std::fs::read(&timeline_path)?;
-    let timeline: Value = serde_json::from_slice(&timeline_bytes).map_err(|e| {
-        ProjectError::BadJson {
-            file: "timeline.json".into(),
-            source: e,
-        }
-    })?;
+    // Trigger Python-side auto-migration if needed (idempotent on v2).
+    // `video list` is the lightest read that loads + migrates if v1.
+    let _ = crate::clipwright::run(&["video", "list", "--project", &project_dir]);
+
+    let project = read_json(&project_path, "project.json")?;
+    let videos = enumerate_videos(&dir)?;
+    let pick_id = video_id.or_else(|| pick_default_video(&videos));
+    let video = match pick_id.as_deref() {
+        Some(id) => Some(read_json(
+            &dir.join("videos").join(format!("{id}.json")),
+            &format!("videos/{id}.json"),
+        )?),
+        None => None,
+    };
 
     let title = project
         .get("title")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-
-    // Best-effort: append to recents. Failure here is not fatal.
     let _ = recents::record_open(&app, &dir, &title);
 
     Ok(ProjectState {
         project_dir: dir,
         project,
-        timeline,
+        videos,
+        current_video_id: pick_id,
+        video,
+    })
+}
+
+fn pick_default_video(videos: &[VideoMeta]) -> Option<String> {
+    videos.iter().find(|v| v.video_id == "main").map(|v| v.video_id.clone())
+        .or_else(|| videos.first().map(|v| v.video_id.clone()))
+}
+
+fn enumerate_videos(dir: &std::path::Path) -> Result<Vec<VideoMeta>, ProjectError> {
+    let vdir = dir.join("videos");
+    if !vdir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut out: Vec<VideoMeta> = Vec::new();
+    for entry in std::fs::read_dir(&vdir)? {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        if path.extension().and_then(|x| x.to_str()) != Some("json") {
+            continue;
+        }
+        let payload = match read_json(&path, &format!("videos/{}", path.file_name().unwrap().to_string_lossy())) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let video_id = payload
+            .get("video_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string());
+        if video_id.is_empty() {
+            continue;
+        }
+        let title = payload
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&video_id)
+            .to_string();
+        let n_segments = payload
+            .get("segments")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        out.push(VideoMeta { video_id, title, n_segments });
+    }
+    // main first, then alphabetical — matches the Python `list_videos` ordering.
+    out.sort_by(|a, b| {
+        let am = a.video_id == "main";
+        let bm = b.video_id == "main";
+        match (am, bm) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.video_id.cmp(&b.video_id),
+        }
+    });
+    Ok(out)
+}
+
+fn read_json(path: &std::path::Path, file_label: &str) -> Result<Value, ProjectError> {
+    let bytes = std::fs::read(path)?;
+    serde_json::from_slice(&bytes).map_err(|e| ProjectError::BadJson {
+        file: file_label.into(),
+        source: e,
     })
 }
 
@@ -110,30 +191,89 @@ pub struct RecentEntry {
     pub last_opened_at: String,
 }
 
-/// Write a new `timeline.json` atomically.
-///
-/// Reuses the tmp + rename invariant from `clipwright.schema.io._write_json_atomic`
-/// so a crash mid-write can never leave a partial file (SRS §5.9 / NFR-8).
-///
-/// We accept the timeline as an untyped `Value` because schema validation
-/// already happened on the writer side in TS — and forwards-compat is easier
-/// when Rust doesn't pin the shape.
+/// Write a video manifest atomically. Replaces the old `save_timeline`.
 #[tauri::command]
-pub async fn save_timeline(
+pub async fn save_video(
     project_dir: String,
-    timeline: Value,
+    video_id: String,
+    video: Value,
 ) -> Result<(), ProjectError> {
+    crate::validate::seg_id(&video_id) // reuse the same `[a-z0-9_-]` posture
+        .ok(); // video_id has a wider charset than seg_id; we don't enforce here.
     let dir = PathBuf::from(&project_dir);
     if !dir.exists() {
         return Err(ProjectError::NotFound(dir));
     }
-    let path = dir.join("timeline.json");
-    let bytes = serde_json::to_vec_pretty(&timeline).map_err(|e| ProjectError::BadJson {
-        file: "timeline.json".into(),
+    let vdir = dir.join("videos");
+    std::fs::create_dir_all(&vdir)?;
+    let path = vdir.join(format!("{video_id}.json"));
+    let bytes = serde_json::to_vec_pretty(&video).map_err(|e| ProjectError::BadJson {
+        file: format!("videos/{video_id}.json"),
         source: e,
     })?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, &bytes)?;
     std::fs::rename(&tmp, &path)?;
     Ok(())
+}
+
+/// List the videos in a project without loading any segment data. Cheap
+/// — used by the Videos sidebar when switching projects.
+#[tauri::command]
+pub async fn list_videos_cmd(project_dir: String) -> Result<Vec<VideoMeta>, ProjectError> {
+    let dir = PathBuf::from(&project_dir);
+    if !dir.exists() {
+        return Err(ProjectError::NotFound(dir));
+    }
+    enumerate_videos(&dir)
+}
+
+/// Load a single video manifest. Used when the user switches videos in
+/// the Workspace sidebar.
+#[tauri::command]
+pub async fn load_video_cmd(
+    project_dir: String,
+    video_id: String,
+) -> Result<Value, ProjectError> {
+    let dir = PathBuf::from(&project_dir);
+    let path = dir.join("videos").join(format!("{video_id}.json"));
+    if !path.exists() {
+        return Err(ProjectError::VideoMissing { dir, video_id });
+    }
+    read_json(&path, &format!("videos/{video_id}.json"))
+}
+
+/// Create a new empty video in the project. Returns its manifest so the
+/// frontend can land on it immediately.
+#[tauri::command]
+pub async fn create_video_cmd(
+    project_dir: String,
+    video_id: String,
+    title: String,
+) -> Result<Value, ProjectError> {
+    let dir = PathBuf::from(&project_dir);
+    if !dir.exists() {
+        return Err(ProjectError::NotFound(dir));
+    }
+    let vdir = dir.join("videos");
+    std::fs::create_dir_all(&vdir)?;
+    let path = vdir.join(format!("{video_id}.json"));
+    if path.exists() {
+        return Err(ProjectError::VideoMissing {
+            dir: dir.clone(),
+            video_id: format!("{video_id} (already exists — pick another id)"),
+        });
+    }
+    let payload = serde_json::json!({
+        "schema_version": 2,
+        "video_id": video_id,
+        "title": if title.is_empty() { video_id.clone() } else { title },
+        "chat_session_id": "",
+        "segments": [],
+    });
+    let bytes = serde_json::to_vec_pretty(&payload).expect("static JSON");
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, &bytes)?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(payload)
 }
