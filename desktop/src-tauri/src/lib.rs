@@ -14,6 +14,7 @@ mod project;
 mod recents;
 mod script;
 mod segment_ops;
+mod sources;
 mod validate;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -30,6 +31,8 @@ pub fn run() {
             new_project::import_video_cmd,
             new_project::record_project_cmd,
             new_project::clipwright_doctor,
+            new_project::add_source_cmd,
+            sources::list_sources,
             script::load_script,
             script::save_script_clip,
             segment_ops::tts_segment_cmd,

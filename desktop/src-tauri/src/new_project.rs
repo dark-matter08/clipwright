@@ -142,6 +142,39 @@ pub async fn clipwright_doctor() -> ClipwrightDoctorReport {
     ClipwrightDoctorReport { installed, path }
 }
 
+/// Append an additional video to an open project (SRS F-UPL-3 multi-source).
+///
+/// Wraps `clipwright import <video> --into <project_dir> --add`. New
+/// segments are appended to `timeline.json`; project.json is unchanged;
+/// the source filename is uniquified from the video stem.
+#[tauri::command]
+pub async fn add_source_cmd(
+    app: tauri::AppHandle,
+    video_path: String,
+    project_dir: String,
+    auto_segment: bool,
+    scene_detection: bool,
+) -> Result<ProjectState, NewProjectError> {
+    // The project must already exist; the library would accept an empty
+    // dir but the UX intent of "Add source" is "to an open project".
+    if !PathBuf::from(&project_dir).join("project.json").exists() {
+        return Err(NewProjectError::Bad(format!(
+            "no project at {project_dir} — open one first",
+        )));
+    }
+
+    let mut args: Vec<&str> = vec![
+        "import", &video_path,
+        "--into", &project_dir,
+        "--add",
+    ];
+    args.push(if auto_segment { "--auto-segment" } else { "--no-auto-segment" });
+    args.push(if scene_detection { "--scene-detection" } else { "--no-scene-detection" });
+
+    clipwright::run(&args)?;
+    project::open_project(app, project_dir).await.map_err(Into::into)
+}
+
 #[derive(Debug, serde::Serialize)]
 pub struct ClipwrightDoctorReport {
     pub installed: bool,

@@ -117,10 +117,15 @@ def import_(
     video: Path = typer.Argument(..., help="Path to MP4/MOV/WebM to import."),
     into: Path = typer.Option(
         None, "--into",
-        help="Project directory to create (defaults to <video-stem> in CWD).",
+        help="Project directory (created if missing; defaults to <video-stem> in CWD).",
     ),
-    title: str = typer.Option("", help="Project title (defaults to project dir name)."),
-    aspect: str = typer.Option("9:16", help="9:16, 16:9, or 1:1."),
+    add: bool = typer.Option(
+        False, "--add",
+        help="Append the video as an additional source to an existing project. "
+             "Without --add, the target directory must be empty.",
+    ),
+    title: str = typer.Option("", help="Project title (defaults to project dir name). Ignored with --add."),
+    aspect: str = typer.Option("9:16", help="9:16, 16:9, or 1:1. Ignored with --add."),
     auto_segment: bool = typer.Option(
         True, "--auto-segment/--no-auto-segment",
         help="Run silence + scene detection. With --no-auto-segment, one segment covers the whole source.",
@@ -130,11 +135,16 @@ def import_(
         help="Include scene-change detection (slower on long files).",
     ),
 ) -> None:
-    """Import an existing video as a new clipwright project (Upload mode).
+    """Import a video as a new project, or add another video to an existing one.
 
-    Copies the video into <project>/sources/main.mp4, runs auto-segmentation,
-    and writes valid project.json + timeline.json. The new project is ready
-    to edit immediately.
+    Default: create a new project. Copies the video into
+    <project>/sources/main.mp4, runs auto-segmentation, writes project.json +
+    timeline.json. Refuses if the target dir is non-empty.
+
+    With --add: append to an existing project. Picks a unique
+    <project>/sources/<stem>.mp4 filename and appends new segments to
+    timeline.json with stable IDs. The project.json is left unchanged.
+    Use for B-roll, intercut footage, etc.
     """
     video = video.resolve()
     if not video.exists():
@@ -143,13 +153,22 @@ def import_(
             fix="Check the path; supported formats: MP4, MOV, WebM.",
         )
     project_dir = (into or (Path.cwd() / video.stem)).resolve()
-    if project_dir.exists() and any(project_dir.iterdir()):
-        raise ClipwrightError(
-            f"target directory is not empty: {project_dir}",
-            fix="Pick a new path with --into, or remove existing contents.",
-        )
 
-    rprint(f"[dim]Importing {video.name} → {project_dir}[/dim]")
+    if add:
+        if not (project_dir / "project.json").exists():
+            raise ClipwrightError(
+                f"--add requires an existing project at {project_dir}",
+                fix="Drop --add to create a new project, or point --into at one.",
+            )
+    else:
+        if project_dir.exists() and any(project_dir.iterdir()):
+            raise ClipwrightError(
+                f"target directory is not empty: {project_dir}",
+                fix="Pick a new path with --into, pass --add to append, or remove existing contents.",
+            )
+
+    verb = "Adding to" if add else "Importing"
+    rprint(f"[dim]{verb} {project_dir} ← {video.name}[/dim]")
     result = import_video_impl(
         video,
         project_dir,
@@ -157,10 +176,12 @@ def import_(
         aspect=aspect,
         auto_segment=auto_segment,
         use_scene_detection=scene_detection,
+        append=add,
     )
+    label = "Added" if add else "Imported"
     rprint(
-        f"[green]Imported[/green] · {result.n_segments} segment"
-        f"{'' if result.n_segments == 1 else 's'} · {project_dir}"
+        f"[green]{label}[/green] · {result.n_segments} segment"
+        f"{'' if result.n_segments == 1 else 's'} total · {project_dir}"
     )
     rprint("[dim]Next: open in Clipwright Studio, or run `clipwright build`[/dim]")
 

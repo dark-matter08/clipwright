@@ -8,11 +8,13 @@ import { useEffect, useState } from "react";
 import { useApp } from "../lib/store";
 import {
   captionSegment,
+  listSources,
   loadScript,
   saveScriptClip,
   saveTimeline,
   ttsSegment,
   type ScriptClip,
+  type SourceEntry,
 } from "../lib/tauri";
 import type { Segment, SegmentRef, Timeline } from "../lib/types";
 import { cn } from "../lib/cn";
@@ -355,13 +357,23 @@ function TrimGroup({
   const [start, setStart] = useState(seg.source_start.toFixed(2));
   const [end, setEnd] = useState(seg.source_end.toFixed(2));
   const [target, setTarget] = useState(seg.target_duration.toFixed(2));
+  const [source, setSource] = useState(seg.source);
+  const [sources, setSources] = useState<SourceEntry[]>([]);
   const [busy, setBusy] = useState(false);
+
+  // Refresh source list whenever this group opens for a new segment.
+  // Showing the picker only when >1 source exists keeps the single-source
+  // common case clutter-free.
+  useEffect(() => {
+    listSources(projectDir).then(setSources).catch(() => setSources([]));
+  }, [projectDir, seg.id]);
 
   useEffect(() => {
     setStart(seg.source_start.toFixed(2));
     setEnd(seg.source_end.toFixed(2));
     setTarget(seg.target_duration.toFixed(2));
-  }, [seg.id, seg.source_start, seg.source_end, seg.target_duration]);
+    setSource(seg.source);
+  }, [seg.id, seg.source_start, seg.source_end, seg.target_duration, seg.source]);
 
   const s = parseFloat(start);
   const e = parseFloat(end);
@@ -369,7 +381,10 @@ function TrimGroup({
   const valid = isFinite(s) && isFinite(e) && isFinite(t) && e > s && t > 0;
   const dirty =
     valid &&
-    (s !== seg.source_start || e !== seg.source_end || t !== seg.target_duration);
+    (s !== seg.source_start ||
+      e !== seg.source_end ||
+      t !== seg.target_duration ||
+      source !== seg.source);
 
   async function onSave() {
     if (!valid) return;
@@ -379,7 +394,7 @@ function TrimGroup({
         ...timeline,
         segments: timeline.segments.map((g) =>
           g.id === seg.id
-            ? { ...g, source_start: s, source_end: e, target_duration: t }
+            ? { ...g, source, source_start: s, source_end: e, target_duration: t }
             : g,
         ),
       };
@@ -392,9 +407,38 @@ function TrimGroup({
     }
   }
 
+  const summary = sources.length > 1
+    ? `${source.replace(/^sources\//, "")} · ${seg.source_start.toFixed(1)}s → ${seg.source_end.toFixed(1)}s`
+    : `${seg.source_start.toFixed(1)}s → ${seg.source_end.toFixed(1)}s`;
+
   return (
-    <Accordion title="Trim" summary={`${seg.source_start.toFixed(1)}s → ${seg.source_end.toFixed(1)}s`}>
+    <Accordion title="Trim" summary={summary}>
       <div className="flex flex-col gap-2">
+        {sources.length > 1 && (
+          <label className="flex flex-col gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-fg-muted">
+              Source
+            </span>
+            <select
+              value={source}
+              onChange={(ev) => setSource(ev.target.value)}
+              className="w-full rounded border border-border-subtle bg-bg-inset px-2 py-1 font-mono text-xs text-fg focus:focus-ring"
+            >
+              {sources.map((entry) => (
+                <option key={entry.path} value={entry.path}>
+                  {entry.path.replace(/^sources\//, "")}
+                </option>
+              ))}
+              {/* If the segment's source isn't in the list (e.g. deleted file),
+                  keep it visible so the user sees the broken reference. */}
+              {!sources.some((s2) => s2.path === source) && (
+                <option value={source}>
+                  {source.replace(/^sources\//, "")} (missing on disk)
+                </option>
+              )}
+            </select>
+          </label>
+        )}
         <div className="grid grid-cols-3 gap-2">
           <LabeledInput label="Source in"  value={start}  onChange={setStart}  mono />
           <LabeledInput label="Source out" value={end}    onChange={setEnd}    mono />

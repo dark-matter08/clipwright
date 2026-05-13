@@ -71,6 +71,28 @@ export async function recordProject(args: RecordProjectArgs): Promise<ProjectSta
   return invoke<ProjectState>("record_project_cmd", { ...args });
 }
 
+export interface AddSourceArgs {
+  videoPath: string;
+  projectDir: string;
+  autoSegment: boolean;
+  sceneDetection: boolean;
+}
+
+/** Append a video to the currently-open project as an additional source. */
+export async function addSource(args: AddSourceArgs): Promise<ProjectState> {
+  return invoke<ProjectState>("add_source_cmd", { ...args });
+}
+
+export interface SourceEntry {
+  path: string;       // project-relative, e.g. "sources/main.mp4"
+  size_bytes: number;
+}
+
+/** Enumerate `<project>/sources/` for the inspector's per-segment picker. */
+export async function listSources(projectDir: string): Promise<SourceEntry[]> {
+  return invoke<SourceEntry[]>("list_sources", { projectDir });
+}
+
 export interface ClipwrightDoctorReport {
   installed: boolean;
   path: string | null;

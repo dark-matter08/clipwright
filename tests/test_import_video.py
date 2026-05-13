@@ -8,6 +8,7 @@ ffmpeg is not available.
 from __future__ import annotations
 
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -245,3 +246,122 @@ def test_import_video_missing_source_raises(tmp_path: Path) -> None:
 
     with pytest.raises(FileNotFoundError, match="source video not found"):
         import_video(tmp_path / "nope.mp4", tmp_path / "proj")
+
+
+# ---------------------------------------------------------------------------
+# Multi-source (SRS F-UPL-3) — `append=True`
+# ---------------------------------------------------------------------------
+
+
+def _make_clip(path: Path, *, color: str = "blue", duration: int = 4) -> None:
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-hide_banner", "-nostats", "-loglevel", "error",
+            "-f", "lavfi", "-i", f"color=c={color}:s=320x180:d={duration}:r=30",
+            "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=stereo:d={duration}",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-shortest",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg not on PATH")
+def test_import_video_append_adds_second_source(tmp_path: Path) -> None:
+    from clipwright.import_video import import_video
+    from clipwright.schema import load_project, load_timeline
+
+    main_src = tmp_path / "main.mp4"
+    broll_src = tmp_path / "broll.mp4"
+    _make_clip(main_src, color="blue", duration=4)
+    _make_clip(broll_src, color="red", duration=4)
+
+    project_dir = tmp_path / "proj"
+    import_video(main_src, project_dir, title="Multi", auto_segment=False)
+    first = load_timeline(project_dir)
+    assert len(first.segments) == 1
+    assert first.segments[0].source == "sources/main.mp4"
+    first_project_title = load_project(project_dir).title
+
+    # Add a second source — append=True.
+    import_video(broll_src, project_dir, append=True, auto_segment=False)
+
+    second = load_timeline(project_dir)
+    # Existing segments untouched.
+    assert second.segments[0].id == first.segments[0].id
+    assert second.segments[0].source == "sources/main.mp4"
+    # New segment appended with a different source.
+    assert len(second.segments) == 2
+    assert second.segments[1].source == "sources/broll.mp4"
+    assert second.segments[1].id != first.segments[0].id
+    # project.json title preserved on append.
+    assert load_project(project_dir).title == first_project_title
+    # Both source files exist on disk.
+    assert (project_dir / "sources" / "main.mp4").exists()
+    assert (project_dir / "sources" / "broll.mp4").exists()
+
+
+@pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg not on PATH")
+def test_import_video_append_unique_filename_on_collision(tmp_path: Path) -> None:
+    from clipwright.import_video import import_video
+    from clipwright.schema import load_timeline
+
+    # Two appended videos that resolve to the same stem ("broll")
+    main_src = tmp_path / "main.mp4"
+    broll_a = tmp_path / "broll.mp4"
+    broll_b = tmp_path / "other" / "broll.mp4"
+    (tmp_path / "other").mkdir()
+    _make_clip(main_src, duration=3)
+    _make_clip(broll_a, color="red", duration=3)
+    _make_clip(broll_b, color="green", duration=3)
+
+    project_dir = tmp_path / "proj"
+    import_video(main_src, project_dir, auto_segment=False)
+    import_video(broll_a, project_dir, append=True, auto_segment=False)
+    import_video(broll_b, project_dir, append=True, auto_segment=False)
+
+    tl = load_timeline(project_dir)
+    sources = {s.source for s in tl.segments}
+    # Two appended broll files, distinguished by numeric suffix.
+    assert "sources/broll.mp4" in sources
+    assert "sources/broll-2.mp4" in sources
+    assert (project_dir / "sources" / "broll-2.mp4").exists()
+
+
+@pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg not on PATH")
+def test_import_video_append_sanitizes_unsafe_stems(tmp_path: Path) -> None:
+    from clipwright.import_video import import_video
+    from clipwright.schema import load_timeline
+
+    main_src = tmp_path / "main.mp4"
+    unsafe_src = tmp_path / "B-Roll!! Final v2 (final).mp4"
+    _make_clip(main_src, duration=3)
+    _make_clip(unsafe_src, duration=3)
+
+    project_dir = tmp_path / "proj"
+    import_video(main_src, project_dir, auto_segment=False)
+    import_video(unsafe_src, project_dir, append=True, auto_segment=False)
+
+    tl = load_timeline(project_dir)
+    # Lowercased, punctuation/spaces collapsed to single hyphens.
+    appended_source = next(s.source for s in tl.segments if s.source != "sources/main.mp4")
+    assert appended_source == "sources/b-roll-final-v2-final.mp4"
+
+
+@pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg not on PATH")
+def test_import_video_append_against_empty_dir_is_forgiving(tmp_path: Path) -> None:
+    """Library-level append against an empty dir creates project.json
+    from scratch (CLI surface enforces stricter 'must exist' check)."""
+    from clipwright.import_video import import_video
+    from clipwright.schema import load_project, load_timeline
+
+    src = tmp_path / "src.mp4"
+    _make_clip(src, duration=3)
+    project_dir = tmp_path / "fresh"
+    result = import_video(src, project_dir, append=True, auto_segment=False)
+
+    assert load_project(project_dir).title == "fresh"
+    assert len(load_timeline(project_dir).segments) == 1
+    assert result.source_path.name == "src.mp4"

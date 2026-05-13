@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { useApp } from "../lib/store";
 import { cn } from "../lib/cn";
+import { AddSourceDialog } from "./AddSourceDialog";
 import { RenderDialog } from "./RenderDialog";
 
 export function TopBar() {
@@ -12,6 +13,7 @@ export function TopBar() {
   const toggleClaudeRail = useApp((s) => s.toggleClaudeRail);
   const railOpen = useApp((s) => s.claudeRailOpen);
   const [renderOpen, setRenderOpen] = useState(false);
+  const [addSourceOpen, setAddSourceOpen] = useState(false);
 
   return (
     <header className="flex h-10 shrink-0 items-center justify-between border-b border-border-subtle bg-bg-subtle px-3">
@@ -29,6 +31,11 @@ export function TopBar() {
 
       <div className="flex items-center gap-1">
         <TopBarButton
+          label="+ Source"
+          onClick={() => setAddSourceOpen(true)}
+          title="Add another video to this project"
+        />
+        <TopBarButton
           label="⌘K"
           mono
           active={railOpen}
@@ -44,6 +51,7 @@ export function TopBar() {
         <TopBarButton label="⚙" mono disabled title="Settings (P1.x)" />
       </div>
       {renderOpen && <RenderDialog onClose={() => setRenderOpen(false)} />}
+      {addSourceOpen && <AddSourceDialog onClose={() => setAddSourceOpen(false)} />}
     </header>
   );
 }

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-source projects (SRS F-UPL-3).** A project can now hold N
+  source videos. Use cases: B-roll over a primary track, intercut
+  webcam reactions, recording a fix after the original capture.
+  - `clipwright import <video> --add` appends a video to an existing
+    project. Picks a unique `sources/<stem>.mp4` filename (with a
+    numeric suffix on collision; non-alphanumeric chars sanitized).
+    New segments append to the timeline with stable IDs; existing
+    segments and `project.json` are untouched.
+  - Desktop: **"+ Source" button** in the top bar opens an Add-source
+    dialog with the same auto-segment / scene-detection options as
+    New Project.
+  - Inspector's **Trim group gets a Source picker** when a project has
+    >1 source. Each segment can point at any source file in the
+    project. Switching the source updates `timeline.json` atomically.
+  - New Tauri commands: `add_source_cmd`, `list_sources`.
+
 ### Fixed
 
 - **Desktop now finds `claude` and other user-installed CLIs.** macOS GUI
