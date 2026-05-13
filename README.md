@@ -4,11 +4,27 @@ Clipwright turns a scripted browser session into a short-form how-to video:
 record, trim dead time, add voiceover with character-accurate captions, brand
 it with an outro, and render a vertical (or 16:9 / 1:1) MP4.
 
-It exists as two things in one repository:
+It exists as three things in one repository:
 
 - A standalone Python CLI (`clipwright ...`)
 - A [Claude Code](https://docs.claude.com/en/docs/claude-code) skill (see
   [`SKILL.md`](./SKILL.md)) so an agent can drive the whole pipeline
+- **Clipwright Studio** (alpha, see [`desktop/`](./desktop/)) — a Tauri
+  desktop app that wraps the CLI in a real editor and pairs every segment
+  with a Claude Code agent. See [`SRS.md`](./SRS.md) for the product spec.
+
+### Try the desktop alpha
+
+```bash
+cd desktop
+bun install              # first time
+bun run tauri:dev
+```
+
+Click **Open Existing** and point at any directory containing a v1
+`project.json` (produced by `clipwright import <video>` or
+`clipwright record-project <dir>`). The per-segment loop — VO synthesis,
+captions, render, Claude chat — works end-to-end.
 
 Clipwright was extracted from a real production pipeline built for
 [Vertex Reader](https://vertexreader.site) and then generalized. The browser
