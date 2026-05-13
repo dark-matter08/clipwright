@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Tighten Tauri asset-protocol scope** (SRS §20.3 P2). Previously `**`
+  (any file on disk readable via `asset://`); now restricted to the file
+  kinds the preview player actually streams: project sources (mp4 / mov /
+  webm), cached per-segment renders, the final render, and caption PNGs.
+  Any other path on disk is rejected by Tauri before reaching the
+  renderer process.
+
+### Changed
+
+- **Project-scoped Claude sessions** (SRS §9.3). Mode A persistent chat
+  now uses `claude --resume <session_id>` where the id lives in the
+  project at `.clipwright/claude-session`. Replaces `claude --continue`,
+  which resumed the most recent session in `cwd` and bled chats across
+  projects opened from the same shell. Sessions are also serialized via
+  `--output-format json` so the assistant reply and the session id are
+  recoverable as one structured payload. Atomic writes (tmp + rename) on
+  the session file so a crash mid-write can't poison Mode A.
+
 ## [0.1.0-alpha] — 2026-05-13
 
 The first release of **Clipwright Studio** — a Tauri desktop app that wraps

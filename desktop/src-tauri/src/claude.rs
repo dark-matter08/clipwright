@@ -2,11 +2,13 @@
 //!
 //! Two invocation modes per SRS §9.1:
 //!
-//!   Mode A — persistent chat session. We use `claude --continue` so each
-//!            new turn resumes the most recent conversation in `cwd`. The
-//!            history lives in claude's own session store; we also append
-//!            to `<project>/chat/sessions/<id>.jsonl` so the UI can show
-//!            past turns without re-spawning claude.
+//!   Mode A — persistent chat session. We use `claude --resume <id>` where
+//!            `<id>` is stored per-project in `.clipwright/claude-session`.
+//!            This keeps each project's chat history isolated even when
+//!            the user switches between projects in the same `cwd`. On
+//!            first use the file is empty; we fall back to a fresh
+//!            session and capture its id from claude's output for the
+//!            next turn.
 //!
 //!   Mode B — one-shot scoped invocation. We pipe the segment-scoped
 //!            prompt produced by `clipwright agent prompt <seg>` into
@@ -99,6 +101,48 @@ fn run_claude(args: &[&str], cwd: &str, stdin_payload: Option<&str>) -> Result<S
     Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
+#[cfg(test)]
+mod parse_tests {
+    use super::parse_claude_json_output;
+
+    #[test]
+    fn parses_canonical_result_shape() {
+        let stdout = r#"{"type":"result","subtype":"success","session_id":"sess-abc","result":"Hello back."}"#;
+        let (text, sid) = parse_claude_json_output(stdout).unwrap();
+        assert_eq!(text, "Hello back.");
+        assert_eq!(sid.as_deref(), Some("sess-abc"));
+    }
+
+    #[test]
+    fn falls_back_to_text_field() {
+        let stdout = r#"{"text":"reply","session_id":"x"}"#;
+        let (text, sid) = parse_claude_json_output(stdout).unwrap();
+        assert_eq!(text, "reply");
+        assert_eq!(sid.as_deref(), Some("x"));
+    }
+
+    #[test]
+    fn non_json_treated_as_text() {
+        let stdout = "plain old text reply";
+        let (text, sid) = parse_claude_json_output(stdout).unwrap();
+        assert_eq!(text, "plain old text reply");
+        assert!(sid.is_none());
+    }
+
+    #[test]
+    fn empty_output_is_an_error() {
+        assert!(parse_claude_json_output("   ").is_err());
+    }
+
+    #[test]
+    fn missing_session_id_returns_none() {
+        let stdout = r#"{"result":"hi"}"#;
+        let (text, sid) = parse_claude_json_output(stdout).unwrap();
+        assert_eq!(text, "hi");
+        assert!(sid.is_none());
+    }
+}
+
 fn append_chat_log(project_dir: &str, role: &str, text: &str) -> std::io::Result<()> {
     let dir = PathBuf::from(project_dir).join("chat/sessions");
     std::fs::create_dir_all(&dir)?;
@@ -117,11 +161,14 @@ fn append_chat_log(project_dir: &str, role: &str, text: &str) -> std::io::Result
     Ok(())
 }
 
-/// Mode A — persistent chat for the open project.
+/// Mode A — persistent chat for the open project (project-scoped session).
 ///
-/// Uses `claude --print --continue` so each turn resumes the running
-/// conversation. We append the user message and assistant reply to
-/// `<project>/chat/sessions/<date>.jsonl` for the UI history view.
+/// Reads `.clipwright/claude-session` to resume the project's running
+/// conversation. If empty, starts a fresh session and writes the new id
+/// back for the next turn. This keeps chats per-project even when the
+/// user opens multiple projects from the same shell `cwd`.
+///
+/// Mode B (scoped) does NOT resume — each Ask-Claude is a one-shot.
 #[tauri::command]
 pub async fn claude_chat(
     project_dir: String,
@@ -130,35 +177,43 @@ pub async fn claude_chat(
     let start = std::time::Instant::now();
     append_chat_log(&project_dir, "user", &turn.message)?;
 
-    let reply = if let Some(seg_id) = turn.seg_id.as_deref() {
-        // Mode B — scoped
+    let (reply, new_session_id) = if let Some(seg_id) = turn.seg_id.as_deref() {
+        // Mode B — scoped, no session reuse
         validate::seg_id(seg_id).map_err(ClaudeError::Bad)?;
         let prompt_out = clipwright::run(&["agent", "prompt", seg_id, "--project", &project_dir])?;
         let system_prompt = String::from_utf8_lossy(&prompt_out.stdout).to_string();
-        // `--` separator: user message follows, so claude won't interpret a
-        // leading `--flag` in the message as a CLI option.
-        run_claude(
-            &["--print", "--append-system-prompt", &system_prompt, "--", &turn.message],
-            &project_dir,
-            None,
-        )?
-    } else {
-        // Mode A — persistent
-        let prompt_out = clipwright::run(&["agent", "prompt", "--project", &project_dir])?;
-        let system_prompt = String::from_utf8_lossy(&prompt_out.stdout).to_string();
-        run_claude(
+        let stdout = run_claude(
             &[
                 "--print",
-                "--continue",
-                "--append-system-prompt",
-                &system_prompt,
-                "--",
-                &turn.message,
+                "--output-format", "json",
+                "--append-system-prompt", &system_prompt,
+                "--", &turn.message,
             ],
             &project_dir,
             None,
-        )?
+        )?;
+        let (text, _) = parse_claude_json_output(&stdout)?;
+        (text, None) // never persist Mode B session
+    } else {
+        // Mode A — persistent, project-scoped
+        let prior = load_session_id(&project_dir);
+        let prompt_out = clipwright::run(&["agent", "prompt", "--project", &project_dir])?;
+        let system_prompt = String::from_utf8_lossy(&prompt_out.stdout).to_string();
+        let mut args: Vec<&str> = vec!["--print", "--output-format", "json"];
+        if let Some(id) = prior.as_deref() {
+            args.push("--resume");
+            args.push(id);
+        }
+        args.extend(["--append-system-prompt", &system_prompt, "--", &turn.message]);
+        let stdout = run_claude(&args, &project_dir, None)?;
+        let (text, session_id) = parse_claude_json_output(&stdout)?;
+        (text, session_id)
     };
+
+    if let Some(id) = new_session_id {
+        // Best-effort persist; a write failure shouldn't drop the assistant's reply.
+        let _ = save_session_id(&project_dir, &id);
+    }
 
     let trimmed = reply.trim().to_string();
     append_chat_log(&project_dir, "assistant", &trimmed)?;
@@ -168,6 +223,65 @@ pub async fn claude_chat(
         mode: if turn.seg_id.is_some() { "B" } else { "A" },
         elapsed_ms,
     })
+}
+
+/// Parse `claude --output-format json` stdout.
+///
+/// Shape (current claude CLI):
+///   { "type": "result", "subtype": "success", "session_id": "...",
+///     "result": "the assistant reply", ... }
+///
+/// We tolerate variations: extract `result` (fallback to `text` or the raw
+/// stdout if neither key is present) and `session_id` (None if absent).
+fn parse_claude_json_output(stdout: &str) -> Result<(String, Option<String>), ClaudeError> {
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return Err(ClaudeError::Bad("claude returned empty output".into()));
+    }
+    // Try to parse as JSON. If that fails, treat as text (back-compat for
+    // older claude CLI versions that don't honor --output-format json).
+    let val: serde_json::Value = match serde_json::from_str(trimmed) {
+        Ok(v) => v,
+        Err(_) => return Ok((trimmed.to_string(), None)),
+    };
+    let text = val
+        .get("result")
+        .and_then(|v| v.as_str())
+        .or_else(|| val.get("text").and_then(|v| v.as_str()))
+        .unwrap_or(trimmed)
+        .to_string();
+    let session_id = val
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    Ok((text, session_id))
+}
+
+fn session_path(project_dir: &str) -> PathBuf {
+    PathBuf::from(project_dir).join(".clipwright/claude-session")
+}
+
+fn load_session_id(project_dir: &str) -> Option<String> {
+    let path = session_path(project_dir);
+    let s = std::fs::read_to_string(&path).ok()?;
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn save_session_id(project_dir: &str, id: &str) -> std::io::Result<()> {
+    let path = session_path(project_dir);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    // Atomic write so a crash mid-write can't poison the session file.
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, id.trim().as_bytes())?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
