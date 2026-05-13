@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (video_id validation)
+
+- **Invalid video ids (like `Chapter-1-recap` with a capital C) no longer
+  brick a project.** Two-part fix:
+  - **Stop the regression at the source.** `Video.__post_init__` validates
+    `video_id` against `^[a-z][a-z0-9_-]*$` at construction time, not
+    only on reload. The desktop's "+ New video" form sanitizes user
+    input live and shows a preview (`will be created as <sanitized>`)
+    so the user sees the actual id before clicking Create.
+  - **Recover existing damaged projects.** `load_project` now runs a
+    `normalize_v2_video_ids` pass after the v1 migration. It walks
+    `videos/*.json`, renames any non-conforming files in place,
+    rewrites the `video_id` field inside the manifest, and relocates
+    per-video artifact dirs (`voiceover/audio/<old>/`,
+    `captions/<old>/`, `out/segments/<old>/`, `chat/sessions/<old>/`,
+    `voiceover/scripts/<old>.json`, `out/final/<old>.mp4`). Two-step
+    rename through a `.normalize-tmp-*` path forces the rename to
+    actually take effect on case-insensitive APFS/NTFS.
+  - Collisions (two bad ids that sanitize to the same target) get
+    numeric suffixes (`-2`, `-3`, …) without overwriting any existing
+    conforming file.
+  - Idempotent: re-running on an already-normalized project is a no-op.
+
 ### Fixed (Claude rail UX)
 
 - **Enter now sends; Shift+Enter inserts a newline.** Previously the

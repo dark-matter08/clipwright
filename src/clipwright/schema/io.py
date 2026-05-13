@@ -24,6 +24,7 @@ from typing import Any
 from . import paths
 from .v2 import Project, Video
 from .v2 import migrate as _v2_migrate
+from .v2 import normalize as _v2_normalize
 
 SCHEMA_VERSION = 2
 
@@ -97,6 +98,9 @@ def load_project(project_dir: Path) -> Project:
         # Auto-migrate. Re-read after; the migration rewrote the file.
         _v2_migrate.upgrade_v1_project_to_v2(Path(project_dir))
         payload = _read_json(path)
+    # Heal any non-conforming video_ids written by earlier desktop builds
+    # before validation hardened. Idempotent.
+    _v2_normalize.normalize_v2_video_ids(Path(project_dir))
     try:
         return Project.from_dict(payload)
     except ValueError as e:

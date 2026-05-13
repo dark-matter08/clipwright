@@ -174,3 +174,23 @@ export function findSegment(tl: Video, segId: string | null): Segment | null {
   if (!segId) return null;
   return tl.segments.find((s) => s.id === segId) ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// Video-id helpers (mirror Python's `clipwright.schema.v2.video`)
+// ---------------------------------------------------------------------------
+
+const VIDEO_ID_RE = /^[a-z][a-z0-9_-]*$/;
+
+/** Sanitize a user-typed video id to `[a-z][a-z0-9_-]*`.
+ *  Lowercases, collapses non-`[a-z0-9_-]` to single hyphens, strips
+ *  leading hyphens/underscores. Returns `""` if the result can't start
+ *  with a letter (caller falls back to a default). */
+export function sanitizeVideoId(s: string): string {
+  const lowered = s.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^[-_]+|[-_]+$/g, "");
+  if (!lowered || !/^[a-z]/.test(lowered)) return "";
+  return lowered;
+}
+
+export function isValidVideoId(s: string): boolean {
+  return VIDEO_ID_RE.test(s);
+}

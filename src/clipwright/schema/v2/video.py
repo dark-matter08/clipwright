@@ -18,7 +18,24 @@ from typing import Any
 # Reuse v1's Segment + supporting types unchanged.
 from ..v1.timeline import Segment
 
-_VIDEO_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+VIDEO_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+# Back-compat alias — older callers imported the private name.
+_VIDEO_ID_RE = VIDEO_ID_RE
+
+
+def sanitize_video_id(s: str) -> str:
+    """Public form of the sanitizer used by `next_video_id`.
+
+    Lowercases, collapses non-[a-z0-9_-] runs to single hyphens, strips
+    leading/trailing hyphens/underscores. Returns `""` if the result
+    can't start with a letter — caller is responsible for falling back
+    to a default in that case.
+    """
+    return _sanitize_video_id(s)
+
+
+def is_valid_video_id(s: str) -> bool:
+    return bool(VIDEO_ID_RE.match(s))
 
 
 @dataclass
@@ -39,6 +56,15 @@ class Video:
 
     # Set on load; ignored on save.
     loaded_schema_version: int = 2
+
+    def __post_init__(self) -> None:
+        # Direct construction (`Video(video_id="Bad")`) used to silently
+        # accept anything and only fail on the next reload. Closing that
+        # gap so `create_video` errors immediately on bad input.
+        if not VIDEO_ID_RE.match(self.video_id):
+            raise ValueError(
+                f"video.video_id must match '[a-z][a-z0-9_-]*'; got {self.video_id!r}"
+            )
 
     def by_id(self, seg_id: str) -> Segment | None:
         for s in self.segments:
