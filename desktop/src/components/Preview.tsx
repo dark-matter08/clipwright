@@ -4,12 +4,19 @@
 // available. "Render preview" triggers `clipwright render-segment` and
 // reloads on completion. Source-scrubbing playback (raw source.mp4 with
 // time offset) is a P2 polish item.
+//
+// The aspect-correct preview frame fills whatever space is available,
+// pillarboxed/letterboxed by `aspect-ratio` + `max-h/w-full`. When no
+// cached render exists yet we hide the native <video> chrome and show
+// a placeholder card so the user isn't faced with a broken-video icon.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useApp } from "../lib/store";
 import { renderSegment } from "../lib/tauri";
 import { cn } from "../lib/cn";
+
+type LoadState = "loading" | "ready" | "missing";
 
 export function Preview() {
   const project = useApp((s) => s.project);
@@ -20,22 +27,30 @@ export function Preview() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [busy, setBusy] = useState(false);
+  const [loadState, setLoadState] = useState<LoadState>("loading");
   const [renderToken, setRenderToken] = useState(0);
 
   const mp4Path = useMemo(() => {
     if (!project || !seg) return null;
     return joinPath(project.project_dir, ["out", "segments", `${seg.id}.mp4`]);
-  }, [project, seg, renderToken]);
+  }, [project, seg]);
 
+  // convertFileSrc + a cachebuster so the <video> reloads after a re-render
+  // produces a new file with the same path.
   const videoSrc = useMemo(() => {
     if (!mp4Path) return null;
-    return convertFileSrc(mp4Path);
-  }, [mp4Path]);
+    return `${convertFileSrc(mp4Path)}?v=${renderToken}`;
+  }, [mp4Path, renderToken]);
+
+  // Reset load state when the segment or render token changes.
+  useEffect(() => {
+    setLoadState("loading");
+  }, [videoSrc]);
 
   // Force the <video> to reload when the path or the render token changes.
   useEffect(() => {
     if (videoRef.current) videoRef.current.load();
-  }, [videoSrc, renderToken]);
+  }, [videoSrc]);
 
   async function onRender() {
     if (!project || !seg) return;
@@ -51,28 +66,28 @@ export function Preview() {
     }
   }
 
+  const showPlaceholder = !seg || !videoSrc || loadState === "missing";
+
   return (
-    <div className="flex h-full w-full flex-col bg-bg">
-      <div className="flex flex-1 items-center justify-center p-6">
+    <div className="flex h-full w-full min-h-0 flex-col bg-bg">
+      <div className="flex min-h-0 flex-1 items-center justify-center p-4">
         <PreviewFrame aspect={project?.project.aspect ?? "9:16"}>
-          {seg && videoSrc ? (
+          {!showPlaceholder ? (
             <video
               ref={videoRef}
-              src={videoSrc}
+              src={videoSrc ?? undefined}
               controls
               preload="metadata"
+              playsInline
               className="h-full w-full bg-black object-contain"
-              onError={() => { /* swallow — handled by the "render preview" CTA */ }}
+              onLoadedMetadata={() => setLoadState("ready")}
+              onError={() => setLoadState("missing")}
             />
           ) : (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-fg-muted">
-              <span className="text-sm">
-                {seg ? "No render yet — click Render Preview" : "Select a segment"}
-              </span>
-              <span className="font-mono text-[10px] uppercase tracking-wider text-fg-muted/60">
-                {project?.project.aspect ?? "9:16"}
-              </span>
-            </div>
+            <PlaceholderCard
+              hasSegment={!!seg}
+              aspect={project?.project.aspect ?? "9:16"}
+            />
           )}
         </PreviewFrame>
       </div>
@@ -99,16 +114,58 @@ export function Preview() {
   );
 }
 
-/** Aspect-correct framed container — matches what the final render will be. */
-function PreviewFrame({ aspect, children }: { aspect: string; children: React.ReactNode }) {
-  const dims = aspect === "9:16"
-    ? "h-[480px] w-[270px]"
-    : aspect === "16:9"
-      ? "h-[270px] w-[480px]"
-      : "h-[400px] w-[400px]"; // 1:1
+/**
+ * Aspect-correct preview container. Fills the available space, then clamps
+ * by `max-h/w-full` to letterbox/pillarbox. The trick: `aspect-ratio` plus
+ * BOTH max constraints gives the largest box that fits within both — no
+ * JS measurement, browser does the math.
+ */
+function PreviewFrame({
+  aspect,
+  children,
+}: {
+  aspect: string;
+  children: React.ReactNode;
+}) {
+  const aspectClass =
+    aspect === "9:16" ? "aspect-[9/16]"
+    : aspect === "16:9" ? "aspect-[16/9]"
+    : "aspect-square";
   return (
-    <div className={cn("overflow-hidden rounded border border-border-subtle bg-bg-inset", dims)}>
+    <div
+      className={cn(
+        "relative overflow-hidden rounded border border-border-subtle bg-bg-inset",
+        // `h-full max-w-full` + aspect-ratio means: try to fill height; the
+        // width is derived from the ratio and clamps to 100% if it would
+        // exceed the parent. When width clamps, height shrinks to keep
+        // aspect.
+        "h-full max-h-full max-w-full",
+        aspectClass,
+      )}
+    >
       {children}
+    </div>
+  );
+}
+
+function PlaceholderCard({
+  hasSegment,
+  aspect,
+}: {
+  hasSegment: boolean;
+  aspect: string;
+}) {
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-bg-inset text-fg-muted">
+      <span className="font-mono text-[10px] uppercase tracking-wider">{aspect}</span>
+      <span className="text-sm">
+        {hasSegment ? "No render yet" : "Select a segment"}
+      </span>
+      {hasSegment && (
+        <span className="text-xs text-fg-muted/70">
+          Click <span className="font-medium text-accent">Render Preview</span> below
+        </span>
+      )}
     </div>
   );
 }

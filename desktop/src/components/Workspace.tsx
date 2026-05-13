@@ -23,9 +23,13 @@ export function Workspace() {
     <div className="flex h-full w-full flex-col">
       <TopBar />
       <div className="flex min-h-0 flex-1">
-        {/* Left column: preview (top) + inspector (bottom) */}
+        {/* Left column: preview (top) + inspector (bottom).
+            Preview takes more vertical room because the 9:16 frame is the
+            common case and most of the height is "tall canvas" pillarboxed
+            into the available width. Inspector stays scrollable so the
+            accordion never runs off the screen. */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex min-h-0 flex-[1.2] border-b border-border-subtle">
+          <div className="flex min-h-0 flex-[2] border-b border-border-subtle">
             <Preview />
           </div>
           <div className="flex min-h-0 flex-1 overflow-y-auto">

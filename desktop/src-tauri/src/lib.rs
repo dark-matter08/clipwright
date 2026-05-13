@@ -9,6 +9,7 @@
 mod claude;
 mod clipwright;
 mod new_project;
+mod path_env;
 mod project;
 mod recents;
 mod script;
@@ -17,6 +18,9 @@ mod validate;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Must run before any subprocess discovery — see path_env.rs for why.
+    path_env::enrich();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![

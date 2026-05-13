@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Desktop now finds `claude` and other user-installed CLIs.** macOS GUI
+  apps inherit a minimal system PATH (`/usr/bin:/bin:/usr/sbin:/sbin`),
+  so binaries installed via nvm, Homebrew, bun, or `~/.local/bin` were
+  invisible to the Tauri process — Claude rail showed "CLI MISSING" even
+  with Claude Code installed. New `path_env::enrich()` runs at app
+  startup: spawns the user's login shell to read `$PATH`, then merges in
+  known package-manager locations (Homebrew, nvm globbed for newest
+  version, bun, cargo, `~/.claude/local/`, `~/.local/bin`).
+
+- **Record-mode navigation no longer dies at 30 s.** `page.goto` now
+  uses `wait_until="domcontentloaded"` with a 15s cap; the previously-
+  unbounded `wait_for_load_state("networkidle")` is capped at 3 s and
+  best-effort. Tolerant of modern apps with WebSockets, SSE,
+  long-polling, analytics beacons, or hot-reload pings.
+
+### Changed (desktop UX)
+
+- **Preview pane fills the available space.** Was a fixed 270×480 frame
+  floating in a much larger area; now uses `aspect-ratio` + `max-h/w-full`
+  so the 9:16/16:9/1:1 frame scales to whatever room the workspace gives
+  it. Preview column also gets a 2× flex weight relative to the inspector
+  since the 9:16 aspect is canvas-tall.
+
+- **Preview placeholder card** replaces the native broken-video glyph
+  when no per-segment render exists yet. Card shows aspect + a "Click
+  Render Preview" hint instead of a confusing play-button overlay.
+
+- **Status bar doctor reflects reality.** Was hardcoded `✓`; now aggregates
+  Clipwright + Claude CLI checks and renders the worst status as
+  `✓ / ⚠ / ✗` with a per-check tooltip showing install paths.
+
 ### Security
 
 - **Tighten Tauri asset-protocol scope** (SRS §20.3 P2). Previously `**`
