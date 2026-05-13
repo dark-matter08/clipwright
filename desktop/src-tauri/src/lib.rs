@@ -1,0 +1,48 @@
+//! Clipwright Studio — Tauri 2 backend.
+//!
+//! Phase 1.1 ships the minimum end-to-end loop: read a project from disk
+//! and return it to the frontend. The Rust side only handles pure JSON
+//! reads + the recents list. Heavy operations (import, tts, render, etc.)
+//! will be spawned as `clipwright <subcommand>` subprocesses in later
+//! phases (P1.4+) — never reimplemented here.
+
+mod claude;
+mod clipwright;
+mod new_project;
+mod project;
+mod recents;
+mod script;
+mod segment_ops;
+mod validate;
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            project::open_project,
+            project::save_timeline,
+            recents::list_recents,
+            new_project::import_video_cmd,
+            new_project::record_project_cmd,
+            new_project::clipwright_doctor,
+            script::load_script,
+            script::save_script_clip,
+            segment_ops::tts_segment_cmd,
+            segment_ops::caption_segment_cmd,
+            segment_ops::render_segment_cmd,
+            segment_ops::render_final_cmd,
+            claude::claude_chat,
+            claude::claude_doctor,
+            claude::load_chat_history,
+        ])
+        .setup(|app| {
+            // Make sure the recents file exists with an empty list so
+            // the frontend's first call doesn't error before any project
+            // has ever been opened.
+            recents::ensure_recents_file(app.handle())?;
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
