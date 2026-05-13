@@ -135,7 +135,14 @@ async def _run(
             await execute_plan(page, plan, recorder, plan_dir)
         else:
             if url:
-                await page.goto(url)
+                # Match the executor's tolerant navigation: DOMContentLoaded
+                # + 15s cap, so modern apps with hanging analytics/SSE don't
+                # kill the recording before the user script even runs.
+                from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=15_000)
+                except PlaywrightTimeoutError:
+                    pass
                 await recorder("nav", url=url)
             await _call_user_run(user_run, page, recorder)
         await context.close()
