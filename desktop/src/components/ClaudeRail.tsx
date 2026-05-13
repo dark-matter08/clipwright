@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   claudeChat,
   claudeDoctor,
+  clearClaudeSession,
   loadChatHistory,
   type ChatHistoryEntry,
 } from "../lib/tauri";
@@ -56,6 +57,17 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [history.length, pending, busy]);
+
+  async function onFreshChat() {
+    if (!project?.video) return;
+    try {
+      await clearClaudeSession(project.project_dir, project.video.video_id);
+      setHistory([]);
+      setPending(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   async function send() {
     if (!project?.video || !draft.trim()) return;
@@ -103,7 +115,7 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
         <span className="text-xs font-medium uppercase tracking-wider text-fg-muted">
           Claude
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {installed === false && (
             <span
               className="rounded bg-warn/20 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-warn"
@@ -112,6 +124,11 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
               CLI missing
             </span>
           )}
+          <FreshChatButton
+            disabled={!project?.video || busy || installed === false}
+            historyEmpty={history.length === 0 && !pending}
+            onConfirm={onFreshChat}
+          />
           <button
             type="button"
             onClick={toggle}
@@ -159,7 +176,14 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            // Enter sends; Shift+Enter inserts a newline. IME composition
+            // (Japanese / Chinese input) emits Enter to commit — leave that
+            // alone via `isComposing`.
+            if (
+              e.key === "Enter" &&
+              !e.shiftKey &&
+              !e.nativeEvent.isComposing
+            ) {
               e.preventDefault();
               void send();
             }
@@ -169,14 +193,65 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
             installed === false
               ? "Install Claude Code to enable chat"
               : askSegId
-                ? `Ask Claude about ${askSegId}…  (⌘⏎)`
-                : "Ask Claude about this project…  (⌘⏎)"
+                ? `Ask Claude about ${askSegId}…  (Enter to send · Shift+Enter for newline)`
+                : "Ask Claude about this video…  (Enter to send · Shift+Enter for newline)"
           }
           disabled={installed === false || busy}
           className="w-full resize-none rounded border border-border-subtle bg-bg-inset px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:focus-ring disabled:cursor-not-allowed"
         />
       </div>
     </div>
+  );
+}
+
+function FreshChatButton({
+  disabled,
+  historyEmpty,
+  onConfirm,
+}: {
+  disabled: boolean;
+  historyEmpty: boolean;
+  onConfirm: () => void | Promise<void>;
+}) {
+  const [confirming, setConfirming] = useState(false);
+
+  // First click arms the button; second click within 4s confirms. If the
+  // chat is already empty we skip the confirm step — there's nothing to
+  // lose. (Today's log is archived to .archived-<ts>.jsonl either way,
+  // so even an accidental click is recoverable from disk.)
+  function onClick() {
+    if (historyEmpty) {
+      void onConfirm();
+      return;
+    }
+    if (!confirming) {
+      setConfirming(true);
+      window.setTimeout(() => setConfirming(false), 4000);
+      return;
+    }
+    setConfirming(false);
+    void onConfirm();
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={
+        confirming
+          ? "Click again to wipe this video's chat. Today's log is archived."
+          : "Start a fresh Claude conversation for this video"
+      }
+      className={cn(
+        "rounded px-1.5 py-0.5 text-[11px] transition-colors",
+        disabled && "cursor-not-allowed text-fg-muted opacity-40",
+        !disabled && !confirming && "text-fg-muted hover:bg-bg-raised hover:text-fg",
+        !disabled && confirming && "bg-warn/20 font-medium text-warn",
+      )}
+    >
+      {confirming ? "Confirm reset" : "↺ Fresh"}
+    </button>
   );
 }
 

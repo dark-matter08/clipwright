@@ -45,6 +45,7 @@ pub fn run() {
             claude::claude_chat,
             claude::claude_doctor,
             claude::load_chat_history,
+            claude::clear_claude_session,
         ])
         .setup(|app| {
             // Make sure the recents file exists with an empty list so

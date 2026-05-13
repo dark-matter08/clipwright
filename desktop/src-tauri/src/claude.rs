@@ -315,6 +315,39 @@ pub async fn claude_doctor() -> ClaudeDoctorReport {
     }
 }
 
+/// Reset the persistent chat state for one video.
+///
+/// Deletes the stored session id (so the next `claude_chat` turn starts a
+/// fresh `claude` session instead of `--resume <id>`-ing the prior one)
+/// and archives today's chat log alongside it. The archived file keeps
+/// the same path with a `.archived-<ts>` suffix so the user can recover
+/// the transcript by hand if they need it later. Tomorrow's logs land in
+/// a fresh `<date>.jsonl` either way.
+#[tauri::command]
+pub async fn clear_claude_session(
+    project_dir: String,
+    video_id: String,
+) -> Result<(), ClaudeError> {
+    validate::seg_id(&video_id).ok(); // soft sanity — same posture as save_video.
+
+    let session_file = session_path(&project_dir, &video_id);
+    if session_file.exists() {
+        let _ = std::fs::remove_file(&session_file);
+    }
+
+    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let log_file = PathBuf::from(&project_dir)
+        .join("chat/sessions")
+        .join(&video_id)
+        .join(format!("{today}.jsonl"));
+    if log_file.exists() {
+        let stamp = Utc::now().format("%Y%m%dT%H%M%S").to_string();
+        let archived = log_file.with_file_name(format!("{today}.jsonl.archived-{stamp}"));
+        let _ = std::fs::rename(&log_file, &archived);
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ChatHistoryEntry {
     pub ts: String,

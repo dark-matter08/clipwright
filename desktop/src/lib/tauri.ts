@@ -263,6 +263,16 @@ export async function loadChatHistory(
   return invoke<ChatHistoryEntry[]>("load_chat_history", { projectDir, videoId });
 }
 
+/** Wipe the persistent Claude session for one video so the next turn
+ *  starts a brand-new conversation instead of resuming the prior one.
+ *  Today's chat log is archived under `chat/sessions/<video>/<date>.jsonl.archived-<ts>`. */
+export async function clearClaudeSession(
+  projectDir: string,
+  videoId: string,
+): Promise<void> {
+  await invoke("clear_claude_session", { projectDir, videoId });
+}
+
 export interface ClaudeDoctorReport {
   installed: boolean;
   path: string | null;

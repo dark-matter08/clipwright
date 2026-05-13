@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (Claude rail UX)
+
+- **Enter now sends; Shift+Enter inserts a newline.** Previously the
+  textarea required `⌘+Enter`, which doesn't match the convention every
+  chat UI uses (Slack, ChatGPT, Linear). IME composition (Japanese /
+  Chinese) is preserved — Enter to commit a candidate still works.
+- **"↺ Fresh" button in the Claude rail header** starts a brand-new
+  conversation for the current video. Two-click confirm (first click
+  arms, second within 4s commits) when the chat has history; instant
+  when it's already empty. Today's chat log is archived to
+  `chat/sessions/<video>/<date>.jsonl.archived-<ts>` so nothing is
+  destroyed — only the session id pointer is cleared, so the next turn
+  starts a fresh `claude` session instead of resuming the prior one.
+
 ### Added
 
 - **Record additional videos into an existing project from the desktop.**
