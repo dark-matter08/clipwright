@@ -9,6 +9,7 @@ import { useState } from "react";
 import { createVideo } from "../lib/tauri";
 import { useApp } from "../lib/store";
 import { cn } from "../lib/cn";
+import { RecordVideoDialog } from "./RecordVideoDialog";
 
 export function VideoSidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const project = useApp((s) => s.project);
@@ -17,6 +18,7 @@ export function VideoSidebar({ collapsed, onToggle }: { collapsed: boolean; onTo
   const [creating, setCreating] = useState(false);
   const [draftId, setDraftId] = useState("");
   const [draftTitle, setDraftTitle] = useState("");
+  const [recordOpen, setRecordOpen] = useState(false);
 
   if (!project) return null;
   const current = project.current_video_id;
@@ -126,15 +128,26 @@ export function VideoSidebar({ collapsed, onToggle }: { collapsed: boolean; onTo
             </div>
           </div>
         ) : (
-          <button
-            type="button"
-            onClick={() => setCreating(true)}
-            className="w-full rounded border border-border-subtle bg-bg px-2 py-1.5 text-xs text-fg-subtle transition-colors hover:bg-bg-raised hover:text-fg focus:focus-ring"
-          >
-            + New video
-          </button>
+          <div className="flex flex-col gap-1.5">
+            <button
+              type="button"
+              onClick={() => setCreating(true)}
+              className="w-full rounded border border-border-subtle bg-bg px-2 py-1.5 text-xs text-fg-subtle transition-colors hover:bg-bg-raised hover:text-fg focus:focus-ring"
+            >
+              + New video (empty)
+            </button>
+            <button
+              type="button"
+              onClick={() => setRecordOpen(true)}
+              className="w-full rounded border border-border-subtle bg-bg px-2 py-1.5 text-xs text-fg-subtle transition-colors hover:bg-bg-raised hover:text-fg focus:focus-ring"
+              title="Drive Playwright into a new video"
+            >
+              + Record video
+            </button>
+          </div>
         )}
       </div>
+      {recordOpen && <RecordVideoDialog onClose={() => setRecordOpen(false)} />}
     </aside>
   );
 }

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Record additional videos into an existing project from the desktop.**
+  The Videos sidebar gains a "+ Record video" button alongside the
+  existing "+ New video (empty)". Opens a `RecordVideoDialog` that
+  collects a `video_id`, an optional title, an optional base-URL
+  override (defaults to the project's `base_url`), an aspect override,
+  and a viewport choice. Drives Playwright via `clipwright
+  record-project --video <id>` and the new `append` mode on the Rust
+  side. Editor auto-switches to the new video on completion.
+  - For the manhwa-recap workflow: open the Eternal Regressing Knight
+    project, click "+ Record video", set `video_id = chapter-2`,
+    record → chapter-2 lands in the sidebar with its own timeline,
+    audio, captions, render output, and Claude chat session.
+
 ## [0.2.0-alpha] — 2026-05-13
 
 ### Added — schema v2: project as a collection of videos

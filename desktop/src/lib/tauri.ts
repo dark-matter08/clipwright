@@ -88,6 +88,11 @@ export interface RecordProjectArgs {
   aspect: Aspect;
   baseUrl: string;
   mobile: boolean;
+  videoId: string;
+  videoTitle: string;
+  /** True when recording into an existing project (adds/replaces a
+   *  video inside it). False for first-time project creation. */
+  append: boolean;
 }
 
 export async function recordProject(args: RecordProjectArgs): Promise<ProjectState> {

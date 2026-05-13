@@ -89,17 +89,34 @@ pub async fn record_project_cmd(
     aspect: String,
     base_url: String,
     mobile: bool,
+    video_id: String,
+    video_title: String,
+    // When true, the target directory must already be a v2 project and
+    // the recording appends to / replaces the named video. When false,
+    // the directory must be empty (first-creation flow).
+    append: bool,
 ) -> Result<ProjectState, NewProjectError> {
     if base_url.trim().is_empty() {
         return Err(NewProjectError::Bad("base_url is required for Record mode".into()));
     }
     let dir = PathBuf::from(&project_dir);
-    require_empty_dir(&dir)?;
-    std::fs::create_dir_all(&dir)?;
+    if append {
+        if !dir.join("project.json").exists() {
+            return Err(NewProjectError::Bad(format!(
+                "--append needs an existing project at {}",
+                dir.display()
+            )));
+        }
+        std::fs::create_dir_all(&dir)?;
+    } else {
+        require_empty_dir(&dir)?;
+        std::fs::create_dir_all(&dir)?;
+    }
 
-    // Write a starter browse-plan.json so `clipwright record-project` has
-    // something to drive. Users edit this file (or regenerate it via the
-    // Claude-authored draft when P1.9 lands) before re-recording.
+    // Write/overwrite a starter browse-plan.json. On append flows the
+    // user typically edits this file (or asks Claude to draft a real
+    // plan, F-REC-2) before triggering recording. On first-creation
+    // we drop a one-action stub so the recording produces *something*.
     let plan = serde_json::json!({
         "viewport": {
             "width":   if mobile { 540 } else { 1280 },
@@ -126,9 +143,13 @@ pub async fn record_project_cmd(
     }
     args.extend(["--aspect", &aspect]);
     args.push(if mobile { "--mobile" } else { "--desktop" });
+    args.extend(["--video", &video_id]);
+    if !video_title.is_empty() {
+        args.extend(["--video-title", &video_title]);
+    }
 
     clipwright::run(&args)?;
-    project::open_project(app, project_dir, Some("main".into())).await.map_err(Into::into)
+    project::open_project(app, project_dir, Some(video_id)).await.map_err(Into::into)
 }
 
 /// Check whether the `clipwright` binary is reachable. Used by the New

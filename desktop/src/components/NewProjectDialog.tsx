@@ -306,6 +306,9 @@ function RecordStep({
     aspect: Aspect;
     baseUrl: string;
     mobile: boolean;
+    videoId: string;
+    videoTitle: string;
+    append: boolean;
   }) => void;
 }) {
   const [parentDir, setParentDir] = useState<string>("");
@@ -313,6 +316,11 @@ function RecordStep({
   const [aspect, setAspect] = useState<Aspect>("9:16");
   const [baseUrl, setBaseUrl] = useState<string>("");
   const [mobile, setMobile] = useState(true);
+  // First-creation Record always seeds video_id="main". Records into
+  // additional videos (chapter-2, etc.) happen via the Videos sidebar
+  // in the Workspace, so a v2-aware id input here would be misleading.
+  const videoId = "main";
+  const videoTitle = name;
 
   const projectDir = parentDir && name ? joinPath(parentDir, name) : "";
   const submitDisabled = !parentDir || !name || !baseUrl;
@@ -322,7 +330,10 @@ function RecordStep({
       onSubmit={(e) => {
         e.preventDefault();
         if (submitDisabled) return;
-        onSubmit({ projectDir, title: name, aspect, baseUrl, mobile });
+        onSubmit({
+          projectDir, title: name, aspect, baseUrl, mobile,
+          videoId, videoTitle, append: false,
+        });
       }}
       className="flex flex-col gap-3"
     >
@@ -372,9 +383,11 @@ function RecordStep({
 
       <p className="rounded bg-bg-inset px-3 py-2 text-[11px] text-fg-muted">
         A starter <code className="font-mono">browse-plan.json</code> with one
-        navigate action is generated. Edit it (or ask Claude to draft a real plan
-        — P1.9) before re-recording. Recording opens a real browser window via
-        Playwright.
+        navigate action is generated. Edit it (or ask Claude to draft a real
+        plan — P1.9) before re-recording. Recording opens a real browser
+        window via Playwright. Need additional chapter / episode videos?
+        Use <span className="text-fg-subtle">"+ Record video"</span> in the
+        Videos sidebar after this project loads.
       </p>
 
       <ButtonRow
