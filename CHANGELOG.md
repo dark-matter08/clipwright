@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-alpha] — 2026-05-13
+
 ### Added — schema v2: project as a collection of videos
 
 **Breaking change to the on-disk format** (auto-migrated). A project no
