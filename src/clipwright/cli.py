@@ -9,6 +9,9 @@ import typer
 from rich import print as rprint
 
 from . import __version__, config
+from .agent import PromptError, build_project_prompt, build_segment_prompt
+from .caption_segment import CaptionSegmentError
+from .caption_segment import caption_segment as caption_segment_impl
 from .captions.chunker import chars_to_words, chunk_words
 from .captions.png_renderer import CaptionStyle, render_all
 from .edit import annotations as annotations_mod
@@ -17,14 +20,23 @@ from .edit import segments as segments_mod
 from .edit.trim import trim as trim_impl
 from .errors import ClipwrightError
 from .ffmpeg import probe_duration, require, stretch_audio
+from .import_video import import_video as import_video_impl
 from .outro.brand import BrandConfig
 from .outro.render import render_outro
 from .pipeline import Pipeline
 from .plan import script_skeleton
 from .record.playwright_recorder import record as record_impl
+from .record_project import RecordError
+from .record_project import record_project as record_project_impl
 from .render import remotion_backend
 from .render.composer import Segment, SubtitleChunk, render
+from .render_final import RenderFinalError
+from .render_final import render_final as render_final_impl
+from .render_segment import RenderSegmentError
+from .render_segment import render_segment as render_segment_impl
 from .tts import get_provider
+from .tts_segment import TTSSegmentError
+from .tts_segment import tts_segment as tts_segment_impl
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help="Clipwright: short-form how-to video pipeline.")
 
@@ -98,6 +110,222 @@ def init(
     (directory / "browse-plan.json").write_text(json.dumps(browse_plan, indent=2) + "\n")
     rprint(f"[green]Initialized[/green] {directory}")
     rprint("[dim]Next: edit browse-plan.json, then run `clipwright build`[/dim]")
+
+
+@app.command(name="import")
+def import_(
+    video: Path = typer.Argument(..., help="Path to MP4/MOV/WebM to import."),
+    into: Path = typer.Option(
+        None, "--into",
+        help="Project directory to create (defaults to <video-stem> in CWD).",
+    ),
+    title: str = typer.Option("", help="Project title (defaults to project dir name)."),
+    aspect: str = typer.Option("9:16", help="9:16, 16:9, or 1:1."),
+    auto_segment: bool = typer.Option(
+        True, "--auto-segment/--no-auto-segment",
+        help="Run silence + scene detection. With --no-auto-segment, one segment covers the whole source.",
+    ),
+    scene_detection: bool = typer.Option(
+        True, "--scene-detection/--no-scene-detection",
+        help="Include scene-change detection (slower on long files).",
+    ),
+) -> None:
+    """Import an existing video as a new clipwright project (Upload mode).
+
+    Copies the video into <project>/sources/main.mp4, runs auto-segmentation,
+    and writes valid project.json + timeline.json. The new project is ready
+    to edit immediately.
+    """
+    video = video.resolve()
+    if not video.exists():
+        raise ClipwrightError(
+            f"video not found: {video}",
+            fix="Check the path; supported formats: MP4, MOV, WebM.",
+        )
+    project_dir = (into or (Path.cwd() / video.stem)).resolve()
+    if project_dir.exists() and any(project_dir.iterdir()):
+        raise ClipwrightError(
+            f"target directory is not empty: {project_dir}",
+            fix="Pick a new path with --into, or remove existing contents.",
+        )
+
+    rprint(f"[dim]Importing {video.name} → {project_dir}[/dim]")
+    result = import_video_impl(
+        video,
+        project_dir,
+        title=title,
+        aspect=aspect,
+        auto_segment=auto_segment,
+        use_scene_detection=scene_detection,
+    )
+    rprint(
+        f"[green]Imported[/green] · {result.n_segments} segment"
+        f"{'' if result.n_segments == 1 else 's'} · {project_dir}"
+    )
+    rprint("[dim]Next: open in Clipwright Studio, or run `clipwright build`[/dim]")
+
+
+@app.command(name="record-project")
+def record_project_cmd(
+    project_dir: Path = typer.Argument(..., help="Project directory (will be created if missing)."),
+    plan: Path = typer.Option(
+        None, "--plan",
+        help="Path to browse-plan.json. Copies into the project if outside it. Defaults to <project>/browse-plan.json.",
+    ),
+    title: str = typer.Option("", help="Project title (defaults to project dir name)."),
+    aspect: str = typer.Option("9:16", help="9:16, 16:9, or 1:1."),
+    mobile: bool = typer.Option(False, "--mobile/--desktop", help="Emulate a mobile viewport."),
+) -> None:
+    """Create a project by recording a Playwright session (Record mode).
+
+    Runs `browse-plan.json` via Playwright, captures the video, and seeds
+    project.json + timeline.json with one segment per chapter. Output layout
+    matches `clipwright import`.
+    """
+    try:
+        result = record_project_impl(
+            project_dir,
+            plan_path=plan,
+            title=title,
+            aspect=aspect,
+            mobile=mobile,
+        )
+    except RecordError as e:
+        raise ClipwrightError(e.message, fix=e.fix) from e
+
+    rprint(
+        f"[green]Recorded[/green] · {result.n_segments} segment"
+        f"{'' if result.n_segments == 1 else 's'} · {result.project_dir}"
+    )
+    rprint("[dim]Next: open in Clipwright Studio, or run `clipwright build`[/dim]")
+
+
+@app.command(name="render-segment")
+def render_segment_cmd(
+    seg_id: str = typer.Argument(..., help="Segment id, e.g. seg_001."),
+    project_dir: Path = typer.Option(
+        None, "--project", help="Project root (defaults to CWD).",
+    ),
+    force: bool = typer.Option(False, "--force", help="Bypass cache."),
+) -> None:
+    """Render one segment from the v1 schema, writing out/segments/<seg_id>.mp4.
+
+    Cached by content hash — unchanged inputs are a no-op.
+    """
+    root = (project_dir or Path.cwd()).resolve()
+    try:
+        result = render_segment_impl(root, seg_id, force=force)
+    except RenderSegmentError as e:
+        raise ClipwrightError(str(e), fix=e.fix) from e
+
+    state = "[dim]cached[/dim]" if result.cached else "[green]rendered[/green]"
+    rprint(f"{state} {result.out_path}")
+
+
+@app.command(name="render-final")
+def render_final_cmd(
+    project_dir: Path = typer.Option(
+        None, "--project", help="Project root (defaults to CWD).",
+    ),
+    force: bool = typer.Option(False, "--force", help="Bypass per-segment caches."),
+) -> None:
+    """Render every segment (using cache where possible) and concat to out/final.mp4."""
+    root = (project_dir or Path.cwd()).resolve()
+    try:
+        result = render_final_impl(root, force=force)
+    except RenderFinalError as e:
+        raise ClipwrightError(str(e), fix=e.fix) from e
+    rprint(
+        f"[green]Final[/green] {result.out_path} · "
+        f"{result.rendered} rendered, {result.cached} cached"
+    )
+
+
+@app.command(name="caption-segment")
+def caption_segment_cmd(
+    seg_id: str = typer.Argument(..., help="Segment id, e.g. seg_001."),
+    project_dir: Path = typer.Option(
+        None, "--project", help="Project root (defaults to CWD).",
+    ),
+    force: bool = typer.Option(False, "--force", help="Bypass cache."),
+) -> None:
+    """Generate caption PNGs + index.json for one segment (v1 layout).
+
+    Reads voiceover/audio/<seg_id>.timestamps.json and writes
+    captions/<seg_id>/. Cached by content hash.
+    """
+    root = (project_dir or Path.cwd()).resolve()
+    try:
+        result = caption_segment_impl(root, seg_id, force=force)
+    except CaptionSegmentError as e:
+        raise ClipwrightError(str(e), fix=e.fix) from e
+
+    state = "[dim]cached[/dim]" if result.cached else "[green]captioned[/green]"
+    rprint(f"{state} {result.n_chunks} chunks · {result.out_dir}")
+
+
+@app.command(name="tts-segment")
+def tts_segment_cmd(
+    seg_id: str = typer.Argument(..., help="Segment id, e.g. seg_001."),
+    project_dir: Path = typer.Option(
+        None, "--project", help="Project root (defaults to CWD).",
+    ),
+    force: bool = typer.Option(False, "--force", help="Bypass cache."),
+) -> None:
+    """Synthesize voiceover for one segment (v1 layout).
+
+    Reads voiceover/script.json, picks the configured provider/voice,
+    writes voiceover/audio/<seg_id>.mp3 + .timestamps.json. Cached by
+    content hash. Stretches to target_seconds when audio is too long.
+    """
+    root = (project_dir or Path.cwd()).resolve()
+    try:
+        result = tts_segment_impl(root, seg_id, force=force)
+    except TTSSegmentError as e:
+        raise ClipwrightError(str(e), fix=e.fix) from e
+
+    state = "[dim]cached[/dim]" if result.cached else "[green]synthesized[/green]"
+    detail = f"{result.provider}"
+    if result.voice:
+        detail += f" · {result.voice}"
+    if result.stretched and not result.cached:
+        detail += f" · {result.natural_seconds:.1f}s → {result.target_seconds:.1f}s"
+    rprint(f"{state} {detail} · {result.mp3_path}")
+
+
+# Sub-app: `clipwright agent <subcommand>`
+agent_app = typer.Typer(
+    no_args_is_help=True,
+    help="Claude Code agent helpers (prompt building, future Mode A/B spawners).",
+)
+app.add_typer(agent_app, name="agent")
+
+
+@agent_app.command("prompt")
+def agent_prompt_cmd(
+    seg_id: str = typer.Argument(
+        None,
+        help="Optional segment id (e.g. seg_001). Omit for a project-scoped prompt.",
+    ),
+    project_dir: Path = typer.Option(
+        None, "--project", help="Project root (defaults to CWD).",
+    ),
+) -> None:
+    """Print the system prompt Claude Code would receive (SRS §9.2).
+
+    With no seg_id, builds the Mode A persistent-chat prompt.
+    With a seg_id, builds the Mode B segment-scoped prompt.
+    """
+    root = (project_dir or Path.cwd()).resolve()
+    try:
+        if seg_id:
+            text = build_segment_prompt(root, seg_id)
+        else:
+            text = build_project_prompt(root)
+    except PromptError as e:
+        raise ClipwrightError(str(e), fix=e.fix) from e
+    # Plain stdout so the output can be piped into `claude --append-system-prompt`.
+    print(text, end="")
 
 
 @app.command()
