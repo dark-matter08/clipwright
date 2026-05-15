@@ -560,22 +560,26 @@ function Track({
 /** Per-lane visual tokens. `bg` is the lane *background* (the floor of
  *  the lane); `stripe` is the left-edge accent that runs full-height
  *  through the label column; `iconColor` matches the stripe so the
- *  icon + stripe + clip border all visually tie together. */
+ *  icon + stripe + clip border all visually tie together.
+ *
+ *  All values now resolve to CSS variables defined in tokens.css —
+ *  the tints are theme-aware (light + dark mode each gets its own
+ *  values) instead of the hardcoded hex these used to carry. */
 const LANE_TINTS: Record<TrackKind, { bg: string; stripe: string; iconColor: string }> = {
   video: {
-    bg: "bg-[#0d1115]",
-    stripe: "border-l-[#3b82f6]/70 bg-[#0a0d11]",
-    iconColor: "text-[#60a5fa]",
+    bg: "bg-lane-video-bg",
+    stripe: "border-l-lane-video/70 bg-lane-video-bg",
+    iconColor: "text-lane-video",
   },
   audio: {
-    bg: "bg-[#0c0d18]",
-    stripe: "border-l-[#a78bfa]/70 bg-[#08091a]",
-    iconColor: "text-[#a78bfa]",
+    bg: "bg-lane-audio-bg",
+    stripe: "border-l-lane-audio/70 bg-lane-audio-bg",
+    iconColor: "text-lane-audio",
   },
   captions: {
-    bg: "bg-[#13100b]",
-    stripe: "border-l-[#f59e0b]/70 bg-[#0e0a08]",
-    iconColor: "text-[#fbbf24]",
+    bg: "bg-lane-captions-bg",
+    stripe: "border-l-lane-captions/70 bg-lane-captions-bg",
+    iconColor: "text-lane-captions",
   },
 };
 
@@ -693,24 +697,26 @@ function SegmentBlock({
   );
 }
 
+/** Per-track segment-block visuals. The lane background sets the
+ *  floor; each clip block on top uses a slightly-tinted bg + a
+ *  bordered edge in the lane's accent hue + readable text in the
+ *  lane's fg color. Tokens-only; light + dark mode resolve through
+ *  the CSS variables defined in tokens.css. */
 const TRACK_TINTS: Record<TrackKind, { bg: string; border: string; text: string }> = {
   video: {
-    // Premiere-style cool gradient feel for the primary video lane.
-    bg: "bg-gradient-to-b from-[#1f2937] to-[#111827]",
-    border: "border-[#3b82f6]/40",
+    bg: "bg-lane-video-bg/80",
+    border: "border-lane-video-border",
     text: "text-fg",
   },
   audio: {
-    // Purple-tinted — matches the audio lane stripe.
-    bg: "bg-gradient-to-b from-[#1a1430] to-[#0f0a20]",
-    border: "border-[#a78bfa]/40",
-    text: "text-[#ddd6fe]",
+    bg: "bg-lane-audio-bg/80",
+    border: "border-lane-audio-border",
+    text: "text-lane-audio-fg",
   },
   captions: {
-    // Amber-tinted — matches the caption lane stripe.
-    bg: "bg-gradient-to-b from-[#2a1f10] to-[#1a1308]",
-    border: "border-[#f59e0b]/40",
-    text: "text-[#fde68a]",
+    bg: "bg-lane-captions-bg/80",
+    border: "border-lane-captions-border",
+    text: "text-lane-captions-fg",
   },
 };
 
@@ -739,7 +745,7 @@ function Waveform({ segId, enabled }: { segId: string; enabled: boolean }) {
           style={{ height: `${h}%` }}
           className={cn(
             "flex-1 rounded-[1px]",
-            enabled ? "bg-[#a78bfa]" : "bg-fg-muted/30",
+            enabled ? "bg-lane-audio" : "bg-fg-muted/30",
           )}
         />
       ))}

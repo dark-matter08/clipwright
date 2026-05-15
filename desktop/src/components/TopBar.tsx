@@ -19,6 +19,7 @@ import { AddSourceDialog } from "./AddSourceDialog";
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
 import { RenderDialog } from "./RenderDialog";
 import { TemplateDialog } from "./TemplateDialog";
+import { ThemeToggle } from "./ThemeToggle";
 
 export function TopBar() {
   const project = useApp((s) => s.project);
@@ -145,6 +146,7 @@ export function TopBar() {
           onClick={() => setRenderOpen(true)}
           title="Render final (out/final.mp4)"
         />
+        <ThemeToggle />
         <TopBarButton
           icon={<Settings size={14} strokeWidth={2} />}
           label=""
