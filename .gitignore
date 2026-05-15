@@ -30,7 +30,17 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
-.claude/
+# Most of `.claude/` is per-user state (settings.local.json,
+# ad-hoc skill installs, project memory). We DO want the vendored
+# Remotion best-practices skill committed though, so every
+# contributor's Claude rail picks it up. Git can't re-include a
+# child if its parent directory is excluded, so we exclude
+# `.claude/*` (one level) and re-include the skill path piece by
+# piece.
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/remotion-best-practices/
 
 # Fonts fetched by install.sh (OFL-licensed DejaVu)
 templates/fonts/*.ttf
