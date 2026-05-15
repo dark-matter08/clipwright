@@ -58,10 +58,34 @@ pub async fn import_video_cmd(
     aspect: String,
     auto_segment: bool,
     scene_detection: bool,
+    // First-video identity. The frontend's New Project dialog now
+    // exposes a "First video name" field so the user can title the
+    // initial deliverable instead of being stuck with the default
+    // `main`. Empty `video_id` → fall back to "main" (back-compat
+    // for any older caller). `video_title` is purely cosmetic for
+    // the videos sidebar; it doesn't affect on-disk paths.
+    video_id: Option<String>,
+    video_title: Option<String>,
+    // Project-level TTS defaults, picked in the New Project dialog. The
+    // Python CLI writes these straight into `project.json`. Per-video
+    // overrides still live in `videos/<id>.json#recap_overrides` and
+    // win when set. Both default to empty → the Python side falls back
+    // to "kokoro" + "" for back-compat with non-desktop callers.
+    tts_provider: Option<String>,
+    voice_id: Option<String>,
 ) -> Result<ProjectState, NewProjectError> {
     let dir = PathBuf::from(&project_dir);
     require_empty_dir(&dir)?;
     std::fs::create_dir_all(&dir)?;
+
+    let resolved_video_id = video_id
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .unwrap_or_else(|| "main".to_string());
+    let resolved_video_title = video_title.unwrap_or_default();
+    let resolved_tts_provider = tts_provider.unwrap_or_default();
+    let resolved_voice_id = voice_id.unwrap_or_default();
 
     let mut args: Vec<&str> = vec!["import", &video_path, "--into", &project_dir];
     if !title.is_empty() {
@@ -70,9 +94,19 @@ pub async fn import_video_cmd(
     args.extend(["--aspect", &aspect]);
     args.push(if auto_segment { "--auto-segment" } else { "--no-auto-segment" });
     args.push(if scene_detection { "--scene-detection" } else { "--no-scene-detection" });
+    args.extend(["--video", &resolved_video_id]);
+    if !resolved_video_title.is_empty() {
+        args.extend(["--video-title", &resolved_video_title]);
+    }
+    if !resolved_tts_provider.is_empty() {
+        args.extend(["--tts-provider", &resolved_tts_provider]);
+    }
+    if !resolved_voice_id.is_empty() {
+        args.extend(["--voice-id", &resolved_voice_id]);
+    }
 
     clipwright::run(&args)?;
-    project::open_project(app, project_dir, Some("main".into())).await.map_err(Into::into)
+    project::open_project(app, project_dir, Some(resolved_video_id)).await.map_err(Into::into)
 }
 
 /// Record mode (F-REC-1/2/4/5): scaffold a starter `browse-plan.json`,
@@ -95,6 +129,11 @@ pub async fn record_project_cmd(
     // the recording appends to / replaces the named video. When false,
     // the directory must be empty (first-creation flow).
     append: bool,
+    // Project-level TTS defaults — see `import_video_cmd` for the
+    // semantics. Only consumed on first-creation (when append=false);
+    // re-records preserve the existing project.json values.
+    tts_provider: Option<String>,
+    voice_id: Option<String>,
 ) -> Result<ProjectState, NewProjectError> {
     if base_url.trim().is_empty() {
         return Err(NewProjectError::Bad("base_url is required for Record mode".into()));
@@ -137,6 +176,9 @@ pub async fn record_project_cmd(
         serde_json::to_vec_pretty(&plan).expect("static JSON"),
     )?;
 
+    let resolved_tts_provider = tts_provider.unwrap_or_default();
+    let resolved_voice_id = voice_id.unwrap_or_default();
+
     let mut args: Vec<&str> = vec!["record-project", &project_dir];
     if !title.is_empty() {
         args.extend(["--title", &title]);
@@ -146,6 +188,12 @@ pub async fn record_project_cmd(
     args.extend(["--video", &video_id]);
     if !video_title.is_empty() {
         args.extend(["--video-title", &video_title]);
+    }
+    if !resolved_tts_provider.is_empty() {
+        args.extend(["--tts-provider", &resolved_tts_provider]);
+    }
+    if !resolved_voice_id.is_empty() {
+        args.extend(["--voice-id", &resolved_voice_id]);
     }
 
     clipwright::run(&args)?;

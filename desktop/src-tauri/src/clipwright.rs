@@ -99,3 +99,22 @@ pub fn run(args: &[&str]) -> Result<Output, ClipwrightCliError> {
     }
     Ok(out)
 }
+
+/// Like `run`, but does NOT error on non-zero exit and lets the caller
+/// supply the cwd. The chat rail's Play-button feature uses this to
+/// run user-clicked `clipwright …` commands and surface stdout/stderr
+/// inline regardless of the exit code (a failed render still has
+/// useful diagnostic output the user wants to see).
+pub fn run_with_output(
+    args: &[&str],
+    cwd: Option<&std::path::Path>,
+) -> Result<Output, ClipwrightCliError> {
+    let bin = find_binary().ok_or(ClipwrightCliError::NotFound)?;
+    let mut cmd = Command::new(&bin);
+    cmd.args(args);
+    if let Some(d) = cwd {
+        cmd.current_dir(d);
+    }
+    cmd.env("PYTHONUNBUFFERED", "1");
+    Ok(cmd.output()?)
+}

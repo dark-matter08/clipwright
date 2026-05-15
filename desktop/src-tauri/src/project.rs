@@ -25,8 +25,6 @@ pub enum ProjectError {
     NotFound(PathBuf),
     #[error("project.json missing in {0}")]
     NoProjectJson(PathBuf),
-    #[error("no videos in {0} — open via the CLI to trigger v1 migration if applicable")]
-    NoVideos(PathBuf),
     #[error("video '{video_id}' not found in {dir}")]
     VideoMissing { dir: PathBuf, video_id: String },
     #[error("invalid JSON in {file}: {source}")]
@@ -116,6 +114,25 @@ pub async fn open_project(
         current_video_id: pick_id,
         video,
     })
+}
+
+/// Probe whether `<project_dir>/out/final/<video_id>.mp4` is on disk.
+///
+/// The frontend uses this to decide whether to enable Final-mode UI:
+/// the Preview's `final` toggle is always present, but the Timeline
+/// hides its tracks (and shows a "render first" placeholder) when
+/// final-mode is active without a backing file. Re-run after a
+/// successful `render_final_cmd` to flip the flag.
+#[tauri::command]
+pub async fn final_exists_cmd(
+    project_dir: String,
+    video_id: String,
+) -> Result<bool, ProjectError> {
+    let path = PathBuf::from(&project_dir)
+        .join("out")
+        .join("final")
+        .join(format!("{video_id}.mp4"));
+    Ok(path.exists())
 }
 
 fn pick_default_video(videos: &[VideoMeta]) -> Option<String> {
@@ -250,6 +267,14 @@ pub async fn create_video_cmd(
     project_dir: String,
     video_id: String,
     title: String,
+    // Pre-selected Claude Code skills to invoke by default whenever
+    // the user chats in the context of this video. Stored under
+    // `recap_overrides.default_skills` so the agent prompt (which
+    // already reads `recap_overrides`) can surface them in Claude's
+    // system prompt without a schema migration. Empty list / omitted
+    // → no skills pre-selected (the user can still type `/<skill>`
+    // in the rail at any time).
+    default_skills: Option<Vec<String>>,
 ) -> Result<Value, ProjectError> {
     let dir = PathBuf::from(&project_dir);
     if !dir.exists() {
@@ -264,16 +289,82 @@ pub async fn create_video_cmd(
             video_id: format!("{video_id} (already exists — pick another id)"),
         });
     }
+    let skills: Vec<String> = default_skills
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|s| !s.trim().is_empty())
+        .collect();
+    let recap_overrides = if skills.is_empty() {
+        serde_json::json!({})
+    } else {
+        serde_json::json!({ "default_skills": skills })
+    };
     let payload = serde_json::json!({
         "schema_version": 2,
         "video_id": video_id,
         "title": if title.is_empty() { video_id.clone() } else { title },
         "chat_session_id": "",
         "segments": [],
+        "recap_overrides": recap_overrides,
     });
     let bytes = serde_json::to_vec_pretty(&payload).expect("static JSON");
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, &bytes)?;
     std::fs::rename(&tmp, &path)?;
     Ok(payload)
+}
+
+/// Delete a video and every per-video artifact tree it owns.
+///
+/// Shells out to `clipwright video delete <id> --yes` so the Python
+/// side handles the artifact-tree walk (TTS audio, captions, rendered
+/// segments, chat logs). After it returns we re-open the project and
+/// hand back the fresh `ProjectState` so the frontend doesn't have to
+/// chase a follow-up `open_project` call. The caller picks the new
+/// `current_video_id`: if the deleted video was active we fall back to
+/// the first surviving id.
+#[tauri::command]
+pub async fn delete_video_cmd(
+    app: tauri::AppHandle,
+    project_dir: String,
+    video_id: String,
+) -> Result<ProjectState, ProjectError> {
+    let dir = PathBuf::from(&project_dir);
+    if !dir.exists() {
+        return Err(ProjectError::NotFound(dir));
+    }
+    // Python CLI does the actual deletion + safety check (refuses to
+    // drop the last video). Surfaces errors as ProjectError::Cli.
+    crate::clipwright::run(&[
+        "video", "delete", &video_id,
+        "--project", &project_dir,
+        "--yes",
+    ])?;
+
+    // Refresh state. The deleted id obviously can't be the
+    // current_video_id — pick the first survivor so the workspace
+    // lands on something.
+    let videos = enumerate_videos(&dir)?;
+    let pick_id = pick_default_video(&videos);
+    let video = match pick_id.as_deref() {
+        Some(id) => Some(read_json(
+            &dir.join("videos").join(format!("{id}.json")),
+            &format!("videos/{id}.json"),
+        )?),
+        None => None,
+    };
+    let project = read_json(&dir.join("project.json"), "project.json")?;
+    let title = project
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let _ = recents::record_open(&app, &dir, &title);
+    Ok(ProjectState {
+        project_dir: dir,
+        project,
+        videos,
+        current_video_id: pick_id,
+        video,
+    })
 }

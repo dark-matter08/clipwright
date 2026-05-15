@@ -13,10 +13,10 @@
     "windows": [
       {
         "title": "Clipwright Studio",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 960,
-        "minHeight": 600,
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1180,
+        "minHeight": 720,
         "decorations": true,
         "transparent": false,
         "backgroundColor": "#0b0d10"
@@ -30,7 +30,13 @@
           "**/sources/*.mp4",
           "**/sources/*.mov",
           "**/sources/*.webm",
-          "**/out/segments/*.mp4",
+          "**/sources/*.m4v",
+          "**/sources/panels/**/*.webp",
+          "**/sources/panels/**/*.png",
+          "**/sources/panels/**/*.jpg",
+          "**/sources/panels/**/*.jpeg",
+          "**/out/segments/**/*.mp4",
+          "**/out/final/*.mp4",
           "**/out/final.mp4",
           "**/captions/**/*.png"
         ]
