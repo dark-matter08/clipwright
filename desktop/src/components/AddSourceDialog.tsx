@@ -7,6 +7,7 @@
 //      project (e.g. Chapter 2 Recap in a manhwa-recap project).
 
 import { useEffect, useState } from "react";
+import { X } from "lucide-react";
 import { addSource, pickVideoFile } from "../lib/tauri";
 import { nextSuffixedId } from "../lib/timeline";
 import { useApp } from "../lib/store";
@@ -94,7 +95,7 @@ export function AddSourceDialog({ onClose }: Props) {
             className="rounded p-1 text-fg-muted transition-colors hover:bg-bg-raised hover:text-fg disabled:opacity-50"
             aria-label="Close"
           >
-            ✕
+            <X size={16} strokeWidth={2} />
           </button>
         </header>
 

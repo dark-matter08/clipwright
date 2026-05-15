@@ -70,6 +70,27 @@ export default {
         DEFAULT: "150ms",
         slow: "180ms",
       },
+      keyframes: {
+        // Step-wizard transitions: a small upward slide + fade for the
+        // content area when the user advances/retreats. Kept short so
+        // the dialog feels responsive, not theatrical.
+        stepFade: {
+          "0%": { opacity: "0", transform: "translateY(6px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        // Pill indicator (active step) gets a subtle pulse on arrival
+        // so the eye locks onto the new position without us blowing
+        // the whole header up.
+        pillPulse: {
+          "0%": { transform: "scale(0.85)", opacity: "0.6" },
+          "60%": { transform: "scale(1.08)", opacity: "1" },
+          "100%": { transform: "scale(1)", opacity: "1" },
+        },
+      },
+      animation: {
+        stepFade: "stepFade 200ms ease-out both",
+        pillPulse: "pillPulse 240ms ease-out both",
+      },
     },
   },
 } satisfies Config;

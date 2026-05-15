@@ -15,6 +15,16 @@ import {
 } from "../lib/tauri";
 import type { Segment, SegmentRef, Video } from "../lib/types";
 import { cn } from "../lib/cn";
+import {
+  defaultVoiceFor,
+  VOICE_PROVIDER_OPTIONS,
+  VOICES_BY_PROVIDER,
+  voiceInCatalog,
+  type VoiceProvider,
+} from "../lib/voiceCatalog";
+import { getCredentialsStatus, type CredentialsStatus } from "../lib/tauri";
+import { AlertTriangle } from "lucide-react";
+import { Dropdown } from "./Dropdown";
 
 export function Inspector() {
   const project = useApp((s) => s.project);
@@ -101,6 +111,13 @@ function VoiceoverGroup({
   const [voiceId, setVoiceId] = useState("");
   const [provider, setProvider] = useState<string>("");
   const [busy, setBusy] = useState<null | "save" | "regen">(null);
+  // Refresh credentials status whenever the provider changes — that
+  // way the "missing key" badge updates the moment the user picks
+  // OpenAI / ElevenLabs even before they save and re-open the panel.
+  const [credStatus, setCredStatus] = useState<CredentialsStatus | null>(null);
+  useEffect(() => {
+    getCredentialsStatus().then(setCredStatus).catch(() => setCredStatus(null));
+  }, [provider]);
   const clipId = seg.voiceover.script_clip_id || `vo_${seg.id.replace("seg_", "")}`;
 
   useEffect(() => {
@@ -138,6 +155,18 @@ function VoiceoverGroup({
         text,
         voice: provider || voiceId ? { provider, voice_id: voiceId } : c?.voice,
       }));
+      // If the segment's voiceover flag is still false but the user
+      // just saved non-empty script text, flip the flag on the
+      // segment manifest so the inspector summary stops reading
+      // "disabled" for what is plainly an enabled voiceover. We
+      // also patch the script_clip_id ref so the agent + renderer
+      // can link the segment to its clip without guessing.
+      const needsEnable =
+        text.trim() &&
+        (!seg.voiceover.enabled || seg.voiceover.script_clip_id !== clipId);
+      if (needsEnable) {
+        await persistSegmentVoiceoverEnabled(projectDir, videoId, seg.id, clipId);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -151,6 +180,12 @@ function VoiceoverGroup({
     try {
       const state = await ttsSegment(projectDir, videoId, seg.id, true);
       loadProject(state);
+      // A fresh per-segment audio mp3 doesn't appear in the assembled
+      // final mp4 until the final is re-rendered. Mark stale so the
+      // Preview's Final tab surfaces a banner pointing the user at
+      // the TopBar Render — otherwise they'd hit "Regenerate", hear
+      // the old audio in the Preview, and think nothing happened.
+      useApp.getState().markFinalStale(videoId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -158,9 +193,17 @@ function VoiceoverGroup({
     }
   }
 
-  const summary = !seg.voiceover.enabled
-    ? "disabled"
-    : text.trim() ? truncate(text, 40) : "(empty)";
+  // The accordion summary used to read "disabled" whenever
+  // `seg.voiceover.enabled` was false — but that flag often lags the
+  // user's intent (older manifests, agent-authored segments without
+  // it). Treat a segment with non-empty script text as effectively
+  // enabled for the UI; the next save flips the flag persistently.
+  const hasScriptText = text.trim().length > 0;
+  const summary = hasScriptText
+    ? truncate(text, 40)
+    : seg.voiceover.enabled
+      ? "(empty)"
+      : "disabled";
 
   return (
     <Accordion title="Voiceover" summary={summary} defaultOpen>
@@ -173,11 +216,44 @@ function VoiceoverGroup({
           className="w-full resize-y rounded border border-border-subtle bg-bg-inset px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:focus-ring"
         />
         <div className="grid grid-cols-2 gap-2">
-          <LabeledInput label="Provider" value={provider} onChange={setProvider}
-                        placeholder="kokoro · piper · elevenlabs" />
-          <LabeledInput label="Voice" value={voiceId} onChange={setVoiceId}
-                        placeholder="af_sky" />
+          <LabeledDropdown
+            label="Provider"
+            value={provider}
+            // Wrap the change so swapping providers also resets the
+            // voice to that provider's default — otherwise the user
+            // would carry over an incompatible voice id (e.g.
+            // `af_sky` from Kokoro into OpenAI which knows nothing
+            // about it). Only override when the previous voice
+            // isn't in the new provider's catalog.
+            onChange={(next) => {
+              setProvider(next);
+              const p = next as VoiceProvider;
+              if (
+                VOICES_BY_PROVIDER[p] &&
+                !voiceInCatalog(p, voiceId)
+              ) {
+                setVoiceId(defaultVoiceFor(p));
+              }
+            }}
+            options={VOICE_PROVIDER_OPTIONS}
+            placeholder="select provider"
+          />
+          <LabeledDropdown
+            label="Voice"
+            value={voiceId}
+            onChange={setVoiceId}
+            options={
+              (provider as VoiceProvider) in VOICES_BY_PROVIDER
+                ? VOICES_BY_PROVIDER[provider as VoiceProvider]
+                : []
+            }
+            placeholder={
+              provider ? "select voice" : "pick a provider first"
+            }
+            disabled={!provider}
+          />
         </div>
+        <ProviderKeyWarning provider={provider} status={credStatus} />
         <div className="flex items-center justify-between gap-2 pt-1">
           <span className="font-mono text-[10px] text-fg-muted">
             target {seg.target_duration.toFixed(1)}s · {wordsAtRate(text).toFixed(0)} words
@@ -191,6 +267,47 @@ function VoiceoverGroup({
         </div>
       </div>
     </Accordion>
+  );
+}
+
+/** Inline warning shown under the provider/voice picker when the
+ *  selected provider needs an API key and one isn't set. Points the
+ *  user at the Project Settings dialog's API Keys section.
+ *  Hidden for local providers (Kokoro / Piper) which don't need keys. */
+function ProviderKeyWarning({
+  provider,
+  status,
+}: {
+  provider: string;
+  status: CredentialsStatus | null;
+}) {
+  if (!status) return null;
+  if (provider === "openai" && !status.has_openai_key) {
+    return <MissingKeyBanner label="OpenAI" />;
+  }
+  if (provider === "elevenlabs" && !status.has_elevenlabs_key) {
+    return <MissingKeyBanner label="ElevenLabs" />;
+  }
+  return null;
+}
+
+function MissingKeyBanner({ label }: { label: string }) {
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-2 rounded border border-warn/40 bg-warn/10 px-2 py-1.5 text-[11px] text-fg-subtle"
+    >
+      <AlertTriangle size={12} strokeWidth={2} className="mt-0.5 shrink-0 text-warn" />
+      <span>
+        {label} API key is not configured. Open{" "}
+        <span className="text-fg">Settings → API keys</span> (gear icon in the top bar)
+        to paste your key, or set the{" "}
+        <span className="font-mono">
+          {label === "OpenAI" ? "OPENAI_API_KEY" : "ELEVENLABS_API_KEY"}
+        </span>{" "}
+        env var. Regenerate will fail without it.
+      </span>
+    </div>
   );
 }
 
@@ -212,6 +329,9 @@ function CaptionsGroup({
     try {
       const state = await captionSegment(projectDir, videoId, seg.id, true);
       loadProject(state);
+      // Captions changed → final mp4 is stale until re-rendered. See
+      // VoiceoverGroup.onRegen for the same pattern + rationale.
+      useApp.getState().markFinalStale(videoId);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -323,25 +443,33 @@ function TrimGroup({ seg, projectDir, videoId, video }: GroupProps) {
     <Accordion title="Trim" summary={summary}>
       <div className="flex flex-col gap-2">
         {sources.length > 1 && (
-          <label className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1">
             <span className="text-[10px] uppercase tracking-wider text-fg-muted">Source</span>
-            <select
+            <Dropdown<string>
               value={source}
-              onChange={(ev) => setSource(ev.target.value)}
-              className="w-full rounded border border-border-subtle bg-bg-inset px-2 py-1 font-mono text-xs text-fg focus:focus-ring"
-            >
-              {sources.map((entry) => (
-                <option key={entry.path} value={entry.path}>
-                  {entry.path.replace(/^sources\//, "")}
-                </option>
-              ))}
-              {!sources.some((s2) => s2.path === source) && (
-                <option value={source}>
-                  {source.replace(/^sources\//, "")} (missing on disk)
-                </option>
-              )}
-            </select>
-          </label>
+              onChange={setSource}
+              wrapperClassName="block w-full"
+              options={[
+                ...sources.map((entry) => ({
+                  value: entry.path,
+                  label: entry.path.replace(/^sources\//, ""),
+                })),
+                // If the segment references a source no longer on disk,
+                // keep it as an option so the picker reflects reality —
+                // flagged with "(missing on disk)" so the user knows
+                // it'll break a re-render.
+                ...(!sources.some((s2) => s2.path === source)
+                  ? [
+                      {
+                        value: source,
+                        label: `${source.replace(/^sources\//, "")} (missing on disk)`,
+                      },
+                    ]
+                  : []),
+              ]}
+              triggerClassName="w-full px-2 py-1 font-mono text-xs text-fg justify-between bg-bg-inset"
+            />
+          </div>
         )}
         <div className="grid grid-cols-3 gap-2">
           <LabeledInput label="Source in" value={start} onChange={setStart} mono />
@@ -434,6 +562,77 @@ function LabeledInput({
           "rounded border border-border-subtle bg-bg-inset px-2 py-1 text-sm text-fg placeholder:text-fg-muted focus:focus-ring",
           mono && "font-mono",
         )}
+      />
+    </label>
+  );
+}
+
+/** Flip `seg.voiceover.enabled = true` (and wire its `script_clip_id`)
+ *  on the active video and persist via `saveVideo`. Used by the
+ *  Voiceover panel's save flow so the segment manifest stays
+ *  consistent with what the user typed into the script — no more
+ *  "disabled" summary on a segment that plainly has narration.
+ *
+ *  We reach into the Zustand store directly here instead of
+ *  threading the full Video through as a prop because the Voiceover
+ *  panel is several levels deep and the alternative would be ugly
+ *  prop drilling. The store's `loadProject` keeps the in-memory
+ *  state in sync with what we wrote to disk. */
+async function persistSegmentVoiceoverEnabled(
+  projectDir: string,
+  videoId: string,
+  segId: string,
+  clipId: string,
+): Promise<void> {
+  // Local import to avoid a circular dep with the store.
+  const { useApp } = await import("../lib/store");
+  const state = useApp.getState();
+  const project = state.project;
+  if (!project?.video || project.video.video_id !== videoId) return;
+  const segments = project.video.segments.map((s) =>
+    s.id === segId
+      ? {
+          ...s,
+          voiceover: {
+            ...s.voiceover,
+            enabled: true,
+            script_clip_id: clipId,
+          },
+        }
+      : s,
+  );
+  const nextVideo = { ...project.video, segments };
+  await saveVideo(projectDir, videoId, nextVideo);
+  state.loadProject({ ...project, video: nextVideo });
+}
+
+function LabeledDropdown<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder,
+  disabled,
+}: {
+  label: string;
+  value: T;
+  onChange: (v: T) => void;
+  options: ReadonlyArray<{ value: T; label: string; hint?: string }>;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[10px] uppercase tracking-wider text-fg-muted">{label}</span>
+      <Dropdown<T>
+        value={value}
+        onChange={onChange}
+        options={options}
+        wrapperClassName="block w-full"
+        triggerClassName="w-full justify-between bg-bg-inset px-2 py-1 text-sm text-fg"
+        placeholder={placeholder}
+        disabled={disabled}
+        menuMinWidth={220}
       />
     </label>
   );

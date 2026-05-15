@@ -3,6 +3,7 @@
 // P1.1 ships only "Open Existing"; the "New Project" wizard lands in P1.2.
 
 import { useEffect, useState } from "react";
+import { FolderOpen, Sparkles } from "lucide-react";
 import { listRecents, openProject, pickProjectDir } from "../lib/tauri";
 import type { RecentProject } from "../lib/types";
 import { useApp } from "../lib/store";
@@ -56,12 +57,14 @@ export function Hub() {
 
         <div className="grid grid-cols-2 gap-3">
           <ActionCard
+            icon={<Sparkles size={22} strokeWidth={1.75} />}
             label="New Project"
             sub="Record or upload"
             onClick={() => setNewOpen(true)}
             disabled={busy}
           />
           <ActionCard
+            icon={<FolderOpen size={22} strokeWidth={1.75} />}
             label="Open Existing"
             sub="Pick a directory"
             onClick={onPick}
@@ -118,25 +121,27 @@ export function Hub() {
 }
 
 interface ActionCardProps {
+  icon?: React.ReactNode;
   label: string;
   sub: string;
   onClick?: () => void;
   disabled?: boolean;
 }
 
-function ActionCard({ label, sub, onClick, disabled }: ActionCardProps) {
+function ActionCard({ icon, label, sub, onClick, disabled }: ActionCardProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "group relative flex flex-col items-start gap-1 rounded border border-border-subtle bg-bg-subtle p-5 text-left transition-colors",
+        "group relative flex flex-col items-start gap-2 rounded border border-border-subtle bg-bg-subtle p-5 text-left transition-colors",
         "hover:border-border hover:bg-bg-raised",
         "disabled:cursor-not-allowed disabled:opacity-60",
         !disabled && "focus:focus-ring",
       )}
     >
+      {icon && <span className="text-fg-subtle group-hover:text-fg">{icon}</span>}
       <span className="text-sm font-medium text-fg">{label}</span>
       <span className="text-xs text-fg-muted">{sub}</span>
     </button>

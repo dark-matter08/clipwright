@@ -25,6 +25,7 @@ export function SegmentContextMenu({ segId, x, y, onClose }: Props) {
   const move = useApp((s) => s.moveSelected);
   const select = useApp((s) => s.selectSegment);
   const askClaude = useApp((s) => s.askClaudeForSegment);
+  const setInspectorOpen = useApp((s) => s.setInspectorOpen);
   const ref = useRef<HTMLDivElement>(null);
 
   // Ensure the target segment is selected when the menu opens — every
@@ -72,6 +73,14 @@ export function SegmentContextMenu({ segId, x, y, onClose }: Props) {
     >
       <MenuLabel>{seg.id} · {seg.target_duration.toFixed(1)}s</MenuLabel>
       <Sep />
+      <MenuItem
+        label="Inspect"
+        shortcut="⏎"
+        onClick={() => {
+          onClose();
+          setInspectorOpen(true);
+        }}
+      />
       <MenuItem
         label="Ask Claude…"
         shortcut="✨"

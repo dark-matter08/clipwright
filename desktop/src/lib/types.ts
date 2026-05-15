@@ -20,6 +20,48 @@ export interface Project {
   voice_id: string;
   base_url: string;
   created_at: string;
+  /** **Primary** template binding (mirrors `template_ids[0]`).
+   *  Kept for back-compat with older readers. Use `template_ids` for
+   *  the full list. */
+  template_id?: string;
+  /** Templates bound to this project. The FIRST entry is the
+   *  primary — it drives `render_preset` selection and default
+   *  project settings. Additional entries contribute behavioral
+   *  guidance only: their `system_prompt` text is appended to the
+   *  agent prompt. Empty / absent = no bindings.
+   *
+   *  Example: `["manhwa-recap-single", "product-demo"]` on a
+   *  manhwa-reader product → recap visuals + product-demo
+   *  framing in one video. */
+  template_ids?: string[];
+}
+
+/** A template's recommended project settings — subset of `Project`. */
+export interface TemplateDefaults {
+  aspect?: Aspect;
+  fps?: number;
+  tts_provider?: Project["tts_provider"];
+  voice_id?: string;
+}
+
+/** Provenance of a template — shipped with the package vs in the user's
+ *  `~/.clipwright/templates/` dir. Drives the "USER" badge in the picker. */
+export type TemplateSource = "shipped" | "user";
+
+/** Catalog-card view of a project template — what the picker renders. */
+export interface TemplateMeta {
+  template_id: string;
+  name: string;
+  category: string;
+  summary: string;
+  render_preset: string;
+  defaults: TemplateDefaults;
+  source: TemplateSource;
+}
+
+/** Full template payload, including the behavioral system_prompt. */
+export interface TemplateFull extends TemplateMeta {
+  system_prompt: string;
 }
 
 export interface SegmentVoiceover {
@@ -56,6 +98,16 @@ export interface Video {
   title: string;
   chat_session_id: string;
   segments: Segment[];
+  /** Optional per-video target duration override (seconds). When 0 /
+   *  absent, the agent uses the project-level
+   *  `recap_config.target_duration_seconds`. Lets the user push a
+   *  specific video longer or shorter than the project default. */
+  target_duration_seconds_override?: number;
+  /** Free-form override map for the other recap-config fields:
+   *  `narration_style`, `additional_notes`, `outro_description`,
+   *  `outro_duration_seconds`, `voice_provider`, `voice_id`.
+   *  Empty / missing = use the project-level default for that field. */
+  recap_overrides?: Record<string, string | number>;
 }
 
 export interface VideoMeta {

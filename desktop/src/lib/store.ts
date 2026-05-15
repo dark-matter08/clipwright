@@ -14,7 +14,13 @@
 // Undo/redo rotates the past/future stacks of Video snapshots.
 
 import { create } from "zustand";
-import { loadVideo as loadVideoCmd, saveVideo as saveVideoCmd } from "./tauri";
+import {
+  deleteVideo as deleteVideoCmd,
+  finalExists as finalExistsCmd,
+  listVideos as listVideosCmd,
+  loadVideo as loadVideoCmd,
+  saveVideo as saveVideoCmd,
+} from "./tauri";
 import * as TL from "./timeline";
 import type { ProjectState, Video } from "./types";
 
@@ -37,6 +43,50 @@ interface AppState {
   past: Video[];
   future: Video[];
   pendingAskSegmentId: string | null;
+  /** Inspector drawer visibility. Off by default so the Preview pane
+   *  fills the middle area; opens via TopBar toggle, segment
+   *  double-click, or the context menu's "Inspect" action. Persists
+   *  per session in-memory only — every fresh project open starts
+   *  closed so we don't surprise the user with a half-screen panel. */
+  inspectorOpen: boolean;
+
+  // ── Playback (CapCut-style scrubber + timeline sync) ────────────────
+  //
+  // `playbackTime` is the current `<video>.currentTime` in seconds —
+  // updated by the Preview pane via `onTimeUpdate`, read by the
+  // Timeline to draw a playhead at the right horizontal position.
+  //
+  // `playbackPlaying` mirrors the <video>'s play/pause state.
+  //
+  // `seekRequest` is a one-shot signal: when the user clicks/drags the
+  // timeline, we set `seekRequest = { time, token }` so the Preview's
+  // <video> watches it and calls `currentTime = time`. The token bumps
+  // every request so identical times still re-trigger (e.g. clicking
+  // the same playhead twice while paused).
+  //
+  // `playbackMode` mirrors Preview's Segment/Final selector — both
+  // components need to know which timebase the playhead refers to.
+  playbackTime: number;
+  playbackPlaying: boolean;
+  seekRequest: { time: number; token: number } | null;
+  /** One-shot signal asking the Preview's <video> to play/pause.
+   *  Token-bumped on every request so React picks it up even when the
+   *  desired state already matches `playbackPlaying`. */
+  playPauseRequest: { play: boolean; token: number } | null;
+  playbackMode: "final" | "raw";
+  /** Bumps when any source the final mp4 depends on changes (TTS
+   *  regen, captions regen, manifest edit). The Preview reads it to
+   *  decide whether to surface a "final is stale — re-render"
+   *  banner. Resets when `markFinalFresh()` fires from a successful
+   *  final render. Per-video so switching videos doesn't carry
+   *  stale flags across. */
+  finalStaleToken: Record<string, number>;
+  /** Whether the currently-loaded video has `out/final/<id>.mp4` on
+   *  disk. `null` = haven't probed yet (treat as "unknown" — UI keeps
+   *  current behavior). `true`/`false` after `refreshFinalAvailable()`
+   *  runs. Per-video, keyed by video_id, so flipping videos doesn't
+   *  carry stale state. */
+  finalAvailable: Record<string, boolean>;
 
   // navigation
   setView: (view: ViewMode) => void;
@@ -48,9 +98,17 @@ interface AppState {
   setError: (msg: string | null) => void;
   askClaudeForSegment: (segId: string) => void;
   clearPendingAsk: () => void;
+  /** Toggle inspector drawer visibility. */
+  toggleInspector: () => void;
+  /** Set inspector visibility explicitly. Pass `true` from
+   *  double-click handlers so they always *open* (vs toggle). */
+  setInspectorOpen: (open: boolean) => void;
 
   // video switching
   switchVideo: (videoId: string) => Promise<void>;
+  /** Delete a video and its artifacts. Refuses if it's the last video.
+   *  Lands the workspace on a surviving video automatically. */
+  deleteVideo: (videoId: string) => Promise<void>;
 
   // timeline mutations — operate on the currently-loaded video
   splitSelected: () => Promise<void>;
@@ -69,6 +127,30 @@ interface AppState {
   zoomIn: () => void;
   zoomOut: () => void;
   zoomReset: () => void;
+
+  // playback
+  setPlaybackTime: (t: number) => void;
+  setPlaybackPlaying: (playing: boolean) => void;
+  /** Request the <video> element to seek to `t` seconds. Bumps the
+   *  token so the Preview's effect re-fires even if `t` matches the
+   *  current value (lets clicks on the current playhead re-seek). */
+  requestSeek: (t: number) => void;
+  /** Ask Preview's <video> to call play()/pause(). Token-bumped so
+   *  the same request can fire twice in a row. */
+  requestPlayPause: (play: boolean) => void;
+  setPlaybackMode: (mode: "final" | "raw") => void;
+  /** Bump the stale token for a given video — caller signals "an
+   *  underlying source has changed; the final mp4 no longer reflects
+   *  the project state". */
+  markFinalStale: (videoId: string) => void;
+  /** Reset the stale token to its baseline after a successful final
+   *  render — the Preview's banner disappears. */
+  markFinalFresh: (videoId: string) => void;
+  /** Re-probe whether `out/final/<videoId>.mp4` exists on disk and
+   *  store the answer in `finalAvailable[videoId]`. Called on project
+   *  load, after switching videos, and after a successful final
+   *  render. Safe to call repeatedly. */
+  refreshFinalAvailable: (videoId: string) => Promise<void>;
 }
 
 async function persistVideo(
@@ -95,10 +177,18 @@ export const useApp = create<AppState>((set, get) => ({
   past: [],
   future: [],
   pendingAskSegmentId: null,
+  inspectorOpen: false,
+  playbackTime: 0,
+  playbackPlaying: false,
+  seekRequest: null,
+  playPauseRequest: null,
+  playbackMode: "final",
+  finalStaleToken: {},
+  finalAvailable: {},
 
   setView: (view) => set({ view }),
 
-  loadProject: (state) =>
+  loadProject: (state) => {
     set({
       project: state,
       view: "workspace",
@@ -106,7 +196,12 @@ export const useApp = create<AppState>((set, get) => ({
       past: [],
       future: [],
       error: null,
-    }),
+    });
+    // Fire-and-forget probe so Final-mode UI can hide its tracks if
+    // there's no rendered mp4 yet. Failures fall back to "unknown".
+    const vid = state.video?.video_id;
+    if (vid) void useApp.getState().refreshFinalAvailable(vid);
+  },
 
   closeProject: () =>
     set({
@@ -131,6 +226,8 @@ export const useApp = create<AppState>((set, get) => ({
   askClaudeForSegment: (segId) =>
     set({ pendingAskSegmentId: segId, claudeRailOpen: true }),
   clearPendingAsk: () => set({ pendingAskSegmentId: null }),
+  toggleInspector: () => set((s) => ({ inspectorOpen: !s.inspectorOpen })),
+  setInspectorOpen: (open) => set({ inspectorOpen: open }),
 
   // --- video switching ---
 
@@ -139,12 +236,46 @@ export const useApp = create<AppState>((set, get) => ({
     if (!project) return;
     if (project.current_video_id === videoId) return;
     try {
-      const video = await loadVideoCmd(project.project_dir, videoId);
+      // Refresh BOTH the per-video manifest and the catalog. Without
+      // the catalog refresh, a `createVideo` + `switchVideo` sequence
+      // leaves `project.videos` stale — the sidebar then doesn't show
+      // the row the user just created. Doing both in parallel keeps
+      // the round-trip cheap.
+      const [video, videos] = await Promise.all([
+        loadVideoCmd(project.project_dir, videoId),
+        listVideosCmd(project.project_dir),
+      ]);
       set({
-        project: { ...project, current_video_id: videoId, video },
+        project: {
+          ...project,
+          current_video_id: videoId,
+          video,
+          videos,
+        },
         selectedSegmentId: video.segments[0]?.id ?? null,
         past: [],
         future: [],
+      });
+      // Re-probe final-mp4 existence for the newly-selected video so
+      // the Timeline knows whether to show its tracks in final mode.
+      void get().refreshFinalAvailable(videoId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  },
+
+  deleteVideo: async (videoId) => {
+    const { project, setError } = get();
+    if (!project) return;
+    try {
+      const refreshed = await deleteVideoCmd(project.project_dir, videoId);
+      set({
+        project: refreshed,
+        // Undo history is per-video; switching to a different one
+        // invalidates the snapshots. Clearing here mirrors switchVideo.
+        past: [],
+        future: [],
+        selectedSegmentId: refreshed.video?.segments[0]?.id ?? null,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -250,6 +381,66 @@ export const useApp = create<AppState>((set, get) => ({
     set({ pxPerSec: Math.max(TIMELINE_MIN_PX, cur / TIMELINE_ZOOM_STEP) });
   },
   zoomReset: () => set({ pxPerSec: null }),
+
+  // ── Playback ────────────────────────────────────────────────────────
+  setPlaybackTime: (t) => set({ playbackTime: Math.max(0, t) }),
+  setPlaybackPlaying: (playing) => set({ playbackPlaying: playing }),
+  requestSeek: (t) =>
+    set((state) => ({
+      seekRequest: {
+        time: Math.max(0, t),
+        // Token mirrors a monotonic counter so identical times still
+        // trigger the Preview's useEffect when the user re-clicks the
+        // current playhead position.
+        token: (state.seekRequest?.token ?? 0) + 1,
+      },
+      // Optimistically move the playhead — Preview's onTimeUpdate
+      // will reconcile once the video catches up. Without this the
+      // playhead would visually lag the click by one frame.
+      playbackTime: Math.max(0, t),
+    })),
+  requestPlayPause: (play) =>
+    set((state) => ({
+      playPauseRequest: {
+        play,
+        token: (state.playPauseRequest?.token ?? 0) + 1,
+      },
+    })),
+  setPlaybackMode: (mode) =>
+    set({
+      playbackMode: mode,
+      // Reset the playhead when modes swap — the timebases are
+      // different (per-segment local vs final whole-video) so the
+      // previous time isn't meaningful.
+      playbackTime: 0,
+      seekRequest: null,
+    }),
+  markFinalStale: (videoId) =>
+    set((s) => ({
+      finalStaleToken: {
+        ...s.finalStaleToken,
+        [videoId]: (s.finalStaleToken[videoId] ?? 0) + 1,
+      },
+    })),
+  markFinalFresh: (videoId) =>
+    set((s) => {
+      const { [videoId]: _drop, ...rest } = s.finalStaleToken;
+      return { finalStaleToken: rest };
+    }),
+  refreshFinalAvailable: async (videoId) => {
+    const { project } = get();
+    if (!project?.project_dir || !videoId) return;
+    try {
+      const exists = await finalExistsCmd(project.project_dir, videoId);
+      set((s) => ({
+        finalAvailable: { ...s.finalAvailable, [videoId]: exists },
+      }));
+    } catch {
+      // Probe failures are non-fatal: leave the entry unset so the UI
+      // falls back to "unknown" (the conservative behavior keeps tracks
+      // visible rather than hiding them on a transient error).
+    }
+  },
 }));
 
 async function applyMutation(

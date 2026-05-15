@@ -10,6 +10,7 @@
 // to it.
 
 import { useState } from "react";
+import { X } from "lucide-react";
 import { recordProject } from "../lib/tauri";
 import { useApp } from "../lib/store";
 import type { Aspect } from "../lib/types";
@@ -90,7 +91,7 @@ export function RecordVideoDialog({ presetVideoId, onClose }: Props) {
             className="rounded p-1 text-fg-muted transition-colors hover:bg-bg-raised hover:text-fg disabled:opacity-50"
             aria-label="Close"
           >
-            ✕
+            <X size={16} strokeWidth={2} />
           </button>
         </header>
 

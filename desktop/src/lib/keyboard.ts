@@ -109,6 +109,29 @@ export function useGlobalKeys(): void {
       { key: "+", modifiers: ["meta"], when: workspaceOpen, action: store.zoomIn },
       { key: "-", modifiers: ["meta"], when: workspaceOpen, action: store.zoomOut },
       { key: "0", modifiers: ["meta"], when: workspaceOpen, action: store.zoomReset },
+
+      // Playback transport — Space toggles play/pause on whichever
+      // video the Preview pane is currently showing. CapCut-style.
+      {
+        key: " ",
+        when: workspaceOpen,
+        action: () => {
+          const s = useApp.getState();
+          s.requestPlayPause(!s.playbackPlaying);
+        },
+      },
+
+      // Inspector — Enter on a selected segment opens the drawer.
+      // Plain Enter so it doesn't fight with shortcut conventions;
+      // text-field guard prevents interference while typing.
+      {
+        key: "Enter",
+        when: () => {
+          const s = useApp.getState();
+          return s.view === "workspace" && s.selectedSegmentId != null;
+        },
+        action: () => useApp.getState().setInspectorOpen(true),
+      },
     ];
 
     function onKey(e: KeyboardEvent) {

@@ -5,6 +5,12 @@
 // (deferred — for now it's a tooltip-only indicator).
 
 import { useEffect, useState } from "react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
+  XCircle,
+} from "lucide-react";
 import { useApp } from "../lib/store";
 import { claudeDoctor, clipwrightDoctor } from "../lib/tauri";
 import { cn } from "../lib/cn";
@@ -78,11 +84,11 @@ export function StatusBar() {
 }
 
 function DoctorIndicator({ status, checks }: { status: Health; checks: Check[] }) {
-  const symbol =
-    status === "ok" ? "✓" :
-    status === "warn" ? "⚠" :
-    status === "missing" ? "✗" :
-    "…";
+  const Icon =
+    status === "ok" ? CheckCircle2 :
+    status === "warn" ? AlertTriangle :
+    status === "missing" ? XCircle :
+    Loader2;
   const color =
     status === "ok" ? "text-ok" :
     status === "warn" ? "text-warn" :
@@ -92,8 +98,13 @@ function DoctorIndicator({ status, checks }: { status: Health; checks: Check[] }
     .map((c) => `${c.name}: ${labelFor(c.status)}${c.detail ? ` (${c.detail})` : ""}`)
     .join("\n");
   return (
-    <span title={tooltip} className="cursor-help">
-      doctor: <span className={cn("font-medium", color)}>{symbol}</span>
+    <span title={tooltip} className="inline-flex cursor-help items-center gap-1">
+      doctor:
+      <Icon
+        size={12}
+        strokeWidth={2}
+        className={cn(color, status === "loading" && "animate-spin")}
+      />
     </span>
   );
 }
