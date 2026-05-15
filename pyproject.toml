@@ -57,7 +57,7 @@ Issues = "https://github.com/dark-matter08/clipwright/issues"
 where = ["src"]
 
 [tool.setuptools.package-data]
-clipwright = ["py.typed"]
+clipwright = ["py.typed", "templates/data/*.json"]
 
 [tool.ruff]
 line-length = 120

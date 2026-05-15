@@ -155,6 +155,7 @@ def render_segment(
         audio=vo_audio if (seg.voiceover.enabled and vo_audio) else None,
         lead=0.0,
         tail=0.0,
+        source_end=seg.source_end,
     )
     work_dir = out_dir / "_work" / seg_id
     work_dir.mkdir(parents=True, exist_ok=True)

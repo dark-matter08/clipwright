@@ -79,6 +79,8 @@ def record_project(
     user_agent: str = "",
     video_id: str = "main",
     video_title: str = "",
+    tts_provider: str = "kokoro",
+    voice_id: str = "",
 ) -> ImportResult:
     """Run the Playwright recorder against `browse-plan.json` and seed schemas.
 
@@ -149,6 +151,8 @@ def record_project(
             base_url=base_url,
             video_id=video_id,
             video_title=video_title,
+            tts_provider=tts_provider,
+            voice_id=voice_id,
         )
 
 
@@ -163,6 +167,8 @@ def _seed_from_recording(
     copy_source: bool = True,
     video_id: str = "main",
     video_title: str = "",
+    tts_provider: str = "kokoro",
+    voice_id: str = "",
 ) -> ImportResult:
     """Pure file ops + schema writes. No Playwright. Easy to test.
 
@@ -236,8 +242,11 @@ def _seed_from_recording(
             aspect=aspect,
             fps=30,
             render_backend="remotion",
-            tts_provider="kokoro",
-            voice_id="",
+            # Project-level TTS defaults seeded from the New Project
+            # dialog dropdowns. Empty string preserved as-is for
+            # voice_id (means "let provider default kick in").
+            tts_provider=tts_provider or "kokoro",
+            voice_id=voice_id,
             base_url=base_url,
             created_at=datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
         )

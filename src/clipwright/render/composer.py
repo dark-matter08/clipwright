@@ -23,6 +23,7 @@ class Segment:
     audio: Path | None = None
     lead: float = 0.4
     tail: float = 0.3
+    source_end: float | None = None
 
 
 @dataclass
@@ -42,7 +43,13 @@ def _compose_segment(
     fps: int,
 ) -> None:
     total_dur = seg.lead + seg.duration + seg.tail
-    vf = compose_filter(start=seg.start, duration=total_dur, out_w=out_w, out_h=out_h)
+    vf = compose_filter(
+        start=seg.start,
+        duration=total_dur,
+        source_end=seg.source_end,
+        out_w=out_w,
+        out_h=out_h,
+    )
     cmd: list[str | Path] = ["ffmpeg", "-y", "-i", str(source)]
     if seg.audio is not None:
         cmd += ["-i", str(seg.audio)]

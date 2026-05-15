@@ -144,6 +144,16 @@ def import_(
         True, "--scene-detection/--no-scene-detection",
         help="Include scene-change detection (slower on long files).",
     ),
+    tts_provider: str = typer.Option(
+        "kokoro", "--tts-provider",
+        help="Project-default TTS provider (kokoro | openai | elevenlabs | piper). "
+             "Per-video overrides live in videos/<id>.json#recap_overrides.",
+    ),
+    voice_id: str = typer.Option(
+        "", "--voice-id",
+        help="Project-default voice id (e.g. 'af_sky' for Kokoro, 'onyx' for OpenAI). "
+             "Empty = let the provider pick its default.",
+    ),
 ) -> None:
     """Import a video as a new project, or add another video to an existing one.
 
@@ -189,6 +199,8 @@ def import_(
         append=add,
         video_id=video_id,
         video_title=video_title,
+        tts_provider=tts_provider,
+        voice_id=voice_id,
     )
     label = "Added" if add else "Imported"
     rprint(
@@ -214,6 +226,14 @@ def record_project_cmd(
     video_title: str = typer.Option(
         "", "--video-title", help="Human title for the video.",
     ),
+    tts_provider: str = typer.Option(
+        "kokoro", "--tts-provider",
+        help="Project-default TTS provider (kokoro | openai | elevenlabs | piper).",
+    ),
+    voice_id: str = typer.Option(
+        "", "--voice-id",
+        help="Project-default voice id. Empty = provider default.",
+    ),
 ) -> None:
     """Create or update a video by recording a Playwright session (Record mode).
 
@@ -229,6 +249,8 @@ def record_project_cmd(
             mobile=mobile,
             video_id=video_id,
             video_title=video_title,
+            tts_provider=tts_provider,
+            voice_id=voice_id,
         )
     except RecordError as e:
         raise ClipwrightError(e.message, fix=e.fix) from e
@@ -405,6 +427,145 @@ def video_list_cmd(
         rprint(f"  [cyan]{vid}[/cyan] · \"{v.title}\" · {n} segment{'' if n == 1 else 's'}")
 
 
+@video_app.command("doctor")
+def video_doctor_cmd(
+    video_id: str = typer.Argument(..., help="Video id to audit."),
+    project_dir: Path = typer.Option(
+        None, "--project", help="Project root (defaults to CWD).",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Emit JSON for desktop consumption."),
+) -> None:
+    """Audit a video's pipeline completeness.
+
+    Reports, per segment, whether voiceover audio / captions /
+    per-segment render exist, AND whether the source video is long
+    enough to honor the declared source ranges. Catches "recording too
+    short for the script" in 1 second instead of letting Claude churn
+    on a 10-minute timeout.
+
+    `--json` emits a structured payload the desktop can render.
+    """
+    import json as _json
+    from .video_doctor import diagnose_video
+
+    root = (project_dir or Path.cwd()).resolve()
+    try:
+        report = diagnose_video(root, video_id)
+    except ValueError as e:
+        raise ClipwrightError(str(e), fix="Run `clipwright video list`.") from e
+
+    if as_json:
+        typer.echo(_json.dumps(report.to_dict()))
+        return
+
+    color = "green" if report.ok else "red"
+    rprint(f"[{color}]video {video_id}[/{color}] · source={report.source_path}")
+    if report.source_duration is not None:
+        rprint(f"  source duration: {report.source_duration:.2f}s")
+    else:
+        rprint("  source duration: [yellow](could not probe — ffprobe missing or source unreadable)[/yellow]")
+    for issue in report.issues:
+        rprint(f"  [red]✗ {issue}[/red]")
+    for s in report.segments:
+        mark = "[green]✓[/green]" if s.ok else "[red]✗[/red]"
+        rprint(
+            f"  {mark} {s.seg_id}  src=[{s.source_range[0]:.2f}, {s.source_range[1]:.2f}]  "
+            f"tgt={s.target_duration:.2f}s  "
+            f"vo={'✓' if s.has_voiceover_mp3 else '✗'} "
+            f"cap={s.captions_frame_count if s.has_captions else '✗'} "
+            f"render={'✓' if s.has_segment_render else '✗'}"
+        )
+        for issue in s.issues:
+            rprint(f"      [red]✗ {issue}[/red]")
+    if not report.has_final_render:
+        rprint("  [yellow]✗ no final render at out/final/<id>.mp4 — run `clipwright render-final`[/yellow]")
+    elif report.final_is_stale:
+        rprint("  [yellow]⚠ final render is older than the newest per-segment render — re-run `clipwright render-final`[/yellow]")
+    else:
+        rprint("  [green]✓ final render present[/green]")
+
+
+@video_app.command("adopt")
+def video_adopt_cmd(
+    video_id: str = typer.Argument(..., help="Video id to adopt artifacts into."),
+    project_dir: Path = typer.Option(
+        None, "--project", help="Project root (defaults to CWD).",
+    ),
+) -> None:
+    """Pull flat v1-style artifacts into a video's v2 per-video layout.
+
+    Use this when an earlier `clipwright record/render-final` run wrote
+    files to the legacy root layout (`script.json`, `out/final.mp4`,
+    `out/segments/*.mp4`) but the project is now v2 and the video's
+    manifest is empty. We:
+
+      1. Relocate the flat artifacts into `voiceover/scripts/<id>.json`,
+         `out/final/<id>.mp4`, `out/segments/<id>/`, etc.
+      2. Rebuild the video manifest's `segments[]` from `script.json` +
+         `edl.json` so the timeline has navigable rows.
+
+    Idempotent — a second run after success is a no-op.
+    """
+    from .schema import adopt_v1_artifacts, list_videos
+    root = (project_dir or Path.cwd()).resolve()
+    if video_id not in list_videos(root):
+        raise ClipwrightError(
+            f"no video {video_id!r} in this project",
+            fix="Run `clipwright video list` for the available ids.",
+        )
+    report = adopt_v1_artifacts(root, video_id)
+    rprint(
+        f"[green]Adopted[/green] {len(report.moved)} path(s) into {video_id} · "
+        f"[cyan]{report.segments_added}[/cyan] segments rebuilt"
+    )
+    for old, new in report.moved:
+        rprint(f"  [dim]{old.name} → {new.relative_to(root)}[/dim]")
+    for w in report.warnings:
+        rprint(f"  [yellow]warn:[/yellow] {w}")
+
+
+@video_app.command("delete")
+def video_delete_cmd(
+    video_id: str = typer.Argument(..., help="Video id to delete (e.g. chapter-1-recap)."),
+    project_dir: Path = typer.Option(
+        None, "--project", help="Project root (defaults to CWD).",
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Skip confirmation. The desktop always passes this.",
+    ),
+) -> None:
+    """Delete a video and every per-video artifact it owns.
+
+    Wipes the manifest, voiceover audio/scripts, captions, rendered
+    segments, final mp4, and Claude chat state for `<video_id>`.
+    Shared project files (sources/, project.json, other videos) are
+    untouched. The project's last video can't be deleted — create a
+    replacement first or close the project.
+    """
+    from .schema import SchemaError, delete_video, list_videos
+    root = (project_dir or Path.cwd()).resolve()
+    ids = list_videos(root)
+    if video_id not in ids:
+        raise ClipwrightError(
+            f"no video {video_id!r} in this project",
+            fix="Run `clipwright video list` for the available ids.",
+        )
+    if not yes:
+        # Show the artifact count we're about to nuke so the user can
+        # cancel before anything is touched.
+        rprint(
+            f"[yellow]Will delete video[/yellow] [cyan]{video_id}[/cyan] "
+            f"and every per-video artifact (TTS, captions, renders, chat log)."
+        )
+        rprint("[dim]Pass --yes to confirm.[/dim]")
+        return
+    try:
+        removed = delete_video(root, video_id)
+    except SchemaError as e:
+        raise ClipwrightError(str(e), fix="Create another video first, then re-run.") from e
+    rprint(f"[green]Deleted[/green] {video_id} · removed {len(removed)} path(s)")
+
+
 @video_app.command("new")
 def video_new_cmd(
     video_id: str = typer.Argument(..., help="New video id (e.g. chapter-1-recap)."),
@@ -424,6 +585,289 @@ def video_new_cmd(
         f"[green]Created video[/green] {video.video_id} · \"{video.title}\" · "
         f"add segments with `clipwright import <video.mp4> --video {video.video_id} --add`"
     )
+
+
+# Sub-app: `clipwright templates <subcommand>` — list and bind project templates.
+templates_app = typer.Typer(
+    no_args_is_help=True,
+    help="Project templates: list shipped templates, bind one to a project.",
+)
+app.add_typer(templates_app, name="templates")
+
+
+@templates_app.command("list")
+def templates_list_cmd(
+    as_json: bool = typer.Option(False, "--json", help="Emit JSON for desktop consumption."),
+) -> None:
+    """List every shipped template.
+
+    Default output is human-readable; `--json` returns the catalog as an
+    array of {template_id, name, category, summary, render_preset}
+    objects suitable for the desktop's template picker.
+    """
+    import json as _json
+    from .templates import list_templates as _list
+
+    metas = _list()
+    if as_json:
+        typer.echo(_json.dumps([m.to_dict() for m in metas]))
+        return
+    if not metas:
+        rprint("[dim](no templates installed)[/dim]")
+        return
+    for m in metas:
+        rprint(
+            f"  [cyan]{m.template_id}[/cyan] · {m.name} "
+            f"[dim]({m.category})[/dim]\n    [dim]{m.summary}[/dim]"
+        )
+
+
+@templates_app.command("show")
+def templates_show_cmd(
+    template_id: str = typer.Argument(..., help="Template id (e.g. manhwa-recap-single)."),
+    as_json: bool = typer.Option(False, "--json", help="Emit the full template JSON."),
+) -> None:
+    """Print one template's full payload, including the system prompt."""
+    import json as _json
+    from .templates import TemplateError, get_template
+
+    try:
+        t = get_template(template_id)
+    except TemplateError as e:
+        raise ClipwrightError(str(e), fix="Run `clipwright templates list` for the available ids.") from e
+    if as_json:
+        typer.echo(_json.dumps(t.to_dict()))
+        return
+    rprint(f"[cyan]{t.template_id}[/cyan] · {t.name}")
+    rprint(f"[dim]{t.summary}[/dim]")
+    rprint("")
+    rprint(t.system_prompt)
+
+
+@templates_app.command("path")
+def templates_path_cmd(
+    template_id: str = typer.Argument(None, help="Optional: show one template's file path."),
+) -> None:
+    """Print the on-disk path of the user templates directory, or one template.
+
+    No arg → prints `~/.clipwright/templates/data/` (the directory you'd
+    drop new JSON files into). With a template id, prints that
+    template's source file so you can edit it directly:
+
+      $ "$EDITOR" "$(clipwright templates path manhwa-recap-single)"
+    """
+    from .templates import user_templates_dir
+    from .templates.registry import _iter_all_templates  # noqa: SLF001
+
+    if not template_id:
+        typer.echo(str(user_templates_dir()))
+        return
+    for t in _iter_all_templates():
+        if t.template_id == template_id and t.source_path is not None:
+            typer.echo(str(t.source_path))
+            return
+    raise ClipwrightError(
+        f"no template with id {template_id!r}",
+        fix="Run `clipwright templates list` for the available ids.",
+    )
+
+
+@templates_app.command("new")
+def templates_new_cmd(
+    template_id: str = typer.Argument(..., help="New template id, e.g. tutorial-onepager."),
+    from_id: str = typer.Option(
+        "",
+        "--from",
+        help="Seed the new template from an existing one (copies all fields). "
+             "Defaults to a minimal blank skeleton.",
+    ),
+    name: str = typer.Option("", "--name", help="Human-readable name (defaults to id)."),
+    category: str = typer.Option(
+        "",
+        "--category",
+        help="Catalog category (recap / demo / tutorial / …). Defaults to "
+             "the --from template's category, or 'custom' for a blank seed.",
+    ),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing user template with the same id."),
+) -> None:
+    """Scaffold a new user template at `~/.clipwright/templates/data/<id>.json`.
+
+    Two paths:
+
+    - **Blank seed.** No `--from` → writes a skeleton with TODO markers
+      for `name`, `summary`, and `system_prompt`. Edit it before
+      shipping.
+
+    - **Copy from existing.** `--from manhwa-recap-single` → clones the
+      shipped template's fields verbatim into your user dir under the
+      new id. Edit to taste; the user copy wins on lookup.
+
+    The created file's path is printed at the end so you can pipe it
+    to your editor.
+    """
+    import json as _json
+
+    from .templates import TemplateError, get_template, user_templates_dir
+
+    udir = user_templates_dir()
+    udir.mkdir(parents=True, exist_ok=True)
+    target = udir / f"{template_id}.json"
+    if target.exists() and not force:
+        raise ClipwrightError(
+            f"{target} already exists",
+            fix="Pass --force to overwrite, pick a different id, or edit the existing file.",
+        )
+
+    if from_id:
+        try:
+            base = get_template(from_id)
+        except TemplateError as e:
+            raise ClipwrightError(str(e), fix="Run `clipwright templates list`.") from e
+        payload = base.to_dict()
+        payload["template_id"] = template_id
+        if name:
+            payload["name"] = name
+        if category:
+            payload["category"] = category
+        payload.pop("source", None)
+    else:
+        payload = {
+            "template_id": template_id,
+            "name": name or template_id,
+            "category": category or "custom",
+            "summary": "TODO: one-line summary shown in the template picker.",
+            "render_preset": "",
+            "defaults": {
+                "aspect": "9:16",
+                "fps": 30,
+                "tts_provider": "kokoro",
+                "voice_id": "",
+            },
+            "system_prompt": (
+                f"# Template: {name or template_id}\n\n"
+                "TODO: write the behavioral system prompt for this template. "
+                "Describe the genre, the structure, the pacing rules, visual "
+                "identity, editorial constraints, and which questions Claude "
+                "should ask when the user says \"build it\". See the shipped "
+                "templates (`clipwright templates show manhwa-recap-single`) "
+                "for a working example.\n"
+            ),
+        }
+
+    target.write_text(_json.dumps(payload, indent=2) + "\n")
+    rprint(f"[green]Created[/green] {target}")
+    rprint(f"[dim]Edit it: $EDITOR {target}[/dim]")
+
+
+@templates_app.command("apply")
+def templates_apply_cmd(
+    template_ids: list[str] = typer.Argument(
+        ..., help="One or more template ids (first = primary). Pass '-' to clear all.",
+    ),
+    project_dir: Path = typer.Option(
+        None, "--project", help="Project root (defaults to CWD).",
+    ),
+    overwrite_defaults: bool = typer.Option(
+        False,
+        "--overwrite-defaults",
+        help="Also replace existing aspect/fps/tts_provider/voice_id with the primary template's defaults. "
+             "Default: fill only blank/missing fields so user-set values survive.",
+    ),
+) -> None:
+    """Bind one or more templates to an existing project.
+
+    Pass `-` (a single dash) to clear all bindings. With multiple
+    ids the FIRST is the primary — it drives the renderer's preset
+    and supplies default project settings (aspect, fps, etc.).
+    Additional templates contribute behavioral guidance only: their
+    system prompts are concatenated into the agent prompt.
+
+    Typical multi-template use: a manhwa-reader platform producing
+    chapter recaps wants both `manhwa-recap-single` (primary,
+    drives the panel-based render) AND `product-demo` (secondary,
+    so Claude also frames the deliverable as product marketing):
+
+        $ clipwright templates apply manhwa-recap-single product-demo
+
+    The agent's next turn picks up the change with no restart.
+    """
+    import json as _json
+    from .templates import TemplateError, get_template
+
+    root = (project_dir or Path.cwd()).resolve()
+    project_path = root / "project.json"
+    if not project_path.exists():
+        raise ClipwrightError(
+            f"no project.json at {project_path}",
+            fix="Run `clipwright init` first or pass --project pointing at a project root.",
+        )
+    payload = _json.loads(project_path.read_text())
+    if template_ids == ["-"]:
+        payload.pop("template_id", None)
+        payload.pop("template_ids", None)
+        project_path.write_text(_json.dumps(payload, indent=2) + "\n")
+        rprint("[green]Cleared template bindings.[/green]")
+        return
+
+    # Resolve + validate every id before mutating disk so we don't
+    # leave the project in a partial state on a typo.
+    resolved = []
+    for tid in template_ids:
+        try:
+            resolved.append(get_template(tid))
+        except TemplateError as e:
+            raise ClipwrightError(
+                str(e),
+                fix="Run `clipwright templates list` for the available ids.",
+            ) from e
+
+    primary = resolved[0]
+    payload["template_ids"] = [t.template_id for t in resolved]
+    # Mirror the primary into the legacy single field so older
+    # readers still see a meaningful binding.
+    payload["template_id"] = primary.template_id
+
+    # Propagate template defaults from the PRIMARY only. Secondaries
+    # contribute editorial guidance, not settings.
+    DEFAULT_KEYS = ("aspect", "fps", "tts_provider", "voice_id")
+    propagated: list[str] = []
+    for key in DEFAULT_KEYS:
+        if key not in primary.defaults:
+            continue
+        new_val = primary.defaults[key]
+        existing = payload.get(key)
+        if overwrite_defaults or _is_blank(existing):
+            if existing != new_val:
+                payload[key] = new_val
+                propagated.append(f"{key}={new_val!r}")
+    project_path.write_text(_json.dumps(payload, indent=2) + "\n")
+
+    if len(resolved) == 1:
+        msg = f"[green]Bound template[/green] {primary.template_id} · {primary.name}"
+    else:
+        secondaries = ", ".join(t.template_id for t in resolved[1:])
+        msg = (
+            f"[green]Bound {len(resolved)} templates[/green] · primary "
+            f"[cyan]{primary.template_id}[/cyan] + [dim]{secondaries}[/dim]"
+        )
+    if propagated:
+        msg += f" [dim](applied defaults: {', '.join(propagated)})[/dim]"
+    rprint(msg)
+
+
+def _is_blank(value: object) -> bool:
+    """Treat empty string, 0, and missing as 'safe to overwrite'.
+
+    `fps` is an int defaulting to 30 — but a fresh project may have come
+    out of an early init flow with fps unset, so honor that path too.
+    Strings are blank only when empty; we never overwrite a user-set
+    string with a template value unless --overwrite-defaults is on.
+    """
+    if value is None:
+        return True
+    if isinstance(value, str) and value == "":
+        return True
+    return False
 
 
 @app.command()

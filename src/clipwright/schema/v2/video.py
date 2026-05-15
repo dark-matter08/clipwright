@@ -54,6 +54,21 @@ class Video:
     # Empty string means "no session yet; first chat turn will create one."
     chat_session_id: str = ""
 
+    # Optional per-video target duration override. Defaults to 0 ("use
+    # the project's recap_config.target_duration_seconds"); set this
+    # when one particular video should be longer or shorter than the
+    # project default — e.g. a multi-chapter arc inside a single-chapter
+    # project. The agent prompt prefers this over the project default.
+    target_duration_seconds_override: int = 0
+
+    # Per-video overrides for the rest of the recap config (narration
+    # style, additional notes, voice provider/id, outro spec). Empty
+    # dict = "no overrides, use the project-level recap_config". Each
+    # supported key matches a field in `RecapConfig`. We keep this as
+    # a free-form dict so adding a new override field later is just a
+    # prompt-side change with no schema migration.
+    recap_overrides: dict[str, Any] = field(default_factory=dict)
+
     # Set on load; ignored on save.
     loaded_schema_version: int = 2
 
@@ -76,13 +91,20 @@ class Video:
         return [s.id for s in self.segments]
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "schema_version": 2,
             "video_id": self.video_id,
             "title": self.title,
             "chat_session_id": self.chat_session_id,
             "segments": [s.to_dict() for s in self.segments],
         }
+        # Only serialize the override when set, so untouched videos keep
+        # clean JSON. The loader treats missing as 0 either way.
+        if self.target_duration_seconds_override > 0:
+            d["target_duration_seconds_override"] = self.target_duration_seconds_override
+        if self.recap_overrides:
+            d["recap_overrides"] = dict(self.recap_overrides)
+        return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Video:
@@ -97,11 +119,16 @@ class Video:
             if s.id in seen:
                 raise ValueError(f"duplicate segment id in video {video_id!r}: {s.id!r}")
             seen.add(s.id)
+        raw_overrides = d.get("recap_overrides") or {}
         return cls(
             video_id=video_id,
             title=str(d.get("title", "")),
             segments=segments,
             chat_session_id=str(d.get("chat_session_id", "")),
+            target_duration_seconds_override=int(
+                d.get("target_duration_seconds_override", 0) or 0
+            ),
+            recap_overrides=dict(raw_overrides) if isinstance(raw_overrides, dict) else {},
             loaded_schema_version=int(d.get("schema_version", 2)),
         )
 

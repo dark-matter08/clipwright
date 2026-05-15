@@ -6,6 +6,7 @@ def compose_filter(
     *,
     start: float,
     duration: float,
+    source_end: float | None = None,
     out_w: int = 1080,
     out_h: int = 1920,
     fade: float = 0.35,
@@ -14,14 +15,33 @@ def compose_filter(
 ) -> str:
     """Compose the source video at out_w x out_h with a blurred, darkened copy behind it.
 
+    When *source_end* is provided the trim respects the actual source range and
+    applies a setpts speed factor so the output matches *duration* exactly.
+    This enables proper slow-mo (source shorter than target) and speed-up
+    (source longer than target) instead of grabbing frames past source_end.
+
     Honors Hard Rule 4 equivalent for a single-input graph: a fresh PTS after trim so
     downstream overlays can anchor to t=0 of the composed stream.
     """
     bg_w = int(out_w * 1.12)
     bg_h = int(out_h * 1.12)
     fade_out_start = max(0.0, duration - fade)
+
+    if source_end is not None:
+        src_dur = source_end - start
+        if src_dur > 0 and abs(src_dur - duration) > 0.05:
+            speed_factor = duration / src_dur
+            trim_expr = f"trim=start={start}:end={source_end}"
+            pts_expr = f"setpts=(PTS-STARTPTS)*{speed_factor:.6f}"
+        else:
+            trim_expr = f"trim=start={start}:end={source_end}"
+            pts_expr = "setpts=PTS-STARTPTS"
+    else:
+        trim_expr = f"trim=start={start}:duration={duration}"
+        pts_expr = "setpts=PTS-STARTPTS"
+
     return (
-        f"{src_label}trim=start={start}:duration={duration},setpts=PTS-STARTPTS,"
+        f"{src_label}{trim_expr},{pts_expr},"
         f"scale={out_w}:-2,split[src][blurred];"
         f"[blurred]scale={bg_w}:{bg_h},crop={out_w}:{out_h},"
         f"boxblur=30:8,eq=brightness=-0.1:saturation=0.7[bg];"

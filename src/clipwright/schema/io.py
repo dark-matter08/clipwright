@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -164,3 +165,86 @@ def create_video(project_dir: Path, video_id: str, title: str = "") -> Video:
     video = Video(video_id=video_id, title=title or video_id, segments=[])
     save_video(project_dir, video)
     return video
+
+
+def delete_video(project_dir: Path, video_id: str) -> list[Path]:
+    """Drop a video manifest and every per-video artifact tree on disk.
+
+    Returns the list of paths actually removed (manifest first, then any
+    artifact directories or files that existed). Idempotent — a second
+    call with the same id is a no-op.
+
+    Refuses to delete the project's last video: a v2 project with zero
+    videos is a weird intermediate state the desktop's "+ New video"
+    flow already covers, and the SRS hub doesn't render an empty
+    project gracefully. The caller should create a replacement first
+    (or close the project) before removing the last one.
+
+    What gets nuked (every path is `<video_id>`-scoped; nothing global):
+      - `videos/<id>.json` — the manifest itself
+      - `voiceover/audio/<id>/` — per-segment TTS audio + caches
+      - `voiceover/scripts/<id>.json` — the per-video script
+      - `captions/<id>/` — per-segment caption frames
+      - `out/segments/<id>/` — per-segment rendered mp4s + caches
+      - `out/final/<id>.mp4` — the rendered final, if any
+      - `chat/sessions/<id>/` — Claude rail chat logs
+      - `.clipwright/claude-sessions/<id>.txt` — Claude session pointer
+
+    What survives: the project itself (`project.json`), shared sources
+    (`sources/`), and any other videos in the project.
+    """
+    project_dir = Path(project_dir)
+    manifest = paths.video_manifest_path(project_dir, video_id)
+    if not manifest.exists():
+        # Idempotent: silently no-op so a retry after a half-failed delete
+        # doesn't error. Caller can detect this by checking `list_videos`.
+        return []
+
+    remaining = [vid for vid in list_videos(project_dir) if vid != video_id]
+    if not remaining:
+        raise SchemaError(
+            f"refusing to delete {video_id!r}: it's the last video in the project. "
+            "Create another video first, or close the project instead."
+        )
+
+    removed: list[Path] = []
+    # The manifest is the canonical pointer — drop it first so even if a
+    # later step fails, the catalog reflects the deletion (the user can
+    # re-run to clean the orphaned artifacts).
+    manifest.unlink()
+    removed.append(manifest)
+
+    # Per-video subtrees. Each guarded with `exists()` so we don't fight
+    # missing dirs (early-state projects often don't have all of these).
+    subtrees = [
+        paths.video_audio_dir(project_dir, video_id),
+        paths.video_render_dir(project_dir, video_id),
+        project_dir / "captions" / video_id,
+        project_dir / "chat" / "sessions" / video_id,
+    ]
+    for sub in subtrees:
+        if sub.exists():
+            shutil.rmtree(sub, ignore_errors=True)
+            removed.append(sub)
+
+    # Per-video files.
+    standalone_files = [
+        paths.video_script_path(project_dir, video_id),
+        paths.video_final_path(project_dir, video_id),
+        project_dir / ".clipwright" / "claude-sessions" / f"{video_id}.txt",
+        project_dir / ".clipwright" / "claude-permissions.json"
+            if False else None,  # don't drop project-level permissions on video delete
+    ]
+    for f in standalone_files:
+        if f is None or not f.exists():
+            continue
+        try:
+            f.unlink()
+            removed.append(f)
+        except OSError:
+            # File-system race or permission glitch — leave the artifact;
+            # the user can clean it manually. The manifest is gone so the
+            # video is effectively deleted.
+            pass
+
+    return removed

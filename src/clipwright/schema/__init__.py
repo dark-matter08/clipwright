@@ -26,12 +26,14 @@ from .io import (
     SchemaError,
     SchemaVersionError,
     create_video,
+    delete_video,
     list_videos,
     load_project,
     load_video,
     save_project,
     save_video,
 )
+from .v2.adopt import AdoptionReport, adopt_v1_artifacts
 from .v2 import (
     Project,
     Segment,
@@ -56,6 +58,9 @@ __all__ = [
     "save_video",
     "list_videos",
     "create_video",
+    "delete_video",
+    "adopt_v1_artifacts",
+    "AdoptionReport",
     "SchemaError",
     "SchemaVersionError",
     "paths",

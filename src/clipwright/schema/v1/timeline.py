@@ -18,10 +18,13 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 SegmentKind = Literal["recording", "scene", "generated"]
-SceneType = Literal["title", "broll", "outro", "intro", "hero"]
+# `panel` was added for the manhwa-recap template: a still image
+# (downloaded panel) used as a segment source, distinct from a designed
+# title/outro card (`title`/`outro`) or generic broll (`broll`).
+SceneType = Literal["title", "broll", "outro", "intro", "hero", "panel"]
 
 VALID_KINDS: set[str] = {"recording", "scene", "generated"}
-VALID_SCENE_TYPES: set[str] = {"title", "broll", "outro", "intro", "hero"}
+VALID_SCENE_TYPES: set[str] = {"title", "broll", "outro", "intro", "hero", "panel"}
 
 _SEG_ID_RE = re.compile(r"^seg_[a-z0-9]+$")
 _REF_RE = re.compile(r"^[a-zA-Z0-9_./-]+\.json#seg_[a-z0-9]+$")

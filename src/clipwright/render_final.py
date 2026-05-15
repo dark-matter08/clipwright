@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .ffmpeg import FFmpegError, require
 from .render_segment import RenderSegmentError, render_segment
-from .schema import load_video
+from .schema import load_project, load_video
 from .schema import paths as schema_paths
 
 
@@ -44,14 +44,23 @@ def render_final(
 ) -> RenderFinalResult:
     """Render every segment of one video and concat into out/final/<id>.mp4.
 
+    Two render paths, dispatched on `project.template_id`:
+
+      - **Templates with `render_preset`** (manhwa-recap-* today) route
+        through the Remotion `ManhwaRecap` composition, which renders
+        the whole video in a single pass with per-segment Ken Burns
+        motion, chapter chips, and themed captions. No per-segment
+        mp4 concat — Remotion produces the final mp4 directly.
+      - **Everything else** falls through to the legacy
+        per-segment ffmpeg concat path (the existing behavior).
+
     Args:
         project_dir: project root.
         video_id: which video to render. Default "main".
-        force: bypass per-segment caches.
+        force: bypass per-segment caches (recording-mode only).
     """
     project_dir = Path(project_dir).resolve()
-    require()
-
+    project = load_project(project_dir)
     video = load_video(project_dir, video_id)
     if not video.segments:
         raise RenderFinalError(
@@ -59,6 +68,22 @@ def render_final(
             fix="Import a video or record a session before rendering.",
         )
 
+    # Template-aware dispatch. We look at the template's `render_preset`
+    # field (loaded from the template registry, not project.json) so
+    # adding a new visually-distinct template is just dropping a JSON
+    # file under `clipwright/templates/data/`.
+    # Multi-template bindings: primary template (first entry) wins
+    # for render dispatch. Secondary templates only contribute
+    # behavioral guidance to the agent prompt.
+    primary_template = (
+        project.template_ids[0]
+        if project.template_ids
+        else project.template_id
+    )
+    if _should_use_manhwa_preset(primary_template):
+        return _render_via_manhwa_preset(project_dir, video_id, project.fps)
+
+    require()
     final = schema_paths.video_final_path(project_dir, video_id)
     final.parent.mkdir(parents=True, exist_ok=True)
 
@@ -85,6 +110,54 @@ def render_final(
         n_segments=len(video.segments),
         rendered=rendered,
         cached=cached,
+    )
+
+
+def _should_use_manhwa_preset(template_id: str) -> bool:
+    """True when this project's template should render via the Remotion
+    `ManhwaRecap` composition. Today that's anything whose template's
+    `render_preset` field starts with `manhwa-recap`."""
+    if not template_id:
+        return False
+    try:
+        from .templates import get_template
+        t = get_template(template_id)
+    except Exception:
+        return False
+    return t.render_preset.startswith("manhwa-recap")
+
+
+def _render_via_manhwa_preset(
+    project_dir: Path,
+    video_id: str,
+    fps: int,
+) -> RenderFinalResult:
+    """Delegate to the Remotion manhwa backend and shape the result the
+    same way the per-segment concat path does, so callers don't need
+    to special-case the response."""
+    from .render import manhwa_backend
+
+    out = schema_paths.video_final_path(project_dir, video_id)
+    try:
+        manhwa_backend.render(
+            project_dir=project_dir,
+            video_id=video_id,
+            out=out,
+            fps=fps,
+        )
+    except manhwa_backend.ManhwaRenderError as e:
+        raise RenderFinalError(
+            f"manhwa render failed: {e}",
+            fix="Run `clipwright video doctor <video_id>` for a per-segment audit.",
+        ) from e
+    # The Remotion path is monolithic — no per-segment caching today,
+    # so report all segments as "rendered" rather than "cached".
+    video = load_video(project_dir, video_id)
+    return RenderFinalResult(
+        out_path=out,
+        n_segments=len(video.segments),
+        rendered=len(video.segments),
+        cached=0,
     )
 
 

@@ -317,6 +317,8 @@ def import_video(
     append: bool = False,
     video_id: str = "main",
     video_title: str = "",
+    tts_provider: str = "kokoro",
+    voice_id: str = "",
 ) -> ImportResult:
     """Copy `src` into `project_dir/sources/<name>.mp4` and seed schema files.
 
@@ -393,8 +395,13 @@ def import_video(
             aspect=aspect,
             fps=30,
             render_backend="remotion",
-            tts_provider="kokoro",
-            voice_id="",
+            # Project-level TTS defaults. Per-video overrides live in
+            # `videos/<id>.json#recap_overrides`, and per-clip overrides
+            # in `script.json`. The New Project dialog now exposes both
+            # of these as dropdowns so the user picks at creation time
+            # instead of inheriting the historical hardcoded `kokoro`.
+            tts_provider=tts_provider or "kokoro",
+            voice_id=voice_id,
             base_url="",
             created_at=datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
         )
