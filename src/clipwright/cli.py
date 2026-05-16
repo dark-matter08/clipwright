@@ -1720,11 +1720,98 @@ def doctor(
             )
 
     rprint("")
+    rprint("[bold]Skill ↔ CLI sync[/bold]")
+    # Parse the repo's SKILL.md for `clipwright <subcommand>` references and
+    # verify each one resolves to a registered Typer command. Catches drift
+    # like the `edit-plan` → `review` rename that left SKILL.md stale on main.
+    skill_path = Path(__file__).resolve().parent.parent.parent / "SKILL.md"
+    if not skill_path.exists():
+        rprint(f"  [dim]–[/dim] SKILL.md not found at {skill_path} (skipping)")
+    else:
+        missing = _skill_md_unknown_commands(skill_path)
+        if not missing:
+            check("SKILL.md commands all resolve to a CLI subcommand", True)
+        else:
+            ok = False
+            unique = sorted(set(missing))
+            rprint(
+                f"  [red]✗[/red] SKILL.md references commands the CLI doesn't expose: "
+                f"{', '.join(repr(c) for c in unique)}"
+            )
+            rprint(
+                "    [yellow]Fix:[/yellow] update SKILL.md, or add the missing "
+                "subcommand. The skill is what agents read — drift here breaks them silently."
+            )
+
+    rprint("")
     if ok:
         rprint("[green]All checks passed.[/green]")
     else:
         rprint("[yellow]Some checks failed — fix the issues above and re-run `clipwright doctor`.[/yellow]")
         raise typer.Exit(1)
+
+
+# Subcommands that don't appear in `app.registered_commands` because they're
+# attached via sub-typer (script_app, generate_app). Listed here so the doctor
+# check accepts them as valid.
+_KNOWN_SUBCOMMAND_GROUPS = {
+    "script": {"init"},
+    "generate": {"intro", "broll", "outro", "hero"},
+}
+
+
+def _registered_cli_commands() -> set[str]:
+    """Return every Typer command name the CLI exposes.
+
+    Includes the flat commands on `app` and the sub-typer commands
+    (e.g. `script init`, `generate hero`). Names use single-space form
+    so they match the strings SKILL.md uses ("clipwright script init").
+    """
+    names: set[str] = set()
+    for cmd in app.registered_commands:
+        if cmd.name:
+            names.add(cmd.name)
+        elif cmd.callback is not None:
+            names.add(cmd.callback.__name__.replace("_", "-"))
+    for group, leaves in _KNOWN_SUBCOMMAND_GROUPS.items():
+        for leaf in leaves:
+            names.add(f"{group} {leaf}")
+    return names
+
+
+def _skill_md_unknown_commands(skill_path: Path) -> list[str]:
+    """Extract `clipwright <cmd>` mentions from SKILL.md and return any
+    that aren't registered Typer commands.
+
+    Tolerates:
+      - flag noise after the subcommand ("clipwright tts --provider …")
+      - sub-typer commands ("clipwright script init")
+      - quoting / punctuation around the name in prose
+    """
+    import re
+
+    text = skill_path.read_text()
+    known = _registered_cli_commands()
+    # Match `clipwright <word>` and optionally one trailing space-separated word
+    # so we catch sub-typer leaves like `script init`. Stop at flags / pipes.
+    # Use `[ \t]+` not `\s+` so newlines aren't crossed — otherwise the
+    # frontmatter pattern `name: clipwright\ndescription: …` would match
+    # `clipwright description` and flag a fake "command."
+    pattern = re.compile(r"clipwright[ \t]+([a-zA-Z][\w-]*)(?:[ \t]+([a-zA-Z][\w-]*))?")
+    missing: list[str] = []
+    for match in pattern.finditer(text):
+        head = match.group(1)
+        tail = match.group(2)
+        # Two-word form: only valid if it's a known sub-typer group + leaf.
+        if tail and head in _KNOWN_SUBCOMMAND_GROUPS:
+            full = f"{head} {tail}"
+            if full not in known:
+                missing.append(full)
+            continue
+        # Otherwise the head is the command name; ignore tail (it's args/flags).
+        if head not in known:
+            missing.append(head)
+    return missing
 
 
 if __name__ == "__main__":
