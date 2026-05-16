@@ -31,13 +31,14 @@ Style resolution (SRS §5.7):
 """
 from __future__ import annotations
 
-import datetime
 import hashlib
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from . import __version__
+from .cache import read_input_hash as _read_cache_hash
+from .cache import write_input_hash as _write_cache
 from .captions.chunker import chars_to_words, chunk_words
 from .captions.png_renderer import CaptionStyle, render_chunk_png
 from .schema import load_project, load_video
@@ -239,20 +240,5 @@ def _compute_input_hash(
     return "sha256:" + hashlib.sha256(blob).hexdigest()
 
 
-def _read_cache_hash(cache_path: Path) -> str | None:
-    if not cache_path.exists():
-        return None
-    try:
-        return json.loads(cache_path.read_text()).get("input_hash")
-    except (json.JSONDecodeError, OSError):
-        return None
-
-
-def _write_cache(cache_path: Path, input_hash: str) -> None:
-    payload = {
-        "schema_version": 1,
-        "input_hash": input_hash,
-        "produced_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
-        "tool_version": __version__,
-    }
-    cache_path.write_text(json.dumps(payload, indent=2) + "\n")
+# Cache sidecar I/O lives in `.cache` — imported above as `_read_cache_hash`
+# / `_write_cache` to keep the rest of this module unchanged.
