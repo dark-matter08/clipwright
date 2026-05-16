@@ -1,6 +1,7 @@
 # Frontend
 node_modules/
 dist/
+.vite/
 *.tsbuildinfo
 
 # Tauri / Rust
