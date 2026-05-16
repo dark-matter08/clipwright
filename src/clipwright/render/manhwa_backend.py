@@ -98,6 +98,13 @@ def _load_camera(project_dir: Path, video_id: str, seg_id: str) -> list[dict]:
 
     Missing file → empty list; `PanelSegment` then applies a default
     1.0→1.08 gentle zoom so the panel still has motion.
+
+    **LOCKSTEP CONTRACT**: the disk paths checked below are pinned to
+    `_REF_RE` in `clipwright.schema.v1.timeline` AND the
+    manhwa-recommendations template's example refs via
+    `tests/test_segment_ref_contract.py`. Adding a new layout here
+    (e.g. `camera/<chapter>/<seg>.json`) without widening the regex
+    causes the original drift-bug; the contract test fails fast.
     """
     # Check video-scoped camera path first, then fallback to flat layout.
     cam_path = project_dir / "camera" / video_id / f"{seg_id}.json"

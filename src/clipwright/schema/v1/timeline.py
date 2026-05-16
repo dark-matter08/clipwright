@@ -37,6 +37,12 @@ _SEG_ID_RE = re.compile(r"^seg_[a-z0-9]+$")
 # form, which made the agent's correctly-written per-segment refs
 # fail validation on load. Now we accept any path ending in `.json`
 # with an optional `#seg_<id>` fragment trailer.
+#
+# **LOCKSTEP CONTRACT**: this regex is pinned to the renderer's
+# `_load_camera` path lookup AND the manhwa-recommendations template's
+# example strings by `tests/test_segment_ref_contract.py`. Changing
+# this regex without updating the contract test (or vice versa) is
+# how the original drift-bug shipped — the test fails fast in CI now.
 _REF_RE = re.compile(r"^[a-zA-Z0-9_./-]+\.json(#seg_[a-z0-9]+)?$")
 
 
