@@ -123,6 +123,7 @@ def _assemble(
     # tree (e.g. tweaking the clipwright source itself) in real sessions.
     # Promoting it here makes it impossible to miss.
     parts.append(_section_scope(project_dir))
+    parts.append(_section_vo_alignment())
     parts.append(_section_timeline(video, focus=focus))
     if focus is not None:
         parts.append(_section_focus(focus, script_payload))
@@ -662,6 +663,78 @@ def _section_scope(project_dir: Path) -> str:
         "Network reads via `WebFetch` / `WebSearch` are fine — they don't "
         "touch the local filesystem outside the project's `sources/` "
         "downloads."
+    )
+
+
+def _section_vo_alignment() -> str:
+    """Top-of-prompt voiceover ↔ segment alignment rule.
+
+    The motivation: a user shipped a recap where every other segment had
+    1-2 seconds of dead air at the end because the script was way under
+    the segment's target_duration. The TTS pipeline now stretches in
+    both directions (speed up if too long, slow down if too short), but
+    the FIRST line of defense is writing a script whose word count is
+    deliberately matched to each segment's `target_duration`. Same root
+    cause as the bokeh complaint — the visible artifact is downstream
+    of an editorial planning miss.
+
+    This section is intentionally separate from the long template
+    system prompts (which sit later in the assembled prompt) so the
+    rule applies to every template, not just manhwa.
+    """
+    return (
+        "## Voiceover ↔ segment alignment — HARD RULE\n"
+        "\n"
+        "Every script clip's spoken length must match its segment's "
+        "`target_duration` within ±3%. No dead air at the end of any "
+        "segment, ever. This is the difference between an amateur "
+        "slideshow and a professional short.\n"
+        "\n"
+        "**Word-budget formula** (Kokoro / Piper / ElevenLabs all run at "
+        "roughly the same conversational cadence):\n"
+        "\n"
+        "    word_budget = round(target_duration_seconds × 2.5)\n"
+        "\n"
+        "Examples:\n"
+        "  - 4s segment → ~10 words\n"
+        "  - 6s segment → ~15 words\n"
+        "  - 8s segment → ~20 words\n"
+        "  - 12s segment → ~30 words\n"
+        "\n"
+        "Acceptable drift: ±10% on the word budget. A 6s segment can run "
+        "13–17 words. Beyond that, rewrite the clip.\n"
+        "\n"
+        "**The TTS stage stretches in both directions** to remove any "
+        "residual mismatch (speeds up when too long, slows down when too "
+        "short). Stretches are capped at `atempo=0.80` (≈20% slowdown) on "
+        "the slow side — beyond that the audio sounds slurred and the "
+        "right answer is to add more words to the script, not to slow "
+        "harder. If `clipwright tts-segment` returns a result with "
+        "`stretch_clamped=True`, the script for that beat needs more "
+        "words; do NOT just re-render hoping it goes away.\n"
+        "\n"
+        "**Concrete planning workflow** (every video, every template):\n"
+        "\n"
+        "1. For each segment, compute `word_budget` from "
+        "`target_duration`.\n"
+        "2. Write the clip's `text` field to that budget. Read it aloud "
+        "in your head at ~2.5 wps — does it land?\n"
+        "3. After running `tts-segment`, check the returned "
+        "`natural_seconds` vs `target_seconds`. If the natural duration "
+        "is more than ~15% off the target, the script is materially "
+        "wrong for that segment — rewrite the clip, don't paper over it "
+        "with stretch.\n"
+        "4. **No segment ever has trailing silence at the end.** When "
+        "segments concatenate in `render-final`, the audio tracks "
+        "concatenate too — dead air at the end of segment N becomes a "
+        "pause before segment N+1's first word, and the viewer reads "
+        "that pause as \"the narrator forgot what to say.\"\n"
+        "\n"
+        "If a beat genuinely needs to breathe (a dramatic pause after a "
+        "reveal), express it as a *period in the script* (TTS pauses on "
+        "periods naturally — \"He stops. He turns. The blade is "
+        "already through.\" gets you ~1s of pause built in), not as "
+        "blank audio at the segment boundary."
     )
 
 

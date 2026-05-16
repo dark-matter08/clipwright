@@ -15,11 +15,23 @@ Provider + voice resolution:
   1. Clip-level override: `script.json#clips[].voice.{provider,voice_id}`
   2. Project default:    `project.json#tts_provider` + `project.json#voice_id`
 
-Time-stretch behavior (preserves SKILL.md hard rule + matches existing CLI):
+Time-stretch behavior:
   - Synthesize at the provider's natural speed.
-  - If natural duration exceeds `target_seconds * 1.03`, compress with
-    ffmpeg `atempo` (pitch preserved) and rescale the character timestamps.
-  - Never slow down — trailing silence is preferable to a drawn-out narration.
+  - If natural duration falls outside `target_seconds * [0.97, 1.03]`,
+    apply ffmpeg `atempo` (pitch preserved) to bring it into range, and
+    rescale the character timestamps to match.
+  - Stretching is **bidirectional** — speed up when audio is too long,
+    slow down when audio is too short. The user-feedback rule
+    "never slow down" was reversed once concat-time dead air between
+    segments became the bigger annoyance.
+  - Slow-down is capped at `0.80×` (the audio is allowed to play back at
+    80% of natural speed, no slower). Beyond that, even the best TTS
+    provider's output starts to sound slurred and the right answer is to
+    rewrite the script with more words for that beat — see the agent
+    prompt's "Voiceover ↔ segment alignment" guidance. When the cap
+    fires we still apply the maximum allowed slowdown so the trailing
+    gap is as small as possible, and the result carries
+    `stretched=True, stretch_clamped=True` so the caller can warn.
 """
 from __future__ import annotations
 
@@ -52,6 +64,13 @@ class TTSSegmentError(Exception):
         self.fix = fix
 
 
+#: Smallest atempo ratio allowed when slowing TTS to fill a segment.
+#: 0.80 ≈ 20% slower — audible but not slurred for Kokoro / ElevenLabs.
+#: Below this the audio gets noticeably degraded and the right answer is
+#: to rewrite the script with more words for that beat.
+MIN_SLOW_ATEMPO = 0.80
+
+
 @dataclass
 class TTSSegmentResult:
     seg_id: str
@@ -62,8 +81,17 @@ class TTSSegmentResult:
     target_seconds: float
     natural_seconds: float       # raw provider duration before stretch
     stretched: bool              # True iff atempo ratio was applied
-    cached: bool                 # True iff we skipped recompute
-    input_hash: str
+    #: True iff a slowdown was clamped at MIN_SLOW_ATEMPO. Indicates the
+    #: script for this segment is materially shorter than the segment's
+    #: `target_duration` — caller should consider rewriting the clip's
+    #: `text` rather than padding harder.
+    stretch_clamped: bool = False
+    #: The post-stretch duration on disk (== target_seconds when stretch
+    #: was unclamped, otherwise the clamped result). Useful when callers
+    #: want to know the actual final audio length.
+    final_seconds: float = 0.0
+    cached: bool = False         # True iff we skipped recompute
+    input_hash: str = ""
 
 
 def tts_segment(
@@ -159,11 +187,28 @@ def tts_segment(
 
     natural = probe_duration(mp3_path)
     stretched = False
-    if natural > target_seconds * 1.03:
-        # atempo can only speed up to 2x per chain — `stretch_audio` chains
-        # automatically. Rescale timestamps to match.
+    stretch_clamped = False
+    final_seconds = natural
+    # Bidirectional time-stretch. The goal is no audible dead air between
+    # segments after concat. atempo > 1 speeds up; < 1 slows down.
+    #   - natural >> target → speed up (no cap; uncapped speed-up is fine
+    #     for Kokoro/ElevenLabs up to ~2× before it sounds chipmunky).
+    #   - natural << target → slow down, but only down to MIN_SLOW_ATEMPO
+    #     (0.80). Beyond that the audio degrades and the right answer is
+    #     to rewrite the script for that beat with more words.
+    #   - within ±3% of target → leave it; imperceptible.
+    if natural > target_seconds * 1.03 or natural < target_seconds * 0.97:
+        # Desired stretch ratio (>1 speeds up, <1 slows down).
+        desired_ratio = natural / target_seconds
+        # Clamp slowdown only; speed-up is uncapped.
+        if desired_ratio < MIN_SLOW_ATEMPO:
+            effective_target = natural / MIN_SLOW_ATEMPO
+            stretch_clamped = True
+        else:
+            effective_target = target_seconds
+
         tmp = audio_dir / f"{seg_id}.stretched.mp3"
-        ratio = stretch_audio(mp3_path, tmp, target_seconds)
+        ratio = stretch_audio(mp3_path, tmp, effective_target)
         tmp.replace(mp3_path)
         align = json.loads(ts_path.read_text())
         for key in ("character_start_times_seconds", "character_end_times_seconds"):
@@ -171,6 +216,7 @@ def tts_segment(
                 align[key] = [round(t / ratio, 4) for t in align[key]]
         ts_path.write_text(json.dumps(align))
         stretched = True
+        final_seconds = effective_target
 
     _write_cache(cache_path, input_hash)
     return TTSSegmentResult(
@@ -182,6 +228,8 @@ def tts_segment(
         target_seconds=target_seconds,
         natural_seconds=natural,
         stretched=stretched,
+        stretch_clamped=stretch_clamped,
+        final_seconds=final_seconds,
         cached=False,
         input_hash=input_hash,
     )

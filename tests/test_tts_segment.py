@@ -271,6 +271,67 @@ def test_tts_segment_does_not_stretch_when_close(tmp_path: Path) -> None:
     project_dir = _make_project(tmp_path, target_duration=3.0)
     result = tts_segment(project_dir, "seg_001")
     assert result.stretched is False
+    assert result.stretch_clamped is False
+
+
+@pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg not on PATH")
+def test_tts_segment_slows_down_when_too_short(tmp_path: Path) -> None:
+    """Natural 4.5s audio in a 5s segment should slow to fit (atempo=0.9).
+
+    User feedback: audible dead air between segments is worse than a
+    mild slowdown. The TTS stage now stretches in both directions, up
+    to the MIN_SLOW_ATEMPO floor.
+    """
+    project_dir = _make_project(tmp_path, target_duration=5.0)
+    fake = _FakeProvider(audio_seconds=4.5)
+    import clipwright.tts_segment as tsm
+    orig = tsm.get_provider
+    tsm.get_provider = lambda _name: fake
+    try:
+        result = tts_segment(project_dir, "seg_001")
+    finally:
+        tsm.get_provider = orig
+
+    assert result.stretched is True
+    assert result.stretch_clamped is False
+    assert result.natural_seconds == pytest.approx(4.5, abs=0.2)
+    # Post-stretch duration ≈ target (5.0s).
+    from clipwright.ffmpeg import probe_duration
+    assert probe_duration(result.mp3_path) == pytest.approx(5.0, abs=0.2)
+    # final_seconds tracks the on-disk result.
+    assert result.final_seconds == pytest.approx(5.0, abs=0.05)
+
+
+@pytest.mark.skipif(not _ffmpeg_available(), reason="ffmpeg not on PATH")
+def test_tts_segment_clamps_extreme_slowdown(tmp_path: Path) -> None:
+    """Natural 2s audio in a 10s segment exceeds MIN_SLOW_ATEMPO (0.80).
+
+    Desired ratio would be 0.20 — far below the 0.80 floor. The
+    stretcher should clamp to 0.80 (audio plays at 80% of natural
+    speed), produce a 2.5s file (= 2.0 / 0.80), and set
+    `stretch_clamped=True` so callers can warn the user to rewrite
+    the script with more words for that beat.
+    """
+    project_dir = _make_project(tmp_path, target_duration=10.0)
+    # Default fake provider emits 3s of audio; bump it down to 2.0s
+    # so the desired-ratio calculation is unambiguously below the cap.
+    fake = _FakeProvider(audio_seconds=2.0)
+    import clipwright.tts_segment as tsm
+    orig = tsm.get_provider
+    tsm.get_provider = lambda _name: fake
+    try:
+        result = tts_segment(project_dir, "seg_001")
+    finally:
+        tsm.get_provider = orig
+
+    assert result.stretched is True
+    assert result.stretch_clamped is True
+    # 2.0 / 0.80 = 2.5s — the clamped result.
+    from clipwright.ffmpeg import probe_duration
+    assert probe_duration(result.mp3_path) == pytest.approx(2.5, abs=0.2)
+    # Still leaves dead air vs the 10s target — that's the point of the
+    # clamp; we surface the mismatch instead of producing slurred audio.
+    assert result.final_seconds < result.target_seconds
 
 
 # ---------------------------------------------------------------------------
