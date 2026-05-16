@@ -26,6 +26,21 @@ import type { ProjectState, Video } from "./types";
 
 export type ViewMode = "hub" | "workspace";
 
+/** One persisted error record. We don't truncate the message — the
+ *  user needs the full stack trace to file a useful bug report. */
+export interface ErrorRecord {
+  /** ISO-8601 timestamp. */
+  ts: string;
+  /** Full error message; multiline allowed. */
+  message: string;
+  /** Where it originated. "claude" = Claude rail subprocess, "tauri" =
+   *  an invoke() failure, "schema" = on-disk JSON load, etc. Lets the
+   *  user filter mentally. Defaults to "unknown". */
+  source: string;
+}
+
+const ERROR_HISTORY_CAP = 50;
+
 const HISTORY_LIMIT = 50;
 const TIMELINE_MIN_PX = 6;
 const TIMELINE_MAX_PX = 60;
@@ -38,6 +53,13 @@ interface AppState {
   selectedSegmentId: string | null;
   claudeRailOpen: boolean;
   error: string | null;
+  /** Persistent error history. Every `setError(msg)` with a non-null
+   *  message appends an entry here. The banner can be dismissed, but
+   *  the history survives so the user can copy the message into a bug
+   *  report — without this, the prior single-line banner would clear
+   *  on dismiss and the user had no way to retrieve the message.
+   *  Capped at 50 entries (FIFO) to keep memory bounded. */
+  errorHistory: ErrorRecord[];
   pxPerSec: number | null;
   /** Per-video undo/redo stacks of Video snapshots. */
   past: Video[];
@@ -95,7 +117,9 @@ interface AppState {
   selectSegment: (id: string | null) => void;
   selectRelative: (offset: number) => void;
   toggleClaudeRail: () => void;
-  setError: (msg: string | null) => void;
+  setError: (msg: string | null, source?: string) => void;
+  /** Drop all persisted error records (after a user reviewed them). */
+  clearErrorHistory: () => void;
   askClaudeForSegment: (segId: string) => void;
   clearPendingAsk: () => void;
   /** Toggle inspector drawer visibility. */
@@ -173,6 +197,7 @@ export const useApp = create<AppState>((set, get) => ({
   selectedSegmentId: null,
   claudeRailOpen: true,
   error: null,
+  errorHistory: [],
   pxPerSec: null,
   past: [],
   future: [],
@@ -222,7 +247,28 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   toggleClaudeRail: () => set((s) => ({ claudeRailOpen: !s.claudeRailOpen })),
-  setError: (msg) => set({ error: msg }),
+  setError: (msg, source = "unknown") =>
+    set((s) => {
+      // Null = dismiss the banner. We DO NOT clear errorHistory here —
+      // the whole point of the history is that dismissing the banner
+      // doesn't lose the message. Use `clearErrorHistory()` explicitly
+      // when the user reviewed them.
+      if (msg === null) return { error: null };
+      const record: ErrorRecord = {
+        ts: new Date().toISOString(),
+        message: String(msg),
+        source,
+      };
+      const history = [...s.errorHistory, record];
+      // FIFO cap so a session that hits many transient errors doesn't
+      // blow memory; oldest drops first.
+      const trimmed =
+        history.length > ERROR_HISTORY_CAP
+          ? history.slice(history.length - ERROR_HISTORY_CAP)
+          : history;
+      return { error: msg, errorHistory: trimmed };
+    }),
+  clearErrorHistory: () => set({ errorHistory: [] }),
   askClaudeForSegment: (segId) =>
     set({ pendingAskSegmentId: segId, claudeRailOpen: true }),
   clearPendingAsk: () => set({ pendingAskSegmentId: null }),

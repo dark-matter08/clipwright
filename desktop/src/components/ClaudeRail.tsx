@@ -294,7 +294,36 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
       if (segId) clearAsk();
     } catch (e) {
       setPending(null);
-      setError(e instanceof Error ? e.message : String(e));
+      const errText = e instanceof Error ? (e.stack || e.message) : String(e);
+      // Tag the error source so the App's error history can group by
+      // subsystem (claude / tauri / schema). Without this every entry
+      // shows up as "unknown" and the user can't tell at a glance what
+      // failed.
+      setError(errText, "claude");
+      // Persist the failure into the rail's chat transcript too. The
+      // banner can be dismissed; the chat scroll cannot. This gives the
+      // user a permanent in-context record of "this turn failed
+      // because X" so they can scroll back to it or share the
+      // surrounding turn.
+      const now = new Date().toISOString();
+      setHistory((h) => [
+        ...h,
+        { ts: now, role: "user", text: message },
+        {
+          ts: now,
+          role: "assistant",
+          // Markdown so the bubble renders the error in a code block.
+          // `MarkdownView` will pick this up like a regular reply.
+          text:
+            `**⚠ Turn failed** \`(${new Date().toLocaleTimeString()})\`\n\n` +
+            "```\n" +
+            errText +
+            "\n```\n\n" +
+            "_The error is also in the banner at the top of the app — click " +
+            "Copy there to grab the full text, or open Error history to see " +
+            "this and any prior failures._",
+        },
+      ]);
     } finally {
       setBusy(false);
       setBusyStartedAt(null);
