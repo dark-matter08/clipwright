@@ -35,7 +35,6 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 
-
 CONFIG_REL_PATH = Path("credentials.json")
 
 
@@ -70,7 +69,7 @@ class Credentials:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Credentials":
+    def from_dict(cls, d: dict) -> Credentials:
         return cls(
             openai_api_key=str(d.get("openai_api_key", "") or ""),
             elevenlabs_api_key=str(d.get("elevenlabs_api_key", "") or ""),

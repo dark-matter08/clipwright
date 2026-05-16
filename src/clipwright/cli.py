@@ -446,6 +446,7 @@ def video_doctor_cmd(
     `--json` emits a structured payload the desktop can render.
     """
     import json as _json
+
     from .video_doctor import diagnose_video
 
     root = (project_dir or Path.cwd()).resolve()
@@ -480,7 +481,10 @@ def video_doctor_cmd(
     if not report.has_final_render:
         rprint("  [yellow]✗ no final render at out/final/<id>.mp4 — run `clipwright render-final`[/yellow]")
     elif report.final_is_stale:
-        rprint("  [yellow]⚠ final render is older than the newest per-segment render — re-run `clipwright render-final`[/yellow]")
+        rprint(
+            "  [yellow]⚠ final render is older than the newest per-segment render "
+            "— re-run `clipwright render-final`[/yellow]"
+        )
     else:
         rprint("  [green]✓ final render present[/green]")
 
@@ -606,6 +610,7 @@ def templates_list_cmd(
     objects suitable for the desktop's template picker.
     """
     import json as _json
+
     from .templates import list_templates as _list
 
     metas = _list()
@@ -629,6 +634,7 @@ def templates_show_cmd(
 ) -> None:
     """Print one template's full payload, including the system prompt."""
     import json as _json
+
     from .templates import TemplateError, get_template
 
     try:
@@ -792,6 +798,7 @@ def templates_apply_cmd(
     The agent's next turn picks up the change with no restart.
     """
     import json as _json
+
     from .templates import TemplateError, get_template
 
     root = (project_dir or Path.cwd()).resolve()

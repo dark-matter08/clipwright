@@ -135,7 +135,8 @@ def test_doctor_happy_path_no_issues(tmp_path: Path) -> None:
         "clips": [{"id": "clip_seg_001", "text": "hi"}],
     }))
     # Final must be newer than seg renders to not be "stale".
-    import os, time
+    import os
+    import time
     final_path = tmp_path / "out" / "final" / "main.mp4"
     now = time.time()
     os.utime(final_path, (now, now))
@@ -157,6 +158,7 @@ def test_doctor_flags_unknown_video_id(tmp_path: Path) -> None:
 
 def test_doctor_emits_json_via_cli(tmp_path: Path) -> None:
     from typer.testing import CliRunner
+
     from clipwright.cli import app
 
     _seed_project(tmp_path)

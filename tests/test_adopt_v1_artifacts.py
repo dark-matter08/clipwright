@@ -143,6 +143,7 @@ def test_adopt_warns_when_script_and_v2_script_both_exist(tmp_path: Path) -> Non
 def test_cli_video_adopt(tmp_path: Path) -> None:
     """The CLI surface mirrors the Python function and exits cleanly."""
     from typer.testing import CliRunner
+
     from clipwright.cli import app
 
     _seed_hybrid_project(tmp_path)

@@ -25,7 +25,6 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-
 CONFIG_REL_PATH = Path(".clipwright") / "recap-config.json"
 
 # Sensible defaults — every recap project starts with 1:30 target
@@ -77,7 +76,7 @@ class RecapConfig:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "RecapConfig":
+    def from_dict(cls, d: dict) -> RecapConfig:
         """Tolerant parse — unknown fields ignored, missing fields
         defaulted. Outro is upgraded from string-only legacy shape if
         we ever see it (defensive — we ship the structured shape from

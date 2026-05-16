@@ -33,7 +33,6 @@ from .io import (
     save_project,
     save_video,
 )
-from .v2.adopt import AdoptionReport, adopt_v1_artifacts
 from .v2 import (
     Project,
     Segment,
@@ -43,6 +42,7 @@ from .v2 import (
     migrate,
     next_video_id,
 )
+from .v2.adopt import AdoptionReport, adopt_v1_artifacts
 
 __all__ = [
     "SCHEMA_VERSION",

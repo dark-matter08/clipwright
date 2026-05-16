@@ -23,7 +23,6 @@ from clipwright.templates import (
     load_template_for_project,
 )
 
-
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -289,6 +288,7 @@ def test_user_template_carries_source_badge(isolated_user_dir: Path) -> None:
 def test_cli_templates_new_scaffolds_blank(isolated_user_dir: Path) -> None:
     """`templates new` writes a starter file under the user dir."""
     from typer.testing import CliRunner
+
     from clipwright.cli import app
 
     result = CliRunner().invoke(app, ["templates", "new", "my-new"])
@@ -303,6 +303,7 @@ def test_cli_templates_new_scaffolds_blank(isolated_user_dir: Path) -> None:
 
 def test_cli_templates_new_from_existing_clones_fields(isolated_user_dir: Path) -> None:
     from typer.testing import CliRunner
+
     from clipwright.cli import app
 
     result = CliRunner().invoke(
@@ -319,6 +320,7 @@ def test_cli_templates_new_from_existing_clones_fields(isolated_user_dir: Path) 
 
 def test_cli_templates_new_refuses_overwrite_without_force(isolated_user_dir: Path) -> None:
     from typer.testing import CliRunner
+
     from clipwright.cli import app
 
     runner = CliRunner()
@@ -332,6 +334,7 @@ def test_cli_templates_new_refuses_overwrite_without_force(isolated_user_dir: Pa
 
 def test_cli_templates_path_returns_dir(isolated_user_dir: Path) -> None:
     from typer.testing import CliRunner
+
     from clipwright.cli import app
 
     result = CliRunner().invoke(app, ["templates", "path"])
@@ -341,6 +344,7 @@ def test_cli_templates_path_returns_dir(isolated_user_dir: Path) -> None:
 
 def test_cli_templates_path_for_one_template(isolated_user_dir: Path) -> None:
     from typer.testing import CliRunner
+
     from clipwright.cli import app
 
     _write_user_template(isolated_user_dir, "my-custom")
@@ -428,6 +432,7 @@ def test_cli_templates_apply_multiple(tmp_path: Path) -> None:
     """`clipwright templates apply A B` binds A as primary and B
     as secondary."""
     from typer.testing import CliRunner
+
     from clipwright.cli import app
 
     (tmp_path / "project.json").write_text(json.dumps({
@@ -448,6 +453,7 @@ def test_cli_templates_apply_multiple(tmp_path: Path) -> None:
 def test_cli_templates_apply_clear_with_dash(tmp_path: Path) -> None:
     """The `-` sentinel clears every binding."""
     from typer.testing import CliRunner
+
     from clipwright.cli import app
 
     (tmp_path / "project.json").write_text(json.dumps({

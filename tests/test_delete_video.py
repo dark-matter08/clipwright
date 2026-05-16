@@ -101,6 +101,7 @@ def test_delete_video_leaves_project_metadata(tmp_path: Path) -> None:
 def test_cli_video_delete_requires_yes(tmp_path: Path) -> None:
     """Without --yes the CLI prints a warning and bails (exit 0, no-op)."""
     from typer.testing import CliRunner
+
     from clipwright.cli import app
 
     _seed_project(tmp_path, ["chapter-1", "chapter-2"])
@@ -115,6 +116,7 @@ def test_cli_video_delete_requires_yes(tmp_path: Path) -> None:
 
 def test_cli_video_delete_with_yes_deletes(tmp_path: Path) -> None:
     from typer.testing import CliRunner
+
     from clipwright.cli import app
 
     _seed_project(tmp_path, ["chapter-1", "chapter-2"])
@@ -128,6 +130,7 @@ def test_cli_video_delete_with_yes_deletes(tmp_path: Path) -> None:
 
 def test_cli_video_delete_unknown_id_errors(tmp_path: Path) -> None:
     from typer.testing import CliRunner
+
     from clipwright.cli import app
 
     _seed_project(tmp_path, ["main"])
