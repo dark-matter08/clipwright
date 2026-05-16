@@ -1228,8 +1228,18 @@ def outro(
     rprint(f"[green]Outro[/green] -> {out_path}")
 
 
-generate_app = typer.Typer(no_args_is_help=True, help="Generative scene utilities (BYOK, opt-in).")
+generate_app = typer.Typer(
+    no_args_is_help=True,
+    help="Generative scene utilities (EXPERIMENTAL — BYOK, unverified against live APIs).",
+)
 app.add_typer(generate_app, name="generate")
+
+# Provider-specific install hints — keep aligned with pyproject extras.
+_GENERATE_EXTRAS_HINT = {
+    "veo": "pip install 'clipwright[veo]'",
+    "runway": "pip install 'clipwright[runway]'",
+    "dalle": "pip install 'clipwright[dalle]'",
+}
 
 
 def _generate_slot(
@@ -1241,8 +1251,27 @@ def _generate_slot(
     duration: float,
     fallback: bool,
     force: bool,
+    experimental: bool = False,
 ) -> None:
-    """Shared implementation for all `generate <slot>` sub-commands."""
+    """Shared implementation for all `generate <slot>` sub-commands.
+
+    Generative providers (Veo / Runway / DALL·E) are unverified against the
+    live APIs as of the last audit (Veo polls the wrong long-running-op
+    surface; Runway text-to-video falls through the image-to-video path).
+    Require ``--experimental`` to opt in; otherwise refuse with a hint.
+    """
+    if not experimental:
+        rprint(
+            "[red]Refused:[/red] `clipwright generate` is experimental and unverified.\n"
+            "[yellow]Pass[/yellow] [bold]--experimental[/bold] to run anyway. "
+            f"Provider deps: [dim]{_GENERATE_EXTRAS_HINT.get(provider, '(unknown provider)')}[/dim]\n"
+            "[dim]See docs/providers/ for the current verification status of each provider.[/dim]"
+        )
+        raise typer.Exit(2)
+    rprint(
+        "[yellow]⚠ EXPERIMENTAL:[/yellow] generative providers are unverified — "
+        "expect API-shape failures. Use --fallback to degrade gracefully."
+    )
     require()
     root = _root(project)
     cfg = _load_cfg(root)
@@ -1323,14 +1352,16 @@ def generate_intro(
     duration: float = typer.Option(3.0, "--duration", help="Clip duration in seconds"),
     fallback: bool = typer.Option(False, "--fallback", help="Fall back to static on failure"),
     force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate"),
+    experimental: bool = typer.Option(False, "--experimental", help="Opt-in to unverified generative providers."),
 ) -> None:
     """Generate a cinematic intro scene (uses brand image refs if available).
 
-    Requires `clipwright inspire <url>` to have been run first for on-brand output.
-    Writes out/generated/intro.mp4.
+    EXPERIMENTAL — requires ``--experimental``. Provider implementations are
+    unverified against live APIs as of the last audit.
     """
     _generate_slot("intro", project=project, provider=provider, prompt=prompt,
-                   duration=duration, fallback=fallback, force=force)
+                   duration=duration, fallback=fallback, force=force,
+                   experimental=experimental)
 
 
 @generate_app.command("broll")
@@ -1342,14 +1373,16 @@ def generate_broll(
     duration: float = typer.Option(2.5, "--duration", help="Clip duration in seconds"),
     fallback: bool = typer.Option(False, "--fallback", help="Fall back to static on failure"),
     force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate"),
+    experimental: bool = typer.Option(False, "--experimental", help="Opt-in to unverified generative providers."),
 ) -> None:
     """Generate atmospheric b-roll for a chapter divider.
 
-    Writes out/generated/broll_<chapter>.mp4.
+    EXPERIMENTAL — requires ``--experimental``.
     """
     effective_prompt = prompt or f"Smooth atmospheric transition for {chapter!r} chapter, abstract motion"
     _generate_slot(f"broll_{chapter}", project=project, provider=provider, prompt=effective_prompt,
-                   duration=duration, fallback=fallback, force=force)
+                   duration=duration, fallback=fallback, force=force,
+                   experimental=experimental)
 
 
 @generate_app.command("outro")
@@ -1364,13 +1397,15 @@ def generate_outro_gen(
     duration: float = typer.Option(3.0, "--duration", help="Clip duration in seconds"),
     fallback: bool = typer.Option(False, "--fallback", help="Fall back to BrandedOutro on failure"),
     force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate"),
+    experimental: bool = typer.Option(False, "--experimental", help="Opt-in to unverified generative providers."),
 ) -> None:
     """Generate a cinematic outro (replaces BrandedOutro scene).
 
-    Writes out/generated/outro.mp4.
+    EXPERIMENTAL — requires ``--experimental``.
     """
     _generate_slot("outro", project=project, provider=provider, prompt=prompt,
-                   duration=duration, fallback=fallback, force=force)
+                   duration=duration, fallback=fallback, force=force,
+                   experimental=experimental)
 
 
 @generate_app.command("hero")
@@ -1384,14 +1419,17 @@ def generate_hero(
     ),
     fallback: bool = typer.Option(False, "--fallback", help="Fall back to OG image on failure"),
     force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate"),
+    experimental: bool = typer.Option(False, "--experimental", help="Opt-in to unverified generative providers."),
 ) -> None:
     """Generate a static hero illustration for the TitleCard background.
 
-    Writes ``out/generated/hero.png`` and copies it to ``out/brand/hero.png``
-    so the Remotion ``TitleCard`` scene picks it up. Requires ``OPENAI_API_KEY``.
+    EXPERIMENTAL — requires ``--experimental``. Writes ``out/generated/hero.png``
+    and copies it to ``out/brand/hero.png`` so the Remotion ``TitleCard`` scene
+    picks it up. Requires ``OPENAI_API_KEY``.
     """
     _generate_slot("hero", project=project, provider=provider, prompt=prompt,
-                   duration=0.0, fallback=fallback, force=force)
+                   duration=0.0, fallback=fallback, force=force,
+                   experimental=experimental)
 
 
 @app.command()

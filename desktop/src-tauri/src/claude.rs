@@ -1388,19 +1388,7 @@ pub async fn run_clipwright_command(
              (must start with one of: {CLIPWRIGHT_RUN_PREFIXES:?})"
         ))
     })?;
-    // Reject lines containing shell metacharacters even AFTER prefix
-    // strip — they can't actually do harm because we don't invoke a
-    // shell, but they signal the user meant something the Play
-    // button can't honor (pipes, redirects). Surfacing this as an
-    // error is clearer than silently treating them as literal argv.
-    for bad in [';', '&', '|', '`', '$', '<', '>'] {
-        if tail.contains(bad) {
-            return Err(ClaudeError::Bad(format!(
-                "command contains unsupported shell metacharacter {bad:?}; \
-                 copy-paste this one into a terminal yourself"
-            )));
-        }
-    }
+    validate_clipwright_tail(tail)?;
     let args: Vec<&str> = tail.split_whitespace().collect();
     let start = Instant::now();
     let out = crate::clipwright::run_with_output(
@@ -1414,4 +1402,129 @@ pub async fn run_clipwright_command(
         exit_code: out.status.code().unwrap_or(-1),
         duration_ms: start.elapsed().as_millis() as u64,
     })
+}
+
+/// Reject shell metacharacters and path-traversal patterns in the tail of a
+/// clipwright command parsed from a chat code block. We don't invoke a shell
+/// so injection isn't possible, but these characters either (a) signal the
+/// user meant something the Play button can't honor (pipes, redirects, command
+/// substitution) or (b) would let an `..`-bearing argv escape the project
+/// sandbox if the CLI ever opens a path argument literally.
+///
+/// The metachar list is intentionally generous — newlines and quotes are
+/// included because they corrupt the chat log and any future shell-quoted
+/// re-execution path. Backslash is in because a future tokenizer change
+/// (e.g. shell-style splitting via `shlex`) would otherwise let it escape
+/// other rejections.
+fn validate_clipwright_tail(tail: &str) -> Result<(), ClaudeError> {
+    for bad in [';', '&', '|', '`', '$', '<', '>', '\n', '\r', '\\', '"', '\'', '(', ')', '{', '}'] {
+        if tail.contains(bad) {
+            return Err(ClaudeError::Bad(format!(
+                "command contains unsupported shell metacharacter {bad:?}; \
+                 copy-paste this one into a terminal yourself"
+            )));
+        }
+    }
+    // Defense in depth: refuse argv tokens that include `..` path components.
+    // A future CLI path argument that doesn't normalize input could otherwise
+    // be tricked into reading outside the project root via the Play button.
+    for token in tail.split_whitespace() {
+        // Match `..`, `../`, `..\\`, `foo/..`, `foo/../bar`, etc. Any path
+        // segment that's literally `..` is rejected.
+        let normalized = token.replace('\\', "/");
+        let has_dot_dot = normalized
+            .split('/')
+            .any(|seg| seg == "..");
+        if has_dot_dot {
+            return Err(ClaudeError::Bad(format!(
+                "command argv token {token:?} contains a `..` path component; \
+                 not allowed via the Play button (would escape the project sandbox)"
+            )));
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn metachar_rejection_covers_full_set() {
+        for ch in [';', '&', '|', '`', '$', '<', '>', '\n', '\r', '\\', '"', '\'', '(', ')', '{', '}'] {
+            let tail = format!("render-segment seg_001{ch}etc");
+            assert!(
+                validate_clipwright_tail(&tail).is_err(),
+                "metachar {ch:?} should be rejected, was accepted in {tail:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn benign_tails_accepted() {
+        for tail in [
+            "render-segment seg_001",
+            "tts-segment seg_004 --video main",
+            "render-final --video chapter-1-recap",
+            "doctor",
+            "",  // bare `clipwright`
+        ] {
+            assert!(
+                validate_clipwright_tail(tail).is_ok(),
+                "tail {tail:?} should be accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_path_traversal_argv() {
+        for tail in [
+            "render-segment ../seg_001",
+            "render-final --project ../../other",
+            "import sources/../../etc/passwd",
+            "import ..",
+        ] {
+            assert!(
+                validate_clipwright_tail(tail).is_err(),
+                "path-traversal tail {tail:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn allows_dot_inside_filename() {
+        // `..` is only flagged as a *path segment* — substrings like
+        // `foo..bar` or `version-1.2.mp4` must pass.
+        for tail in [
+            "import version-1.2.mp4",
+            "render-segment seg.001",
+            "render-final --output out..file.mp4",
+        ] {
+            assert!(
+                validate_clipwright_tail(tail).is_ok(),
+                "dotted-but-not-traversal tail {tail:?} should be accepted"
+            );
+        }
+    }
+
+    /// Invariant: every prefix users can type via the Play button must also
+    /// be in the auto-edits Bash allow-list, so Claude can produce the same
+    /// command without the user hitting a tool-permission dialog. Drifting
+    /// breaks the UX in subtle ways — this test pins them together.
+    #[test]
+    fn run_prefixes_match_accept_edits_allow_list() {
+        for prefix in CLIPWRIGHT_RUN_PREFIXES {
+            let expected = format!("Bash({prefix}:*)");
+            assert!(
+                ALLOWED_TOOLS_FOR_ACCEPT_EDITS.contains(&expected.as_str()),
+                "Play-button prefix {prefix:?} has no matching Bash pattern \
+                 {expected:?} in ALLOWED_TOOLS_FOR_ACCEPT_EDITS. \
+                 The two lists must stay in sync."
+            );
+        }
+    }
 }
