@@ -1,3 +1,4 @@
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Hub } from "./components/Hub";
 import { Workspace } from "./components/Workspace";
 import { useGlobalKeys } from "./lib/keyboard";
@@ -25,7 +26,15 @@ export function App() {
           </button>
         </div>
       )}
-      {view === "hub" ? <Hub /> : <Workspace />}
+      {/* Without this boundary, any uncaught render error in Hub /
+       *  Workspace (e.g. Preview's convertFileSrc throwing during a
+       *  hot-reload, a transient prop-shape mismatch after a store
+       *  action, etc.) unmounts the entire React root and presents
+       *  as a blank screen. The boundary catches it, shows the error
+       *  text, and lets the user reset back into the app. */}
+      <ErrorBoundary label={view === "hub" ? "Hub crashed." : "Workspace crashed."}>
+        {view === "hub" ? <Hub /> : <Workspace />}
+      </ErrorBoundary>
     </div>
   );
 }
