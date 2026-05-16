@@ -28,8 +28,10 @@ def _draft_text(hint: str, target_seconds: float) -> str:
     - Join multiple fragments with ". " so TTS pauses between them.
     """
     if not hint or hint == "no actions captured in this segment":
-        word_budget = max(4, math.ceil(target_seconds * _TARGET_WPS))
-        return ". ".join(["Introducing a new feature"] * max(1, word_budget // 5)) + "."
+        # No semantic signal to draft from — emit empty so the agent / user is
+        # forced to write copy. Repeating placeholder copy ("Introducing a new
+        # feature. Introducing a new feature.") used to ship to TTS verbatim.
+        return ""
 
     # Split on " → " delimiters written by _hint_for_segment.
     parts = [p.strip() for p in hint.split("→") if p.strip()]

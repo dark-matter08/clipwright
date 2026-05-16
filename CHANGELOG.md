@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — post-merge cleanup (waves 1-3)
+
+A correctness sweep of the surface area that landed in the
+`feat/stoic-hermann-16101f` merge plus the v2 desktop refactor.
+
+**Wave 1 — agent-facing correctness**
+
+- `SKILL.md`: full rewrite for the v2 schema + Clipwright Studio
+  reality. The prior version still referenced `clipwright edit-plan`
+  (renamed to `review`) and a single-video pipeline; agents reading it
+  would emit commands that no longer exist. The new SKILL teaches the
+  per-segment cached pipeline (`record-project`, `import`,
+  `render-segment`, `render-final`, `tts-segment`, `caption-segment`),
+  the v2 directory layout (`videos/<video_id>.json`,
+  `out/segments/<video_id>/`), the two entry modes (Record vs Upload),
+  and the Studio Mode-B contract.
+- `script_skeleton._draft_text`: kill the
+  "Introducing a new feature. Introducing a new feature. …" placeholder
+  loop that shipped to TTS verbatim on empty hints. Returns empty so
+  the agent/human is forced to write copy.
+- `clipwright generate hero`: actually copy the generated PNG to
+  `brand/hero.png` so the Remotion `TitleCard` scene picks it up. The
+  prior docstring claimed a symlink that the code never wrote.
+- `clipwright init`: restore browse-plan scaffold scroll `wait: 1.2`
+  (had been bumped to 2.5 with no rationale).
+
+**Wave 2 — security pass**
+
+- Generative providers (Veo / Runway / DALL·E) now refuse to run
+  without `--experimental`. They were shipping unverified: Veo polls
+  the wrong long-running-op endpoint (`get_hyperparameter_tuning_job`),
+  Runway's text-to-video path always calls `image_to_video.create`
+  (400s without `prompt_image`). The gate fires before any filesystem
+  or network work, with a clear "Refused — pass --experimental"
+  message and exit 2.
+- `desktop/src-tauri/src/claude.rs` — Play-button runner hardening:
+  - Wider metacharacter rejection (`; & | ` $ < > \n \r \\ " ' ( ) { }`).
+  - Argv tokens containing a `..` path segment are refused (defense
+    in depth against future CLI changes that might open argv paths
+    literally).
+  - Compile-time-style invariant: a `#[test]` pins every
+    `CLIPWRIGHT_RUN_PREFIXES` entry to a matching
+    `Bash(<prefix>:*)` in `ALLOWED_TOOLS_FOR_ACCEPT_EDITS`. Drift
+    between the two lists is now caught by CI, not by users.
+- Schema healing (`normalize_v2_video_ids`) now writes an audit trail
+  to `<project>/.clipwright/migrations.log` — one JSONL line per
+  rename `{ts, kind, old, new}`. Idempotent: re-running on an already-
+  normalized project does not duplicate log entries.
+
+**Wave 3 — code quality**
+
+- Three duplicate `_read_cache_hash` / `_write_cache` implementations
+  (in `tts_segment`, `caption_segment`, `render_segment`) consolidated
+  into `clipwright.cache`. Future schema changes to the sidecar shape
+  land in one file.
+- `clipwright/generate/dalle.py`: switch from deprecated
+  `response_format="url"` (urllib download + temp file) to inline
+  `b64_json`. One HTTP hop instead of two, no SSL/timeout pitfalls.
+- `clipwright doctor`: new "Skill ↔ CLI sync" check parses SKILL.md
+  for `clipwright <cmd>` mentions and flags any that don't resolve to
+  a registered Typer subcommand. Catches future drift like the
+  `edit-plan` rename.
+
+**Test deltas:** 302 → 321 Python tests; 3 → 8 Rust tests. Lint clean.
+
 ### Added (Play button on `clipwright …` code blocks in chat)
 
 **What's new:** when Claude's reply contains a fenced code block

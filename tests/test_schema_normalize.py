@@ -149,3 +149,49 @@ def test_load_project_auto_normalizes(tmp_path: Path) -> None:
     assert list_videos(tmp_path) == ["chapter-1-recap"]
     v = load_video(tmp_path, "chapter-1-recap")
     assert v.video_id == "chapter-1-recap"
+
+
+def test_normalizer_writes_migration_log(tmp_path: Path) -> None:
+    """Healing mutates user data — record what changed in .clipwright/migrations.log."""
+    _write_v2_project_with_bad_video(tmp_path, bad_id="Chapter-1-recap")
+    report = normalize_v2_video_ids(tmp_path)
+    assert report.renames == [("Chapter-1-recap", "chapter-1-recap")]
+
+    log_path = tmp_path / ".clipwright" / "migrations.log"
+    assert log_path.exists(), "migration log must be written when renames occur"
+    lines = [line for line in log_path.read_text().splitlines() if line]
+    assert len(lines) == 1
+    entry = json.loads(lines[0])
+    assert entry["kind"] == "video_id_normalize"
+    assert entry["old"] == "Chapter-1-recap"
+    assert entry["new"] == "chapter-1-recap"
+    assert "ts" in entry and entry["ts"], "timestamp must be present"
+
+
+def test_normalizer_idempotent_does_not_relog(tmp_path: Path) -> None:
+    """Re-running on an already-normalized project must not append duplicate log entries."""
+    _write_v2_project_with_bad_video(tmp_path, bad_id="Chapter-1-recap")
+    normalize_v2_video_ids(tmp_path)
+    log_path = tmp_path / ".clipwright" / "migrations.log"
+    first = log_path.read_text()
+    # Re-run — there's nothing to rename now.
+    report = normalize_v2_video_ids(tmp_path)
+    assert report.renames == []
+    second = log_path.read_text()
+    assert first == second, "no renames → no new log lines"
+
+
+def test_normalizer_no_log_when_no_renames(tmp_path: Path) -> None:
+    """A clean project must not get a migrations.log just from being loaded."""
+    (tmp_path / "project.json").write_text(json.dumps({
+        "schema_version": 2, "title": "x", "aspect": "9:16", "fps": 30,
+        "render_backend": "remotion", "tts_provider": "kokoro",
+    }))
+    (tmp_path / "videos").mkdir()
+    (tmp_path / "videos" / "main.json").write_text(json.dumps({
+        "schema_version": 2, "video_id": "main", "title": "Main",
+        "chat_session_id": "", "segments": [],
+    }))
+    report = normalize_v2_video_ids(tmp_path)
+    assert report.renames == []
+    assert not (tmp_path / ".clipwright" / "migrations.log").exists()

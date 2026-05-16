@@ -96,14 +96,14 @@ def init(
                 "label": "Open the landing page",
                 "chapter": "intro",
                 "fields": {"url": "/"},
-                "wait": 2.5,
+                "wait": 1.5,
             },
             {
                 "type": "scroll",
                 "label": "Browse what's on offer",
                 "chapter": "intro",
                 "fields": {"by_y": 600},
-                "wait": 2.5,
+                "wait": 1.2,
             },
         ],
     }
@@ -1228,8 +1228,18 @@ def outro(
     rprint(f"[green]Outro[/green] -> {out_path}")
 
 
-generate_app = typer.Typer(no_args_is_help=True, help="Generative scene utilities (BYOK, opt-in).")
+generate_app = typer.Typer(
+    no_args_is_help=True,
+    help="Generative scene utilities (EXPERIMENTAL — BYOK, unverified against live APIs).",
+)
 app.add_typer(generate_app, name="generate")
+
+# Provider-specific install hints — keep aligned with pyproject extras.
+_GENERATE_EXTRAS_HINT = {
+    "veo": "pip install 'clipwright[veo]'",
+    "runway": "pip install 'clipwright[runway]'",
+    "dalle": "pip install 'clipwright[dalle]'",
+}
 
 
 def _generate_slot(
@@ -1241,8 +1251,27 @@ def _generate_slot(
     duration: float,
     fallback: bool,
     force: bool,
+    experimental: bool = False,
 ) -> None:
-    """Shared implementation for all `generate <slot>` sub-commands."""
+    """Shared implementation for all `generate <slot>` sub-commands.
+
+    Generative providers (Veo / Runway / DALL·E) are unverified against the
+    live APIs as of the last audit (Veo polls the wrong long-running-op
+    surface; Runway text-to-video falls through the image-to-video path).
+    Require ``--experimental`` to opt in; otherwise refuse with a hint.
+    """
+    if not experimental:
+        rprint(
+            "[red]Refused:[/red] `clipwright generate` is experimental and unverified.\n"
+            "[yellow]Pass[/yellow] [bold]--experimental[/bold] to run anyway. "
+            f"Provider deps: [dim]{_GENERATE_EXTRAS_HINT.get(provider, '(unknown provider)')}[/dim]\n"
+            "[dim]See docs/providers/ for the current verification status of each provider.[/dim]"
+        )
+        raise typer.Exit(2)
+    rprint(
+        "[yellow]⚠ EXPERIMENTAL:[/yellow] generative providers are unverified — "
+        "expect API-shape failures. Use --fallback to degrade gracefully."
+    )
     require()
     root = _root(project)
     cfg = _load_cfg(root)
@@ -1295,6 +1324,32 @@ def _generate_slot(
             rprint(f"[yellow]Fallback:[/yellow] {exc} — using static scene")
             return
         _handle_error(exc)
+        return
+
+    # Wire the generated hero into the brand pipeline so the TitleCard scene
+    # actually picks it up. Without this copy step the downstream Remotion
+    # composition keeps falling back to inspire's hero.png (or none at all).
+    #
+    # Use copy + os.replace so a concurrent Remotion render reading
+    # `brand/hero.png` never catches a partial PNG. Guard SameFileError in
+    # case `out_path` and `dst` resolve to the same file under a custom
+    # `out_dir` config.
+    if slot == "hero":
+        import os as _os
+        import shutil as _shutil
+
+        brand_dir.mkdir(parents=True, exist_ok=True)
+        dst = brand_dir / "hero.png"
+        try:
+            if out_path.resolve() == dst.resolve():
+                rprint(f"[dim]Skipped copy[/dim] (out_path == dst): {dst}")
+            else:
+                tmp = dst.with_suffix(f".png.tmp-{_os.getpid()}")
+                _shutil.copyfile(out_path, tmp)
+                _os.replace(tmp, dst)
+                rprint(f"[dim]Wired[/dim] {out_path.name} → {dst}")
+        except OSError as exc:
+            rprint(f"[yellow]Warn:[/yellow] generated hero saved at {out_path} but copy to {dst} failed: {exc}")
 
 
 @generate_app.command("intro")
@@ -1309,14 +1364,16 @@ def generate_intro(
     duration: float = typer.Option(3.0, "--duration", help="Clip duration in seconds"),
     fallback: bool = typer.Option(False, "--fallback", help="Fall back to static on failure"),
     force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate"),
+    experimental: bool = typer.Option(False, "--experimental", help="Opt-in to unverified generative providers."),
 ) -> None:
     """Generate a cinematic intro scene (uses brand image refs if available).
 
-    Requires `clipwright inspire <url>` to have been run first for on-brand output.
-    Writes out/generated/intro.mp4.
+    EXPERIMENTAL — requires ``--experimental``. Provider implementations are
+    unverified against live APIs as of the last audit.
     """
     _generate_slot("intro", project=project, provider=provider, prompt=prompt,
-                   duration=duration, fallback=fallback, force=force)
+                   duration=duration, fallback=fallback, force=force,
+                   experimental=experimental)
 
 
 @generate_app.command("broll")
@@ -1328,14 +1385,16 @@ def generate_broll(
     duration: float = typer.Option(2.5, "--duration", help="Clip duration in seconds"),
     fallback: bool = typer.Option(False, "--fallback", help="Fall back to static on failure"),
     force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate"),
+    experimental: bool = typer.Option(False, "--experimental", help="Opt-in to unverified generative providers."),
 ) -> None:
     """Generate atmospheric b-roll for a chapter divider.
 
-    Writes out/generated/broll_<chapter>.mp4.
+    EXPERIMENTAL — requires ``--experimental``.
     """
     effective_prompt = prompt or f"Smooth atmospheric transition for {chapter!r} chapter, abstract motion"
     _generate_slot(f"broll_{chapter}", project=project, provider=provider, prompt=effective_prompt,
-                   duration=duration, fallback=fallback, force=force)
+                   duration=duration, fallback=fallback, force=force,
+                   experimental=experimental)
 
 
 @generate_app.command("outro")
@@ -1350,13 +1409,15 @@ def generate_outro_gen(
     duration: float = typer.Option(3.0, "--duration", help="Clip duration in seconds"),
     fallback: bool = typer.Option(False, "--fallback", help="Fall back to BrandedOutro on failure"),
     force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate"),
+    experimental: bool = typer.Option(False, "--experimental", help="Opt-in to unverified generative providers."),
 ) -> None:
     """Generate a cinematic outro (replaces BrandedOutro scene).
 
-    Writes out/generated/outro.mp4.
+    EXPERIMENTAL — requires ``--experimental``.
     """
     _generate_slot("outro", project=project, provider=provider, prompt=prompt,
-                   duration=duration, fallback=fallback, force=force)
+                   duration=duration, fallback=fallback, force=force,
+                   experimental=experimental)
 
 
 @generate_app.command("hero")
@@ -1370,14 +1431,17 @@ def generate_hero(
     ),
     fallback: bool = typer.Option(False, "--fallback", help="Fall back to OG image on failure"),
     force: bool = typer.Option(False, "--force", help="Ignore cache and regenerate"),
+    experimental: bool = typer.Option(False, "--experimental", help="Opt-in to unverified generative providers."),
 ) -> None:
     """Generate a static hero illustration for the TitleCard background.
 
-    Writes out/generated/hero.png and symlinks it as out/brand/hero.png.
-    Requires OPENAI_API_KEY.
+    EXPERIMENTAL — requires ``--experimental``. Writes ``out/generated/hero.png``
+    and copies it to ``out/brand/hero.png`` so the Remotion ``TitleCard`` scene
+    picks it up. Requires ``OPENAI_API_KEY``.
     """
     _generate_slot("hero", project=project, provider=provider, prompt=prompt,
-                   duration=0.0, fallback=fallback, force=force)
+                   duration=0.0, fallback=fallback, force=force,
+                   experimental=experimental)
 
 
 @app.command()
@@ -1668,11 +1732,98 @@ def doctor(
             )
 
     rprint("")
+    rprint("[bold]Skill ↔ CLI sync[/bold]")
+    # Parse the repo's SKILL.md for `clipwright <subcommand>` references and
+    # verify each one resolves to a registered Typer command. Catches drift
+    # like the `edit-plan` → `review` rename that left SKILL.md stale on main.
+    skill_path = Path(__file__).resolve().parent.parent.parent / "SKILL.md"
+    if not skill_path.exists():
+        rprint(f"  [dim]–[/dim] SKILL.md not found at {skill_path} (skipping)")
+    else:
+        missing = _skill_md_unknown_commands(skill_path)
+        if not missing:
+            check("SKILL.md commands all resolve to a CLI subcommand", True)
+        else:
+            ok = False
+            unique = sorted(set(missing))
+            rprint(
+                f"  [red]✗[/red] SKILL.md references commands the CLI doesn't expose: "
+                f"{', '.join(repr(c) for c in unique)}"
+            )
+            rprint(
+                "    [yellow]Fix:[/yellow] update SKILL.md, or add the missing "
+                "subcommand. The skill is what agents read — drift here breaks them silently."
+            )
+
+    rprint("")
     if ok:
         rprint("[green]All checks passed.[/green]")
     else:
         rprint("[yellow]Some checks failed — fix the issues above and re-run `clipwright doctor`.[/yellow]")
         raise typer.Exit(1)
+
+
+# Subcommands that don't appear in `app.registered_commands` because they're
+# attached via sub-typer (script_app, generate_app). Listed here so the doctor
+# check accepts them as valid.
+_KNOWN_SUBCOMMAND_GROUPS = {
+    "script": {"init"},
+    "generate": {"intro", "broll", "outro", "hero"},
+}
+
+
+def _registered_cli_commands() -> set[str]:
+    """Return every Typer command name the CLI exposes.
+
+    Includes the flat commands on `app` and the sub-typer commands
+    (e.g. `script init`, `generate hero`). Names use single-space form
+    so they match the strings SKILL.md uses ("clipwright script init").
+    """
+    names: set[str] = set()
+    for cmd in app.registered_commands:
+        if cmd.name:
+            names.add(cmd.name)
+        elif cmd.callback is not None:
+            names.add(cmd.callback.__name__.replace("_", "-"))
+    for group, leaves in _KNOWN_SUBCOMMAND_GROUPS.items():
+        for leaf in leaves:
+            names.add(f"{group} {leaf}")
+    return names
+
+
+def _skill_md_unknown_commands(skill_path: Path) -> list[str]:
+    """Extract `clipwright <cmd>` mentions from SKILL.md and return any
+    that aren't registered Typer commands.
+
+    Tolerates:
+      - flag noise after the subcommand ("clipwright tts --provider …")
+      - sub-typer commands ("clipwright script init")
+      - quoting / punctuation around the name in prose
+    """
+    import re
+
+    text = skill_path.read_text()
+    known = _registered_cli_commands()
+    # Match `clipwright <word>` and optionally one trailing space-separated word
+    # so we catch sub-typer leaves like `script init`. Stop at flags / pipes.
+    # Use `[ \t]+` not `\s+` so newlines aren't crossed — otherwise the
+    # frontmatter pattern `name: clipwright\ndescription: …` would match
+    # `clipwright description` and flag a fake "command."
+    pattern = re.compile(r"clipwright[ \t]+([a-zA-Z][\w-]*)(?:[ \t]+([a-zA-Z][\w-]*))?")
+    missing: list[str] = []
+    for match in pattern.finditer(text):
+        head = match.group(1)
+        tail = match.group(2)
+        # Two-word form: only valid if it's a known sub-typer group + leaf.
+        if tail and head in _KNOWN_SUBCOMMAND_GROUPS:
+            full = f"{head} {tail}"
+            if full not in known:
+                missing.append(full)
+            continue
+        # Otherwise the head is the command name; ignore tail (it's args/flags).
+        if head not in known:
+            missing.append(head)
+    return missing
 
 
 if __name__ == "__main__":
