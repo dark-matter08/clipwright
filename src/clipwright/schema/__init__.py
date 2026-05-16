@@ -34,6 +34,7 @@ from .io import (
     save_video,
 )
 from .v2 import (
+    PanelFrame,
     Project,
     Segment,
     SegmentRef,
@@ -51,6 +52,7 @@ __all__ = [
     "Segment",
     "SegmentRef",
     "SegmentVoiceover",
+    "PanelFrame",
     "next_video_id",
     "load_project",
     "save_project",

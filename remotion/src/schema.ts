@@ -92,16 +92,39 @@ export const PanelCaptionSchema = z.object({
   end: z.number(),
 });
 
+/** One frame inside a segment's sequential `panels[]` cycle. The
+ *  renderer plays these in order with a crossfade between each pair.
+ *  When `duration_seconds` is 0, the frame's share of the segment is
+ *  computed as `(segment.duration - sum(explicit durations)) / count(implicit)`. */
+export const PanelFrameSchema = z.object({
+  source: z.string(),
+  duration_seconds: z.number().default(0),
+});
+
 /** One panel-based segment for the manhwa-recap composition. */
 export const PanelSegmentSchema = z.object({
   id: z.string(),
-  /** Path to the still panel relative to remotion/public/. */
+  /** Path to the still panel relative to remotion/public/. Ignored when
+   *  `panels[]` is non-empty (sequential mode takes over). */
   source: z.string(),
+  /** Stacked comic-strip layout — N panels visible AT ONCE, with cards. */
+  sources: z.array(z.string()).default([]),
+  /** Sequential multi-image mode — N panels played one after another
+   *  with crossfade. Distinct from `sources` (stacked).
+   *
+   *  Empty array = use single `source`. When non-empty:
+   *  - explicit `duration_seconds > 0` pins that frame's window.
+   *  - `duration_seconds == 0` splits the remaining segment time
+   *    evenly across all such frames.
+   *  Each frame is fit/scroll-rendered independently using the same
+   *  aspect-ratio logic as a single panel. */
+  panels: z.array(PanelFrameSchema).default([]),
   /** Total on-screen duration in seconds. */
   duration: z.number(),
   /** Optional per-segment audio (TTS voiceover). Relative to public/. */
   audio_path: z.string().nullable().default(null),
-  /** Optional Ken Burns keyframes. Empty array = static shot. */
+  /** Optional Ken Burns keyframes. Empty array = static shot. Ignored
+   *  in sequential-panels mode (the crossfade is the camera). */
   camera: z.array(KenBurnsKeyframeSchema).default([]),
   /** Optional caption events local to this segment. */
   captions: z.array(PanelCaptionSchema).default([]),
@@ -130,6 +153,7 @@ export const ManhwaInputsSchema = z.object({
 });
 
 export type KenBurnsKeyframe = z.infer<typeof KenBurnsKeyframeSchema>;
+export type PanelFrame = z.infer<typeof PanelFrameSchema>;
 export type PanelSegment = z.infer<typeof PanelSegmentSchema>;
 export type PanelCaption = z.infer<typeof PanelCaptionSchema>;
 export type ManhwaTheme = z.infer<typeof ManhwaThemeSchema>;

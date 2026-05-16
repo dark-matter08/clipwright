@@ -77,6 +77,47 @@ class SegmentRef:
 
 
 @dataclass
+class PanelFrame:
+    """One image inside a segment's `panels` sequence.
+
+    `panels` enables a segment to cycle through N images sequentially
+    with crossfade transitions — each frame gets its own slice of the
+    segment's total `target_duration`. This is distinct from `sources`
+    (stacked comic-strip layout within one frame); use `panels` when
+    you want N images shown one-after-another, use `sources` when you
+    want N images in a card-stack at once.
+
+    Fields:
+        source: relative path to the image (e.g. "sources/panels/ch1/p07.webp").
+        duration_seconds: how long this image stays on screen, in seconds.
+            Optional — when omitted (or 0), the remaining time on the
+            segment is split equally across all frames without an
+            explicit duration. So you can mix-and-match: give two of
+            five frames an explicit duration and the other three split
+            the leftover.
+    """
+
+    source: str
+    duration_seconds: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"source": self.source}
+        if self.duration_seconds > 0:
+            out["duration_seconds"] = round(self.duration_seconds, 3)
+        return out
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> PanelFrame:
+        src = str(d.get("source", "")).strip()
+        if not src:
+            raise ValueError("panels[].source is required and must be non-empty")
+        return cls(
+            source=src,
+            duration_seconds=float(d.get("duration_seconds", 0.0) or 0.0),
+        )
+
+
+@dataclass
 class Segment:
     """A single editable timeline segment.
 
@@ -97,13 +138,23 @@ class Segment:
     captions: SegmentRef = field(default_factory=lambda: SegmentRef(ref=""))
     camera: SegmentRef = field(default_factory=lambda: SegmentRef(ref=""))
     annotations: SegmentRef = field(default_factory=lambda: SegmentRef(ref=""))
+    # `panels` lets one segment cycle through N images sequentially with
+    # crossfade transitions. When non-empty, the manhwa-recap renderer
+    # ignores `source` and instead plays the panels in order, with each
+    # frame's `duration_seconds` defining its on-screen time (any frame
+    # without an explicit duration shares the leftover equally). The
+    # voiceover/captions/audio still belong to the whole segment — only
+    # the visual cycles. Use this when one beat has multiple supporting
+    # images (e.g. an escalation sequence where 3 panels land under one
+    # voiceover sentence).
+    panels: list[PanelFrame] = field(default_factory=list)
 
     @property
     def source_duration(self) -> float:
         return max(0.0, self.source_end - self.source_start)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "id": self.id,
             "source": self.source,
             "source_start": round(self.source_start, 3),
@@ -118,6 +169,12 @@ class Segment:
             "camera": self.camera.to_dict(),
             "annotations": self.annotations.to_dict(),
         }
+        # `panels` is a new opt-in field. Omit it when empty so existing
+        # single-image segments round-trip identical bytes on save — keeps
+        # diffs clean and avoids gratuitous schema-version churn.
+        if self.panels:
+            out["panels"] = [p.to_dict() for p in self.panels]
+        return out
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Segment:
@@ -152,6 +209,16 @@ class Segment:
                     f"segment {seg_id}: source_end ({src_end}) < source_start ({src_start})"
                 )
 
+        raw_panels = d.get("panels") or []
+        if not isinstance(raw_panels, list):
+            raise ValueError(
+                f"segment {seg_id}: `panels` must be a list of "
+                f"{{source, duration_seconds?}} objects; got {type(raw_panels).__name__}"
+            )
+        panels = [
+            PanelFrame.from_dict(p) if isinstance(p, dict) else PanelFrame(source=str(p))
+            for p in raw_panels
+        ]
         return cls(
             id=seg_id,
             source=str(d.get("source", "")),
@@ -166,6 +233,7 @@ class Segment:
             captions=SegmentRef.from_dict(d.get("captions") or {}),
             camera=SegmentRef.from_dict(d.get("camera") or {}),
             annotations=SegmentRef.from_dict(d.get("annotations") or {}),
+            panels=panels,
         )
 
 

@@ -24,6 +24,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from ..schema import Segment, Video, load_project, load_video, paths
 
@@ -276,7 +277,7 @@ def build_inputs(
         script_text = script_clips.get(seg.voiceover.script_clip_id, "")
         captions = _load_captions(project_dir, video_id, seg, script_text)
 
-        # Stage extra sources for multi-panel layout.
+        # Stage extra sources for multi-panel layout (stacked comic-strip).
         # Read `sources` from the raw video JSON (not on the Segment dataclass).
         extra_sources: list[str] = []
         raw_seg = _raw_segments_by_id.get(seg.id, {})
@@ -287,10 +288,34 @@ def build_inputs(
                 staged = _stage_file(extra_path, stage.panels_dir, f"{seg.id}_s{i}{ext}")
                 extra_sources.append(stage.relative(staged))
 
+        # Stage `panels` — the SEQUENTIAL multi-image mode. Distinct from
+        # `sources` above (stacked) in that the renderer plays these one
+        # after another with crossfade transitions, each occupying its
+        # `duration_seconds` (or an even share of the segment when 0).
+        panels_inputs: list[dict[str, Any]] = []
+        for i, p in enumerate(seg.panels):
+            src_rel = p.source.strip()
+            if not src_rel:
+                continue
+            extra_path = project_dir / src_rel
+            if not extra_path.exists():
+                # Skip silently — leaving a panel out is the right
+                # graceful degrade vs aborting the whole render. The
+                # voiceover still plays; the remaining frames just
+                # occupy more of the segment.
+                continue
+            ext = extra_path.suffix or ".png"
+            staged = _stage_file(extra_path, stage.panels_dir, f"{seg.id}_p{i}{ext}")
+            panels_inputs.append({
+                "source": stage.relative(staged),
+                "duration_seconds": float(p.duration_seconds or 0.0),
+            })
+
         seg_inputs.append({
             "id": seg.id,
             "source": rel_panel,
             "sources": extra_sources,
+            "panels": panels_inputs,
             "duration": float(seg.target_duration),
             "audio_path": rel_audio,
             "camera": camera,

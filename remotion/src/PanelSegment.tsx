@@ -24,12 +24,14 @@ import {
   useVideoConfig,
 } from "remotion";
 import { ChapterChip } from "./components/ChapterChip";
-import type { KenBurnsKeyframe, PanelCaption } from "./schema";
+import type { KenBurnsKeyframe, PanelCaption, PanelFrame } from "./schema";
 import type { ThemeTokens } from "./themes";
 
 interface PanelSegmentProps {
   source: string;
   sources: string[];
+  /** Sequential multi-image cycle. Empty array = single-image mode. */
+  panels: PanelFrame[];
   durationSeconds: number;
   audioPath: string | null;
   camera: KenBurnsKeyframe[];
@@ -67,6 +69,7 @@ const PANEL_RADIUS = 12; // px — rounded corners on each panel card (multi onl
 export const PanelSegment: React.FC<PanelSegmentProps> = ({
   source,
   sources,
+  panels,
   durationSeconds,
   audioPath,
   camera,
@@ -83,12 +86,20 @@ export const PanelSegment: React.FC<PanelSegmentProps> = ({
   const offsetX = panX * width;
   const offsetY = panY * height;
 
-  // Resolve which images to show: prefer `sources` if non-empty.
+  // Three layouts, decided in priority order:
+  //   1. `panels[]` non-empty → SEQUENTIAL cycle (crossfade between frames).
+  //   2. `sources[]` non-empty → STACKED comic-strip (cards visible at once).
+  //   3. Single `source` → fit/scroll single-panel via `SinglePanel`.
+  const useSequence = panels.length > 0;
   const panelPaths = sources.length > 0 ? sources : [source];
-  const isMulti = panelPaths.length > 1;
+  const isMulti = !useSequence && panelPaths.length > 1;
 
-  // Primary source for the bokeh background
-  const bgSource = panelPaths[0]!;
+  // Primary source for the bokeh background. In sequence mode we use
+  // the first panel; that means the backdrop stays stable across the
+  // crossfade, which is the visual choice the reference style makes
+  // (the bokeh isn't trying to also crossfade between every frame —
+  // that would be too busy).
+  const bgSource = useSequence ? panels[0]!.source : panelPaths[0]!;
 
   // Multi-panel layout metrics — only used in the multi branch below.
   // Single-panel mode ignores these entirely and uses full-bleed height.
@@ -122,8 +133,14 @@ export const PanelSegment: React.FC<PanelSegmentProps> = ({
         />
       </div>
 
-      {/* Sharp panel layer with Ken Burns. */}
-      {isMulti ? (
+      {/* Sharp panel layer. Branches by layout in priority order. */}
+      {useSequence ? (
+        <PanelSequence
+          panels={panels}
+          totalDurationSeconds={durationSeconds}
+          t={t}
+        />
+      ) : isMulti ? (
         // Multi-panel: stacked cards with rounded corners and gaps. Kept
         // the legacy layout because comic-strip multi-panel framing
         // genuinely benefits from card edges + drop shadow.
@@ -238,6 +255,108 @@ export const PanelSegment: React.FC<PanelSegmentProps> = ({
 // would compete with the scroll and feel jittery.
 
 const SCROLL_ASPECT_THRESHOLD = 0.48;
+
+// ---------------------------------------------------------------------------
+// PanelSequence — sequential image cycle with crossfade
+// ---------------------------------------------------------------------------
+//
+// Renders a segment's `panels[]` array as a temporal sequence: each
+// frame appears for its computed window, with a short crossfade
+// between adjacent frames so the cut never feels hard.
+//
+// Per-frame duration resolution:
+//   - Frames with `duration_seconds > 0` keep their explicit value.
+//   - The leftover (segment_duration - sum_of_explicit) is split evenly
+//     across the implicit frames.
+//   - If the leftover is negative (explicit durations overspecified the
+//     segment), we clip back to a proportional share. No frame goes
+//     below 0.5s — at that point the human eye can't register the
+//     content anyway.
+//
+// Crossfade: 0.4s by default. The next frame fades in over its first
+// 0.4s while the prior frame fades out over its last 0.4s, producing
+// a clean dissolve without the audio cutting (audio is on the parent
+// segment, untouched). All frames render layered absolute-positioned;
+// opacity drives the visibility.
+//
+// Each frame inside the sequence delegates to `SinglePanel` so it
+// inherits the fit/scroll aspect logic — a tall webtoon page used as
+// one of N sequential frames still scrolls within its own window.
+
+const SEQUENCE_CROSSFADE_SEC = 0.4;
+const SEQUENCE_MIN_FRAME_SEC = 0.5;
+
+const PanelSequence: React.FC<{
+  panels: PanelFrame[];
+  totalDurationSeconds: number;
+  t: number;
+}> = ({ panels, totalDurationSeconds, t }) => {
+  // Resolve final per-frame durations.
+  const explicitSum = panels.reduce(
+    (sum, p) => sum + (p.duration_seconds > 0 ? p.duration_seconds : 0),
+    0,
+  );
+  const implicitCount = panels.filter((p) => !(p.duration_seconds > 0)).length;
+  const leftover = totalDurationSeconds - explicitSum;
+  const perImplicit =
+    implicitCount > 0 ? Math.max(SEQUENCE_MIN_FRAME_SEC, leftover / implicitCount) : 0;
+  // Compute cumulative windows.
+  let cursor = 0;
+  const windows = panels.map((p) => {
+    const dur =
+      p.duration_seconds > 0
+        ? Math.max(SEQUENCE_MIN_FRAME_SEC, p.duration_seconds)
+        : perImplicit;
+    const start = cursor;
+    const end = cursor + dur;
+    cursor = end;
+    return { source: p.source, start, end, dur };
+  });
+
+  return (
+    <div style={{ position: "absolute", inset: 0 }}>
+      {windows.map((w, i) => {
+        // Smooth in/out via interpolate. The fade-in window ends at
+        // w.start + crossfade, and the fade-out window starts at
+        // w.end - crossfade. We clamp half-crossfade against the
+        // segment boundaries on the very first / very last frame so
+        // they don't fade from / to black at the segment edges.
+        const halfFade = SEQUENCE_CROSSFADE_SEC / 2;
+        const isFirst = i === 0;
+        const isLast = i === windows.length - 1;
+        const fadeInStart = isFirst ? -halfFade : w.start - halfFade;
+        const fadeInEnd = w.start + halfFade;
+        const fadeOutStart = w.end - halfFade;
+        const fadeOutEnd = isLast ? w.end + halfFade : w.end + halfFade;
+        const opacity = interpolate(
+          t,
+          [fadeInStart, fadeInEnd, fadeOutStart, fadeOutEnd],
+          [0, 1, 1, 0],
+          { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
+        );
+        if (opacity <= 0) return null;
+        // Local time within the frame's window — drives its own
+        // scroll-mode animation. `t - w.start` clamped to [0, dur].
+        const localT = Math.min(w.dur, Math.max(0, t - w.start));
+        return (
+          <div
+            key={`${w.source}-${i}`}
+            style={{ position: "absolute", inset: 0, opacity }}
+          >
+            <SinglePanel
+              source={w.source}
+              t={localT}
+              durationSeconds={w.dur}
+              offsetX={0}
+              offsetY={0}
+              zoom={1}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 const SinglePanel: React.FC<{
   source: string;

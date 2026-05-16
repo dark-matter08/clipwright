@@ -30,6 +30,8 @@ export const ManhwaRecap: React.FC<ManhwaInputs> = ({
             <Series.Sequence key={seg.id} durationInFrames={frames}>
               <PanelSegment
                 source={seg.source}
+                sources={seg.sources}
+                panels={seg.panels}
                 durationSeconds={seg.duration}
                 audioPath={seg.audio_path}
                 camera={seg.camera}

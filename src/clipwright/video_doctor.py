@@ -131,6 +131,12 @@ def diagnose_video(project_dir: Path, video_id: str) -> DoctorReport:
         "id", "source", "source_start", "source_end", "target_duration",
         "kind", "scene_type", "label", "chapter", "voiceover",
         "captions", "camera", "annotations",
+        # Optional multi-image fields added in later schema work:
+        #   `sources` — stacked comic-strip layout (N visible at once).
+        #   `panels`  — sequential crossfade cycle (N played in order).
+        # Both are legal v2 fields; the doctor must not flag them as
+        # "unknown / invented" just because they're optional.
+        "sources", "panels",
     }
     foreign_keys: set[str] = set()
     for raw_seg in raw_manifest.get("segments") or []:

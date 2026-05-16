@@ -8,6 +8,7 @@ import pytest
 
 from clipwright.schema import (
     SCHEMA_VERSION,
+    PanelFrame,
     Project,
     SchemaError,
     SchemaVersionError,
@@ -93,6 +94,57 @@ def test_video_id_format_enforced() -> None:
         Video.from_dict({"schema_version": 2, "video_id": "Has Capitals", "segments": []})
     with pytest.raises(ValueError, match="video_id"):
         Video.from_dict({"schema_version": 2, "video_id": "../escape", "segments": []})
+
+
+def test_segment_panels_roundtrip(tmp_path: Path) -> None:
+    """`panels` is a new optional field on `Segment`. Default empty list,
+    omitted from the on-disk JSON when empty (keeps existing manifests
+    byte-identical on round-trip), and round-trips faithfully when set."""
+    save_project(tmp_path, Project())
+
+    # Empty panels — should NOT appear in serialized output.
+    s_empty = Segment(
+        id="seg_001",
+        source="sources/p1.webp",
+        target_duration=5.0,
+        kind="scene",
+        scene_type="panel",
+    )
+    raw_empty = s_empty.to_dict()
+    assert "panels" not in raw_empty, "empty panels[] must be omitted on save"
+
+    # Non-empty panels with mixed explicit/implicit durations.
+    s_seq = Segment(
+        id="seg_002",
+        source="sources/p1.webp",
+        target_duration=10.0,
+        kind="scene",
+        scene_type="panel",
+        panels=[
+            PanelFrame(source="sources/p1.webp", duration_seconds=2.5),
+            PanelFrame(source="sources/p2.webp"),  # implicit
+            PanelFrame(source="sources/p3.webp", duration_seconds=3.0),
+        ],
+    )
+    v = Video(video_id="main", title="t", segments=[s_seq])
+    save_video(tmp_path, v)
+    loaded = load_video(tmp_path, "main")
+    loaded_seg = loaded.segments[0]
+    assert len(loaded_seg.panels) == 3
+    assert loaded_seg.panels[0].source == "sources/p1.webp"
+    assert loaded_seg.panels[0].duration_seconds == 2.5
+    # Implicit frame round-trips as duration_seconds=0.0 (the renderer
+    # interprets that as "split the leftover with other implicits").
+    assert loaded_seg.panels[1].duration_seconds == 0.0
+    assert loaded_seg.panels[2].duration_seconds == 3.0
+
+
+def test_panelframe_rejects_empty_source() -> None:
+    """A panel with no `source` would render nothing — fail loud at load."""
+    with pytest.raises(ValueError, match="panels.*source"):
+        PanelFrame.from_dict({"source": ""})
+    with pytest.raises(ValueError, match="panels.*source"):
+        PanelFrame.from_dict({})
 
 
 def test_video_rejects_duplicate_segment_ids() -> None:

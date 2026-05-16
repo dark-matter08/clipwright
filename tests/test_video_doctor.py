@@ -83,7 +83,12 @@ def test_doctor_flags_empty_source_range(tmp_path: Path) -> None:
 
 
 def test_doctor_detects_invented_schema(tmp_path: Path) -> None:
-    """The killer diagnostic — Claude wrote a non-v2 manifest shape."""
+    """The killer diagnostic — Claude wrote a non-v2 manifest shape.
+
+    `panels` is now a legal v2 field (sequential crossfade cycle), so
+    a foreign-shape probe uses other made-up keys: `beat`, `theme`,
+    `transitions`.
+    """
     _seed_project(tmp_path)
     (tmp_path / "videos" / "main.json").write_text(json.dumps({
         "schema_version": 2, "video_id": "main", "title": "Main",
@@ -92,18 +97,50 @@ def test_doctor_detects_invented_schema(tmp_path: Path) -> None:
             "id": "seg_001",
             "kind": "recording",
             "label": "Opening Hook",
-            "beat": "opening",                # foreign
+            "beat": "opening",                  # foreign
             "target_duration": 10.0,
-            "panels": [{"url": "https://example.com/panel.webp"}],  # foreign
+            "transitions": [{"type": "wipe"}],  # foreign
             "voiceover": {"enabled": True},
             "captions": {"enabled": True},
-            "theme": "dark-fantasy",          # foreign
+            "theme": "dark-fantasy",            # foreign
         }],
     }))
     report = diagnose_video(tmp_path, "main")
     assert any(
-        "unknown segment fields" in i and "panels" in i and "beat" in i
+        "unknown segment fields" in i
+        and "beat" in i
+        and "theme" in i
+        and "transitions" in i
         for i in report.issues
+    )
+
+
+def test_doctor_accepts_legal_panels_field(tmp_path: Path) -> None:
+    """`panels` is a legal v2 field — must not get flagged as invented."""
+    _seed_project(tmp_path)
+    (tmp_path / "videos" / "main.json").write_text(json.dumps({
+        "schema_version": 2, "video_id": "main", "title": "Main",
+        "chat_session_id": "",
+        "segments": [{
+            "id": "seg_001",
+            "kind": "scene", "scene_type": "panel",
+            "source": "sources/panels/p1.webp",
+            "source_start": 0.0, "source_end": 6.0, "target_duration": 6.0,
+            "label": "Setup", "chapter": "setup",
+            "panels": [
+                {"source": "sources/panels/p1.webp", "duration_seconds": 2.0},
+                {"source": "sources/panels/p2.webp"},
+                {"source": "sources/panels/p3.webp"},
+            ],
+            "voiceover": {"enabled": True, "script_clip_id": "vo_001"},
+            "captions": {"enabled": True, "ref": "captions/index.json#seg_001"},
+            "camera": {"enabled": False, "ref": ""},
+            "annotations": {"enabled": False, "ref": ""},
+        }],
+    }))
+    report = diagnose_video(tmp_path, "main")
+    assert not any("unknown segment fields" in i for i in report.issues), (
+        f"panels field flagged as foreign: {report.issues}"
     )
 
 
