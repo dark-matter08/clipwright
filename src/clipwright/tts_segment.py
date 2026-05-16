@@ -47,6 +47,7 @@ from .ffmpeg import probe_duration, require, stretch_audio
 from .schema import (
     Project,
     Segment,
+    Video,
     load_project,
     load_video,
 )
@@ -134,7 +135,7 @@ def tts_segment(
             fix=f"Fill `text` for clip {clip.get('id', '?')!r} in voiceover/scripts/{video_id}.json.",
         )
 
-    provider_name, voice_id = _resolve_provider_and_voice(project, clip)
+    provider_name, voice_id = _resolve_provider_and_voice(project, video, clip)
     if provider_name not in PROVIDERS:
         raise TTSSegmentError(
             f"unknown TTS provider {provider_name!r}",
@@ -279,13 +280,37 @@ def _resolve_clip(project_dir: Path, video_id: str, seg: Segment) -> dict:
     )
 
 
-def _resolve_provider_and_voice(project: Project, clip: dict) -> tuple[str, str]:
-    """Clip-level override beats project default."""
+def _resolve_provider_and_voice(
+    project: Project, video: Video, clip: dict
+) -> tuple[str, str]:
+    """Resolve which TTS provider + voice this segment should use.
+
+    Precedence (highest first):
+      1. Clip-level voice block in the script.json (per-segment override).
+      2. Per-video override in `video.recap_overrides` — keys
+         `voice_provider` / `voice_id`, written by the desktop
+         ProjectSettingsDialog "Per-video overrides" panel.
+      3. Project-level defaults (`project.tts_provider` / `project.voice_id`).
+
+    The bug being fixed: prior versions skipped layer 2 entirely, so a
+    user who set a per-video voice in the desktop saw the project
+    default speak anyway. The override was persisted to disk but
+    silently discarded at synthesis time.
+    """
     voice_block = clip.get("voice") or {}
-    provider = str(voice_block.get("provider") or project.tts_provider)
+    overrides = video.recap_overrides or {}
+
+    # Provider: clip → video.recap_overrides → project.
+    provider = str(
+        voice_block.get("provider")
+        or overrides.get("voice_provider")
+        or project.tts_provider
+    )
+    # Voice id: clip → legacy flat clip.voice_id → video.recap_overrides → project.
     voice_id = str(
         voice_block.get("voice_id")
-        or clip.get("voice_id")  # legacy flat shape
+        or clip.get("voice_id")
+        or overrides.get("voice_id")
         or project.voice_id
         or ""
     )

@@ -11,11 +11,13 @@
 //     rounded corners — comic-strip style.
 //   - Ken Burns zoom + pan still applies to the sharp layer.
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   AbsoluteFill,
   Audio,
   Img,
+  continueRender,
+  delayRender,
   interpolate,
   staticFile,
   useCurrentFrame,
@@ -172,47 +174,16 @@ export const PanelSegment: React.FC<PanelSegmentProps> = ({
           ))}
         </div>
       ) : (
-        // Single-panel: **full-bleed height, horizontal-only bokeh.**
-        // The img sits at `height: 100%, width: auto`, which means its
-        // rendered width = naturalWidth × (canvasHeight / naturalHeight).
-        // - If that width < canvasWidth → bokeh shows on left & right
-        //   (the desired case for taller-than-9:16 manhwa panels).
-        // - If that width > canvasWidth → the parent's `overflow:
-        //   hidden` crops the sides (correct for unusually-wide sources
-        //   — still no top/bottom mat-board).
-        // - There is NEVER a top or bottom letterbox. That was the bug
-        //   the reference video flagged: vertical real estate was being
-        //   stolen by mat-board on top/bottom instead of showing more
-        //   panel content.
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            overflow: "hidden",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <div
-            style={{
-              height: "100%",
-              transform: `translate3d(${offsetX}px, ${offsetY}px, 0) scale(${zoom})`,
-              transformOrigin: "center center",
-              willChange: "transform",
-              filter: "drop-shadow(0 8px 32px rgba(0,0,0,0.55)) drop-shadow(0 2px 8px rgba(0,0,0,0.4))",
-            }}
-          >
-            <Img
-              src={staticFile(panelPaths[0]!)}
-              style={{
-                height: "100%",
-                width: "auto",
-                display: "block",
-              }}
-            />
-          </div>
-        </div>
+        // Single-panel: branches on source aspect ratio. See
+        // `SinglePanel` for the full decision tree.
+        <SinglePanel
+          source={panelPaths[0]!}
+          t={t}
+          durationSeconds={durationSeconds}
+          offsetX={offsetX}
+          offsetY={offsetY}
+          zoom={zoom}
+        />
       )}
 
       {/* Caption band */}
@@ -232,6 +203,164 @@ export const PanelSegment: React.FC<PanelSegmentProps> = ({
     </AbsoluteFill>
   );
 };
+
+// ---------------------------------------------------------------------------
+// SinglePanel — branches on source aspect ratio
+// ---------------------------------------------------------------------------
+//
+// Three cases, decided once the source image's natural dimensions are
+// known (via the `delayRender` preloader):
+//
+//   1. **scroll-mode** — source is materially taller than 9:16 (typical
+//      manhwa/webtoon page: 800×3000+, aspect ratio ≤ 0.48). Render
+//      the image at `width: canvasWidth` (so it fills horizontally
+//      edge-to-edge), height auto-scales to maintain aspect. The image
+//      is taller than the canvas — we animate `translateY` from 0 down
+//      to `-(renderedHeight - canvasHeight)` linearly over the segment
+//      duration. The viewer scrolls through the entire page like
+//      reading a webtoon. **This is what manhwa is built for.**
+//   2. **fit-mode** — source aspect is close to or wider than 9:16
+//      (typical action panels, character close-ups, screenshots).
+//      Render at `height: 100%, width: auto` so the image fills the
+//      canvas height and bokeh shows on the left/right where the
+//      natural width doesn't reach 1080. Ken Burns motion applies.
+//   3. **fallback** — preload failed (404, decode error, etc.). Use
+//      fit-mode behavior since it's the safer default; the bokeh
+//      backdrop covers the empty space.
+//
+// The scroll threshold (`SCROLL_ASPECT_THRESHOLD = 0.48`) is 15% taller
+// than the canvas aspect (9:16 = 0.5625), so normal action panels with
+// minor aspect mismatch stay in fit-mode and get the horizontal-only
+// bokeh look the user asked for.
+//
+// In scroll-mode the user-provided Ken Burns keyframes are intentionally
+// ignored — the auto-scroll IS the camera. Adding a second pan on top
+// would compete with the scroll and feel jittery.
+
+const SCROLL_ASPECT_THRESHOLD = 0.48;
+
+const SinglePanel: React.FC<{
+  source: string;
+  t: number;
+  durationSeconds: number;
+  offsetX: number;
+  offsetY: number;
+  zoom: number;
+}> = ({ source, t, durationSeconds, offsetX, offsetY, zoom }) => {
+  const { width, height } = useVideoConfig();
+  // Preload the image to learn its intrinsic dimensions. `delayRender`
+  // pauses the Remotion render until we call `continueRender`, so the
+  // first frame the encoder sees already has the correct mode picked.
+  const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
+  const [handle] = useState(() =>
+    delayRender(`PanelSegment.SinglePanel: loading ${source}`),
+  );
+  useEffect(() => {
+    const img = new window.Image();
+    img.onload = () => {
+      setDims({ w: img.naturalWidth, h: img.naturalHeight });
+      continueRender(handle);
+    };
+    img.onerror = () => {
+      // Fall through to fit-mode default — render still proceeds.
+      continueRender(handle);
+    };
+    img.src = staticFile(source);
+    return () => {
+      // If the effect re-runs (source changes), abandon the prior
+      // listener — onload will no-op since we'd be in a stale closure
+      // anyway.
+      img.onload = null;
+      img.onerror = null;
+    };
+  }, [source, handle]);
+
+  if (!dims) {
+    // delayRender keeps this frame off the encoder, but during the
+    // dev preview the user sees a brief blank. Bokeh backdrop is
+    // already painted by the parent so this isn't jarring.
+    return null;
+  }
+
+  const sourceAspect = dims.w / dims.h;
+  const useScroll = sourceAspect < SCROLL_ASPECT_THRESHOLD;
+
+  if (useScroll) {
+    // Width = canvas width, height = scaled to preserve aspect.
+    const renderedHeight = width / sourceAspect;
+    const maxScroll = Math.max(0, renderedHeight - height);
+    // Linear scroll from 0 (top) → -maxScroll (bottom) over the segment.
+    // Clamped 0..1 so a frame past the end stays at the bottom rather
+    // than flying off — happens when ffmpeg renders a frame at t ==
+    // duration (the inclusive boundary).
+    const progress = Math.min(1, Math.max(0, t / durationSeconds));
+    const translateY = -maxScroll * progress;
+    return (
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            width,
+            height: renderedHeight,
+            transform: `translate3d(0, ${translateY}px, 0)`,
+            willChange: "transform",
+            filter:
+              "drop-shadow(0 8px 32px rgba(0,0,0,0.55)) drop-shadow(0 2px 8px rgba(0,0,0,0.4))",
+          }}
+        >
+          <Img
+            src={staticFile(source)}
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "block",
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Fit-mode: full-bleed height, horizontal-only bokeh on sides.
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        overflow: "hidden",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <div
+        style={{
+          height: "100%",
+          transform: `translate3d(${offsetX}px, ${offsetY}px, 0) scale(${zoom})`,
+          transformOrigin: "center center",
+          willChange: "transform",
+          filter:
+            "drop-shadow(0 8px 32px rgba(0,0,0,0.55)) drop-shadow(0 2px 8px rgba(0,0,0,0.4))",
+        }}
+      >
+        <Img
+          src={staticFile(source)}
+          style={{
+            height: "100%",
+            width: "auto",
+            display: "block",
+          }}
+        />
+      </div>
+    </div>
+  );
+};
+
 
 /** Sample zoom + pan at time `t`. With no keyframes we apply a gentle
  *  default Ken Burns (1.0 → 1.05 over the segment). */

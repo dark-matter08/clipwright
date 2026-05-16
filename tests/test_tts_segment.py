@@ -398,24 +398,63 @@ def test_tts_segment_invalid_json_raises(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _video(**overrides) -> Video:
+    """Helper: build a minimal `Video` for resolver tests, optionally
+    setting `recap_overrides` keys via kwargs."""
+    return Video(video_id="main", title="t", recap_overrides=overrides)
+
+
 def test_resolve_provider_and_voice_clip_overrides() -> None:
     project = Project(tts_provider="kokoro", voice_id="default_voice")
     clip = {"voice": {"provider": "elevenlabs", "voice_id": "rachel"}}
-    p, v = _resolve_provider_and_voice(project, clip)
+    p, v = _resolve_provider_and_voice(project, _video(), clip)
     assert (p, v) == ("elevenlabs", "rachel")
 
 
 def test_resolve_provider_and_voice_falls_back_to_project() -> None:
     project = Project(tts_provider="kokoro", voice_id="default_voice")
-    p, v = _resolve_provider_and_voice(project, {})
+    p, v = _resolve_provider_and_voice(project, _video(), {})
     assert (p, v) == ("kokoro", "default_voice")
 
 
 def test_resolve_provider_and_voice_legacy_flat_voice_id() -> None:
     """Older script.json shape: top-level `voice_id` without nested `voice`."""
     project = Project(tts_provider="kokoro", voice_id="default")
-    p, v = _resolve_provider_and_voice(project, {"voice_id": "legacy"})
+    p, v = _resolve_provider_and_voice(project, _video(), {"voice_id": "legacy"})
     assert v == "legacy"
+
+
+def test_resolve_video_override_beats_project_default() -> None:
+    """Per-video voice override (written by the desktop's ProjectSettings
+    'Per-video overrides' panel into `recap_overrides`) must win over
+    the project default.
+
+    Regression: prior versions ignored `recap_overrides` entirely, so a
+    user who set a per-video voice in the desktop saw the project
+    default speak anyway."""
+    project = Project(tts_provider="kokoro", voice_id="kokoro_voice")
+    video = _video(voice_provider="elevenlabs", voice_id="rachel")
+    p, v = _resolve_provider_and_voice(project, video, {})
+    assert (p, v) == ("elevenlabs", "rachel")
+
+
+def test_resolve_clip_override_beats_video_override() -> None:
+    """Precedence: clip > video > project."""
+    project = Project(tts_provider="kokoro", voice_id="kokoro_voice")
+    video = _video(voice_provider="elevenlabs", voice_id="rachel")
+    clip = {"voice": {"provider": "piper", "voice_id": "ryan"}}
+    p, v = _resolve_provider_and_voice(project, video, clip)
+    assert (p, v) == ("piper", "ryan")
+
+
+def test_resolve_video_voice_id_only_overrides_voice() -> None:
+    """Setting only `voice_id` in the per-video override (without
+    `voice_provider`) overrides the voice but inherits the project
+    provider."""
+    project = Project(tts_provider="kokoro", voice_id="kokoro_voice")
+    video = _video(voice_id="bf_george")
+    p, v = _resolve_provider_and_voice(project, video, {})
+    assert (p, v) == ("kokoro", "bf_george")
 
 
 def test_compute_input_hash_deterministic() -> None:
