@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .video import VIDEO_ID_RE, sanitize_video_id
@@ -111,7 +112,49 @@ def normalize_v2_video_ids(project_dir: Path) -> NormalizationReport:
 
         renames.append((old_id, new_id))
 
+    if renames:
+        _append_migration_log(project_dir, renames)
+
     return NormalizationReport(project_dir, renames)
+
+
+def _append_migration_log(
+    project_dir: Path, renames: list[tuple[str, str]]
+) -> None:
+    """Append a JSONL entry per rename to ``.clipwright/migrations.log``.
+
+    Schema healing mutates user data — silently relocating files and rewriting
+    manifest fields. The log gives the user (and any future bug report) a
+    durable record of what changed and when.
+
+    Best-effort: failures here don't abort the rename, but they shouldn't
+    happen in practice — the directory is already used by the rest of
+    `.clipwright/` (session ids, permission mode, etc.).
+    """
+    log_dir = project_dir / ".clipwright"
+    log_path = log_dir / "migrations.log"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with log_path.open("a", encoding="utf-8") as f:
+            for old, new in renames:
+                entry = {
+                    "ts": ts,
+                    "kind": "video_id_normalize",
+                    "old": old,
+                    "new": new,
+                }
+                f.write(json.dumps(entry) + "\n")
+    except OSError:
+        # Mutating user data silently is exactly the failure mode we wanted
+        # to avoid, but a write error here means we already mutated and
+        # CAN'T record. Surface to stderr at least — the test harness
+        # captures stderr so this still flags in CI.
+        import sys
+        print(
+            f"clipwright: schema heal succeeded but migration log write failed at {log_path}",
+            file=sys.stderr,
+        )
 
 
 def _entry_exists_with_name(parent: Path, name: str) -> bool:
