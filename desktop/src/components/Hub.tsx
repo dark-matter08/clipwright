@@ -3,7 +3,7 @@
 // P1.1 ships only "Open Existing"; the "New Project" wizard lands in P1.2.
 
 import { useEffect, useState } from "react";
-import { FolderOpen, Sparkles } from "lucide-react";
+import { Clapperboard, FolderOpen } from "lucide-react";
 import { listRecents, openProject, pickProjectDir } from "../lib/tauri";
 import type { RecentProject } from "../lib/types";
 import { useApp } from "../lib/store";
@@ -63,7 +63,7 @@ export function Hub() {
 
         <div className="grid grid-cols-2 gap-3">
           <ActionCard
-            icon={<Sparkles size={22} strokeWidth={1.75} />}
+            icon={<Clapperboard size={22} strokeWidth={1.75} />}
             label="New Project"
             sub="Record or upload"
             onClick={() => setNewOpen(true)}
