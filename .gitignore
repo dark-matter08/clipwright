@@ -6,6 +6,7 @@ build/
 dist/
 .venv/
 venv/
+*/_manhwa/
 
 node_modules/
 npm-debug.log*
@@ -26,6 +27,7 @@ out/
 .mypy_cache/
 .coverage
 htmlcov/
+
 
 .DS_Store
 .idea/
