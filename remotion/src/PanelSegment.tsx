@@ -40,16 +40,27 @@ interface PanelSegmentProps {
 // Layout constants
 //
 // **Reference style** is the AKIEL-RUNES TikTok format — panels fill the
-// canvas nearly edge-to-edge, with bokeh only peeking through where the
-// panel's own aspect ratio doesn't match 9:16. Earlier values (4% side,
-// 5% top, 17% bottom — leaving panels at ~78% × 92% of canvas) looked
-// like a slideshow with mat-board framing. Lower numbers below put the
-// panel at ~88% × 96% of the canvas, matching the reference.
-const SIDE_PAD = 0.02; // 2% horizontal padding each side for bokeh reveal
-const TOP_PAD = 0.02; // 2% top padding (chip overlay is small)
-const BOTTOM_PAD = 0.10; // 10% bottom padding — leaves room for the caption band
+// canvas fully on the height axis, and bokeh appears ONLY on the left/
+// right edges (horizontal-only bokeh) where the panel's natural width
+// doesn't reach 1080px. No vertical bokeh, no top/bottom crop.
+//
+// The earlier layout reserved 2% top + 10% bottom padding inside a
+// `object-fit: cover` container. That had two compounding problems:
+//   1. The container was smaller than the canvas (only 88% tall), so
+//      ~12% of vertical real estate became bokeh — visible as fat
+//      horizontal mat-board on top and bottom.
+//   2. `cover` then cropped the source to fill that smaller container,
+//      which is data-loss on a typically-taller-than-9:16 source.
+//
+// Now: single-panel mode uses `height: 100%, width: auto` directly so
+// the panel fills the canvas height edge-to-edge and overflows / lets
+// bokeh show only where horizontally needed. Multi-panel mode keeps
+// its stacked layout (the values below only affect multi).
+const SIDE_PAD = 0.02; // multi-panel only — horizontal padding for stacked layout
+const MULTI_TOP_PAD = 0.02; // multi-panel only — top padding to avoid the chip
+const MULTI_BOTTOM_PAD = 0.10; // multi-panel only — leaves caption-band breathing room
 const PANEL_GAP = 0.02; // 2% gap between stacked panels
-const PANEL_RADIUS = 12; // px — rounded corners on each panel card
+const PANEL_RADIUS = 12; // px — rounded corners on each panel card (multi only)
 
 export const PanelSegment: React.FC<PanelSegmentProps> = ({
   source,
@@ -77,20 +88,20 @@ export const PanelSegment: React.FC<PanelSegmentProps> = ({
   // Primary source for the bokeh background
   const bgSource = panelPaths[0]!;
 
-  // Panel card dimensions for multi-panel layout
-  const innerWidth = width * (1 - SIDE_PAD * 2);
+  // Multi-panel layout metrics — only used in the multi branch below.
+  // Single-panel mode ignores these entirely and uses full-bleed height.
+  const multiInnerWidth = width * (1 - SIDE_PAD * 2);
   const totalGap = isMulti ? PANEL_GAP * (panelPaths.length - 1) * height : 0;
-  // Vertical real estate = 1 - (top pad + bottom pad). The bottom pad
-  // *contains* the caption band, so we don't need extra space for
-  // captions on top of it.
-  const usableHeight = height * (1 - TOP_PAD - BOTTOM_PAD);
-  const panelHeight = isMulti
-    ? (usableHeight - totalGap) / panelPaths.length
-    : usableHeight;
+  const multiUsableHeight = height * (1 - MULTI_TOP_PAD - MULTI_BOTTOM_PAD);
+  const multiPanelHeight = isMulti
+    ? (multiUsableHeight - totalGap) / panelPaths.length
+    : 0;
 
   return (
     <AbsoluteFill style={{ backgroundColor: theme.background }}>
-      {/* Bokeh background — blurred version of the primary panel */}
+      {/* Bokeh background — blurred version of the primary panel. We
+       *  inset by -40px so the blur's soft edges don't reveal the
+       *  canvas background underneath. */}
       <div
         style={{
           position: "absolute",
@@ -109,53 +120,100 @@ export const PanelSegment: React.FC<PanelSegmentProps> = ({
         />
       </div>
 
-      {/* Sharp panel layer with Ken Burns */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: `${height * TOP_PAD}px ${width * SIDE_PAD}px ${height * BOTTOM_PAD}px`,
-          gap: isMulti ? PANEL_GAP * height : 0,
-        }}
-      >
-        {panelPaths.map((panelPath, idx) => (
-          <div
-            key={idx}
-            style={{
-              width: innerWidth,
-              height: panelHeight,
-              borderRadius: PANEL_RADIUS,
-              overflow: "hidden",
-              boxShadow: "0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4)",
-              flexShrink: 0,
-            }}
-          >
+      {/* Sharp panel layer with Ken Burns. */}
+      {isMulti ? (
+        // Multi-panel: stacked cards with rounded corners and gaps. Kept
+        // the legacy layout because comic-strip multi-panel framing
+        // genuinely benefits from card edges + drop shadow.
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: `${height * MULTI_TOP_PAD}px ${width * SIDE_PAD}px ${height * MULTI_BOTTOM_PAD}px`,
+            gap: PANEL_GAP * height,
+          }}
+        >
+          {panelPaths.map((panelPath, idx) => (
             <div
+              key={idx}
               style={{
-                width: "100%",
-                height: "100%",
-                transform: `translate3d(${offsetX}px, ${offsetY}px, 0) scale(${zoom})`,
-                transformOrigin: "center center",
-                willChange: "transform",
+                width: multiInnerWidth,
+                height: multiPanelHeight,
+                borderRadius: PANEL_RADIUS,
+                overflow: "hidden",
+                boxShadow: "0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4)",
+                flexShrink: 0,
               }}
             >
-              <Img
-                src={staticFile(panelPath)}
+              <div
                 style={{
                   width: "100%",
                   height: "100%",
-                  objectFit: "cover",
+                  transform: `translate3d(${offsetX}px, ${offsetY}px, 0) scale(${zoom})`,
+                  transformOrigin: "center center",
+                  willChange: "transform",
                 }}
-              />
+              >
+                <Img
+                  src={staticFile(panelPath)}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                  }}
+                />
+              </div>
             </div>
+          ))}
+        </div>
+      ) : (
+        // Single-panel: **full-bleed height, horizontal-only bokeh.**
+        // The img sits at `height: 100%, width: auto`, which means its
+        // rendered width = naturalWidth × (canvasHeight / naturalHeight).
+        // - If that width < canvasWidth → bokeh shows on left & right
+        //   (the desired case for taller-than-9:16 manhwa panels).
+        // - If that width > canvasWidth → the parent's `overflow:
+        //   hidden` crops the sides (correct for unusually-wide sources
+        //   — still no top/bottom mat-board).
+        // - There is NEVER a top or bottom letterbox. That was the bug
+        //   the reference video flagged: vertical real estate was being
+        //   stolen by mat-board on top/bottom instead of showing more
+        //   panel content.
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            overflow: "hidden",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            style={{
+              height: "100%",
+              transform: `translate3d(${offsetX}px, ${offsetY}px, 0) scale(${zoom})`,
+              transformOrigin: "center center",
+              willChange: "transform",
+              filter: "drop-shadow(0 8px 32px rgba(0,0,0,0.55)) drop-shadow(0 2px 8px rgba(0,0,0,0.4))",
+            }}
+          >
+            <Img
+              src={staticFile(panelPaths[0]!)}
+              style={{
+                height: "100%",
+                width: "auto",
+                display: "block",
+              }}
+            />
           </div>
-        ))}
-      </div>
+        </div>
+      )}
 
       {/* Caption band */}
       <Captions captions={captions} theme={theme} />
