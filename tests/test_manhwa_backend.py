@@ -143,10 +143,15 @@ def test_build_inputs_synthesizes_captions_from_timestamps(
         fps=30, width=1080, height=1920,
     )
     captions = inputs["segments"][0]["captions"]
-    # 6 words chunked in groups of 5 → 2 caption events.
-    assert len(captions) == 2
+    # 6 words chunked in groups of 2 → 3 caption events. Matches the
+    # reference TikTok 2-word burst style; the prior 5-word chunks were
+    # line-wrapping and clipping the 9:16 canvas edges.
+    assert len(captions) == 3
     assert captions[0]["text"]
     assert captions[0]["start"] < captions[0]["end"]
+    # Each chunk should be exactly 2 words.
+    for c in captions:
+        assert len(c["text"].split()) == 2, f"expected 2-word chunk, got {c['text']!r}"
 
 
 def test_build_inputs_carries_camera_keyframes(

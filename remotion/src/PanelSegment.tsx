@@ -1,18 +1,15 @@
 // PanelSegment — one manhwa-recap segment.
 //
-// Renders a single still panel with Ken Burns motion, an optional
-// voiceover audio track, the chapter chip overlay, and themed captions.
-// All times are LOCAL to the segment (0 = segment start) because we sit
-// inside a Series.Sequence and `useCurrentFrame` resets at the start of
-// each sequence.
+// Renders still panels with Ken Burns motion, optional voiceover audio,
+// chapter chip overlay, and themed captions.
 //
-// Visual model:
-//   - Solid theme background fills the 9:16 canvas.
-//   - Panel image is `objectFit: cover` so it always fills the frame
-//     and the Ken Burns crop is meaningful (no letterboxed dead space).
-//   - We zoom AND translate via CSS transform — pan_x/pan_y are
-//     normalized [-1..+1] offsets multiplied by the canvas size, so a
-//     pan_y of 0.2 nudges the image down by 20% of the canvas height.
+// Visual model (v2 — bokeh + multi-panel):
+//   - Blurred "bokeh" background of the primary panel fills the 9:16 canvas.
+//   - Sharp panel(s) overlay on top with slight horizontal padding so the
+//     bokeh is visible on the left/right edges (horizontal axis).
+//   - When `sources` has 2+ entries, panels stack vertically with gaps and
+//     rounded corners — comic-strip style.
+//   - Ken Burns zoom + pan still applies to the sharp layer.
 
 import React from "react";
 import {
@@ -30,6 +27,7 @@ import type { ThemeTokens } from "./themes";
 
 interface PanelSegmentProps {
   source: string;
+  sources: string[];
   durationSeconds: number;
   audioPath: string | null;
   camera: KenBurnsKeyframe[];
@@ -39,8 +37,23 @@ interface PanelSegmentProps {
   showChip: boolean;
 }
 
+// Layout constants
+//
+// **Reference style** is the AKIEL-RUNES TikTok format — panels fill the
+// canvas nearly edge-to-edge, with bokeh only peeking through where the
+// panel's own aspect ratio doesn't match 9:16. Earlier values (4% side,
+// 5% top, 17% bottom — leaving panels at ~78% × 92% of canvas) looked
+// like a slideshow with mat-board framing. Lower numbers below put the
+// panel at ~88% × 96% of the canvas, matching the reference.
+const SIDE_PAD = 0.02; // 2% horizontal padding each side for bokeh reveal
+const TOP_PAD = 0.02; // 2% top padding (chip overlay is small)
+const BOTTOM_PAD = 0.10; // 10% bottom padding — leaves room for the caption band
+const PANEL_GAP = 0.02; // 2% gap between stacked panels
+const PANEL_RADIUS = 12; // px — rounded corners on each panel card
+
 export const PanelSegment: React.FC<PanelSegmentProps> = ({
   source,
+  sources,
   durationSeconds,
   audioPath,
   camera,
@@ -54,44 +67,100 @@ export const PanelSegment: React.FC<PanelSegmentProps> = ({
   const t = frame / fps;
   const { zoom, panX, panY } = sampleKenBurns(camera, t, durationSeconds);
 
-  // Pan offsets in pixels — applied as translate3d on the inner layer
-  // so the zoom and pan compose with one transform stack.
   const offsetX = panX * width;
   const offsetY = panY * height;
 
+  // Resolve which images to show: prefer `sources` if non-empty.
+  const panelPaths = sources.length > 0 ? sources : [source];
+  const isMulti = panelPaths.length > 1;
+
+  // Primary source for the bokeh background
+  const bgSource = panelPaths[0]!;
+
+  // Panel card dimensions for multi-panel layout
+  const innerWidth = width * (1 - SIDE_PAD * 2);
+  const totalGap = isMulti ? PANEL_GAP * (panelPaths.length - 1) * height : 0;
+  // Vertical real estate = 1 - (top pad + bottom pad). The bottom pad
+  // *contains* the caption band, so we don't need extra space for
+  // captions on top of it.
+  const usableHeight = height * (1 - TOP_PAD - BOTTOM_PAD);
+  const panelHeight = isMulti
+    ? (usableHeight - totalGap) / panelPaths.length
+    : usableHeight;
+
   return (
     <AbsoluteFill style={{ backgroundColor: theme.background }}>
+      {/* Bokeh background — blurred version of the primary panel */}
+      <div
+        style={{
+          position: "absolute",
+          inset: -40,
+          overflow: "hidden",
+        }}
+      >
+        <Img
+          src={staticFile(bgSource)}
+          style={{
+            width: "calc(100% + 80px)",
+            height: "calc(100% + 80px)",
+            objectFit: "cover",
+            filter: "blur(30px) saturate(1.3) brightness(0.5)",
+          }}
+        />
+      </div>
+
+      {/* Sharp panel layer with Ken Burns */}
       <div
         style={{
           position: "absolute",
           inset: 0,
           overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: `${height * TOP_PAD}px ${width * SIDE_PAD}px ${height * BOTTOM_PAD}px`,
+          gap: isMulti ? PANEL_GAP * height : 0,
         }}
       >
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            transform: `translate3d(${offsetX}px, ${offsetY}px, 0) scale(${zoom})`,
-            transformOrigin: "center center",
-            willChange: "transform",
-          }}
-        >
-          <Img
-            src={staticFile(source)}
+        {panelPaths.map((panelPath, idx) => (
+          <div
+            key={idx}
             style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
+              width: innerWidth,
+              height: panelHeight,
+              borderRadius: PANEL_RADIUS,
+              overflow: "hidden",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4)",
+              flexShrink: 0,
             }}
-          />
-        </div>
+          >
+            <div
+              style={{
+                width: "100%",
+                height: "100%",
+                transform: `translate3d(${offsetX}px, ${offsetY}px, 0) scale(${zoom})`,
+                transformOrigin: "center center",
+                willChange: "transform",
+              }}
+            >
+              <Img
+                src={staticFile(panelPath)}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                }}
+              />
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* Caption band — bottom-third placement so it never sits on a face. */}
+      {/* Caption band */}
       <Captions captions={captions} theme={theme} />
 
-      {/* Chapter chip — top-right overlay. */}
+      {/* Chapter chip */}
       {showChip && (
         <ChapterChip
           label={chapter}
@@ -100,22 +169,21 @@ export const PanelSegment: React.FC<PanelSegmentProps> = ({
         />
       )}
 
-      {/* Audio track at segment-local t=0. */}
+      {/* Audio */}
       {audioPath ? <Audio src={staticFile(audioPath)} /> : null}
     </AbsoluteFill>
   );
 };
 
 /** Sample zoom + pan at time `t`. With no keyframes we apply a gentle
- *  default Ken Burns (1.0 → 1.08 over the segment) so even untouched
- *  panels feel alive — static is opt-in via a single keyframe at zoom 1. */
+ *  default Ken Burns (1.0 → 1.05 over the segment). */
 function sampleKenBurns(
   kfs: KenBurnsKeyframe[],
   t: number,
   duration: number,
 ): { zoom: number; panX: number; panY: number } {
   if (kfs.length === 0) {
-    const zoom = interpolate(t, [0, duration], [1.0, 1.08], {
+    const zoom = interpolate(t, [0, duration], [1.0, 1.05], {
       extrapolateLeft: "clamp",
       extrapolateRight: "clamp",
     });
@@ -150,9 +218,7 @@ function sampleKenBurns(
   return { zoom: last.zoom, panX: last.pan_x, panY: last.pan_y };
 }
 
-/** Theme-aware caption band. Same shape as the recording-mode `Captions`
- *  component but reads colors from theme tokens so it harmonizes with
- *  the chapter chip and BG. */
+/** Theme-aware caption band. */
 const Captions: React.FC<{ captions: PanelCaption[]; theme: ThemeTokens }> = ({
   captions,
   theme,
@@ -168,7 +234,10 @@ const Captions: React.FC<{ captions: PanelCaption[]; theme: ThemeTokens }> = ({
         position: "absolute",
         left: 0,
         right: 0,
-        bottom: height * 0.15,
+        // Sit higher up inside the bottom-pad strip — at 5% the caption
+        // hugs the bottom; reference-style TikTok captions sit in the
+        // middle third, so place at ~30% from bottom to read naturally.
+        bottom: height * 0.30,
         display: "flex",
         justifyContent: "center",
         pointerEvents: "none",
@@ -177,18 +246,22 @@ const Captions: React.FC<{ captions: PanelCaption[]; theme: ThemeTokens }> = ({
       <div
         style={{
           fontFamily: "Inter, system-ui, sans-serif",
-          fontSize: Math.round(width * 0.078),
+          // Was 7.8% → big 2-word bursts clipped the edges. 6.2% holds
+          // 2-word bursts on a single line at 1080-wide without wrap,
+          // which is the reference style. If captions ever wrap (longer
+          // strings), they'll go to two lines instead of clipping.
+          fontSize: Math.round(width * 0.062),
           fontWeight: 800,
           color: theme.captionFg,
           letterSpacing: "-0.015em",
           textShadow:
             "0 0 18px rgba(0,0,0,0.85), 0 4px 12px rgba(0,0,0,0.7)",
-          padding: `${Math.round(height * 0.015)}px ${Math.round(width * 0.05)}px`,
+          padding: `${Math.round(height * 0.012)}px ${Math.round(width * 0.04)}px`,
           background: theme.captionBg,
-          borderRadius: Math.round(width * 0.028),
+          borderRadius: Math.round(width * 0.024),
           textTransform: "uppercase",
           lineHeight: 1.15,
-          maxWidth: width * 0.85,
+          maxWidth: width * 0.88,
           textAlign: "center",
         }}
       >

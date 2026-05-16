@@ -98,7 +98,10 @@ def _load_camera(project_dir: Path, video_id: str, seg_id: str) -> list[dict]:
     Missing file → empty list; `PanelSegment` then applies a default
     1.0→1.08 gentle zoom so the panel still has motion.
     """
-    cam_path = project_dir / "camera" / f"{seg_id}.json"
+    # Check video-scoped camera path first, then fallback to flat layout.
+    cam_path = project_dir / "camera" / video_id / f"{seg_id}.json"
+    if not cam_path.exists():
+        cam_path = project_dir / "camera" / f"{seg_id}.json"
     if not cam_path.exists():
         return []
     try:
@@ -135,8 +138,9 @@ def _load_captions(project_dir: Path, video_id: str, seg: Segment, script_text: 
 
     Each TTS mp3 has a sibling `<seg>.timestamps.json` with word-level
     `[{word, start, end}, …]` written by `clipwright tts-segment`. We
-    coalesce groups of ~5 words into sentence-ish caption blocks so the
-    output reads like Reels-style captions, not word-by-word strobing.
+    coalesce groups of WORDS_PER_CHUNK words so the output matches the
+    TikTok-style 2-word burst pacing — punchier than the older 5-word
+    sentence-ish blocks, which line-wrapped and clipped the canvas edges.
     """
     audio_dir = paths.video_audio_dir(project_dir, video_id)
     ts_path = audio_dir / f"{seg.id}.timestamps.json"
@@ -161,7 +165,10 @@ def _load_captions(project_dir: Path, video_id: str, seg: Segment, script_text: 
     if not flat:
         return []
     chunks: list[dict] = []
-    WORDS_PER_CHUNK = 5
+    # Matches the reference TikTok format (AKIEL-RUNES). Two-word bursts
+    # render on a single line at 1080-wide without clipping and read
+    # rhythmically with the narration.
+    WORDS_PER_CHUNK = 2
     for i in range(0, len(flat), WORDS_PER_CHUNK):
         group = flat[i : i + WORDS_PER_CHUNK]
         text = " ".join((w.get("word") or w.get("text") or "").strip() for w in group).strip()
@@ -203,6 +210,18 @@ def build_inputs(
     project_dir = Path(project_dir).resolve()
     project = load_project(project_dir)
     video = load_video(project_dir, video_id)
+
+    # Load raw JSON to access fields not on the Segment dataclass (e.g. sources).
+    raw_video_path = project_dir / "videos" / f"{video_id}.json"
+    _raw_segments_by_id: dict[str, dict] = {}
+    if raw_video_path.exists():
+        try:
+            raw_video = json.loads(raw_video_path.read_text())
+            for rs in raw_video.get("segments", []):
+                if isinstance(rs, dict) and rs.get("id"):
+                    _raw_segments_by_id[rs["id"]] = rs
+        except (json.JSONDecodeError, OSError):
+            pass
 
     if not video.segments:
         raise ManhwaRenderError(
@@ -257,9 +276,21 @@ def build_inputs(
         script_text = script_clips.get(seg.voiceover.script_clip_id, "")
         captions = _load_captions(project_dir, video_id, seg, script_text)
 
+        # Stage extra sources for multi-panel layout.
+        # Read `sources` from the raw video JSON (not on the Segment dataclass).
+        extra_sources: list[str] = []
+        raw_seg = _raw_segments_by_id.get(seg.id, {})
+        for i, extra_src in enumerate(raw_seg.get("sources", [])):
+            extra_path = project_dir / extra_src
+            if extra_path.exists():
+                ext = extra_path.suffix or ".png"
+                staged = _stage_file(extra_path, stage.panels_dir, f"{seg.id}_s{i}{ext}")
+                extra_sources.append(stage.relative(staged))
+
         seg_inputs.append({
             "id": seg.id,
             "source": rel_panel,
+            "sources": extra_sources,
             "duration": float(seg.target_duration),
             "audio_path": rel_audio,
             "camera": camera,
@@ -269,12 +300,17 @@ def build_inputs(
         })
 
     theme = _theme_for_project(project.template_id, theme_override)
+    # Chapter chips only make sense for the multi-chapter arc recap.
+    # Single-chapter recap and the recommendation template each cover
+    # one story unit; rendering a "CH · COLD_OPEN" chip on every
+    # segment there is noise that competes with the panel for attention.
+    show_chips = project.template_id == "manhwa-recap-multi"
     return {
         "fps": fps,
         "width": width,
         "height": height,
         "theme": theme,
-        "show_chapter_chips": True,
+        "show_chapter_chips": show_chips,
         "segments": seg_inputs,
     }
 
