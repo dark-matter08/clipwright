@@ -141,13 +141,25 @@ function ActionCard({ icon, label, sub, onClick, disabled }: ActionCardProps) {
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "group relative flex flex-col items-start gap-2 rounded border border-border-subtle bg-bg-subtle p-5 text-left transition-colors",
-        "hover:border-border hover:bg-bg-raised",
-        "disabled:cursor-not-allowed disabled:opacity-60",
+        // The action cards lift OFF the page now — `bg-surface` is
+        // the pure-white card token in light mode, distinct from
+        // the slate-tinted page bg below. A 1px accent border
+        // shows up on hover, replacing the v2 "everything is gray"
+        // hover state with a clear color signal.
+        "group relative flex flex-col items-start gap-2 rounded border border-border-subtle bg-surface p-5 text-left shadow-sm transition-all",
+        "hover:-translate-y-0.5 hover:border-accent/50 hover:shadow-md",
+        "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:border-border-subtle disabled:hover:shadow-sm",
         !disabled && "focus:focus-ring",
       )}
     >
-      {icon && <span className="text-fg-subtle group-hover:text-fg">{icon}</span>}
+      {icon && (
+        // Icon swatch — accent-tinted circle that the icon sits
+        // inside. Adds a real spot of brand color to the card
+        // instead of the previous "gray icon on gray card."
+        <span className="flex h-10 w-10 items-center justify-center rounded bg-accent/10 text-accent transition-colors group-hover:bg-accent/15 group-hover:text-accent-hover">
+          {icon}
+        </span>
+      )}
       <span className="text-sm font-medium text-fg">{label}</span>
       <span className="text-xs text-fg-muted">{sub}</span>
     </button>

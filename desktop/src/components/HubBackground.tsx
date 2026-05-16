@@ -1,33 +1,23 @@
 // HubBackground — decorative editing-motif scaffolding for the
-// landing view. Pure SVG, theme-aware via token classes (so the
-// pattern fades gracefully between light + dark), pointer-events
-// disabled so it never interferes with clicks on the cards above.
+// landing view.
 //
-// Design intent: the Hub used to read like a settings dialog
-// (white card on white surface). For a VIDEO EDITOR's landing,
-// the bare canvas felt off-brand. This component lays down the
-// visual vocabulary the rest of the app uses — film perforations,
-// timeline ruler ticks, a faint waveform line, a scattering of
-// keyframe diamonds — at low opacity so the foreground content
-// still leads.
+// v3 design (after feedback that v2 still read monochromatic):
+// the pattern pieces are no longer gray. The film strips wear
+// the timeline lane tints — one blue, one purple — so the
+// corners of the page carry actual color. The keyframe diamonds
+// mix accent + lane palette instead of accent+muted. A new
+// "lane stack" element near the bottom evokes three concurrent
+// timeline tracks. A larger accent glow gives the page real
+// visual gravity.
 //
-// Composition:
-//   1. Top-left + bottom-right film strip — diagonal slabs with
-//      circular perforations, the iconic 35mm-stock motif.
-//   2. Bottom-edge timeline ruler — second/sub-second ticks
-//      stretching across the viewport bottom.
-//   3. Subtle waveform line — a single hand-curve through the
-//      middle of the empty space below the recents list,
-//      suggesting the audio track that an editor would see.
-//   4. Floating keyframe diamonds — three rotated squares
-//      scattered in the negative space, the editor's "keyframe"
-//      icon repurposed as decoration.
+// What's still restrained: opacity. Each piece sits at 25-60%
+// so the foreground content still leads. The composition is
+// "colorful but quiet" — a video editor should feel chromatic,
+// not a marketing splash page.
 //
-// All colors use the design-system tokens directly via Tailwind
-// utility classes (text-border-subtle, text-fg-muted, etc.) so
-// the pattern shifts with the theme — vivid-but-restrained in
-// light, near-invisible in dark (which already has its own
-// chrome richness from the timeline lanes).
+// Theme-aware via design-system tokens: in dark mode the
+// pattern thins out (saturation in dark theme is already vivid
+// in the timeline lanes, so the bg doesn't need to compete).
 
 import { cn } from "../lib/cn";
 
@@ -45,82 +35,102 @@ export function HubBackground({ className }: HubBackgroundProps) {
         className,
       )}
     >
-      {/* ── Top-left film strip ─────────────────────────────────
-       *  Two parallel rails framing six perforations, rotated
-       *  slightly so the strip reads as "running off the edge."
-       *  Lives in the upper-left corner, fades to nothing past
-       *  the half-width. */}
+      {/* ── Accent + lane radial glows ──────────────────────────
+       *  Two large soft-light blobs anchor the page chromatically.
+       *  The cyan one sits behind the header (where the eye lands
+       *  first); the purple one sits low-right (rebalancing the
+       *  composition's center of mass away from the title).
+       *  blur-3xl + opacity-30 keeps them as "atmosphere," not
+       *  shapes. */}
+      <div
+        className="absolute -top-40 left-1/2 h-[480px] w-[760px] -translate-x-1/2 rounded-full opacity-40 blur-3xl"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, hsl(var(--accent) / 0.55), transparent 70%)",
+        }}
+      />
+      <div
+        className="absolute -bottom-32 right-[8%] h-[420px] w-[560px] rounded-full opacity-30 blur-3xl"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, hsl(var(--lane-audio) / 0.45), transparent 70%)",
+        }}
+      />
+      <div
+        className="absolute top-[30%] -left-32 h-[360px] w-[520px] rounded-full opacity-25 blur-3xl"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, hsl(var(--lane-video) / 0.45), transparent 70%)",
+        }}
+      />
+
+      {/* ── Top-left film strip — video-lane blue ───────────────
+       *  Was text-border-subtle; now wears the video-lane hue so
+       *  the corner reads as "this is editing software" instead
+       *  of "this is a card with a gray edge." */}
       <FilmStrip
-        className="absolute -left-12 -top-16 h-72 w-[420px] -rotate-[8deg] text-border-subtle opacity-70"
+        className="absolute -left-12 -top-16 h-72 w-[420px] -rotate-[8deg] text-lane-video opacity-50"
         perforations={7}
       />
 
-      {/* ── Bottom-right film strip ─────────────────────────────
-       *  Mirror of the top strip, rotated the opposite way so
-       *  the two corners "frame" the content without bracketing
-       *  it symmetrically (symmetry would feel decorative;
-       *  asymmetry feels editorial). */}
+      {/* ── Bottom-right film strip — audio-lane purple ─────────
+       *  Mirrors the top strip in the opposite corner with a
+       *  different color so the two strips read as a coherent
+       *  "editing chrome" set, not duplicates. */}
       <FilmStrip
-        className="absolute -bottom-20 -right-16 h-72 w-[460px] rotate-[10deg] text-border-subtle opacity-60"
+        className="absolute -bottom-20 -right-16 h-72 w-[460px] rotate-[10deg] text-lane-audio opacity-45"
         perforations={8}
       />
 
+      {/* ── Lane stack — three thin colored tracks ──────────────
+       *  Evokes the timeline view's Video / Audio / Captions
+       *  lanes. Stretched across the full viewport just above
+       *  the timeline ruler. Each lane is its own color so even
+       *  on a quick glance the page carries the editor's
+       *  three-lane vocabulary. */}
+      <LaneStack className="absolute bottom-28 left-0 right-0 h-12" />
+
       {/* ── Bottom-edge timeline ruler ──────────────────────────
-       *  Second-marker ticks running the full width of the
-       *  viewport ~64px above the bottom edge. Long ticks every
-       *  5 seconds; short ticks at every second. */}
-      <TimelineRuler className="absolute bottom-16 left-0 right-0 h-6 text-border opacity-60" />
+       *  Tinted with the accent so the ticks aren't gray-on-gray.
+       *  Lower opacity than v2 (50%) because the lane stack
+       *  above already carries weight. */}
+      <TimelineRuler className="absolute bottom-16 left-0 right-0 h-6 text-accent opacity-50" />
 
-      {/* ── Waveform line ───────────────────────────────────────
-       *  A single hand-tuned curve, suggesting an audio track
-       *  drifting through the page. Lives in the negative space
-       *  below the recents list. */}
-      <Waveform className="absolute bottom-44 left-0 right-0 h-12 text-fg-muted opacity-40" />
+      {/* ── Waveform line — accent-tinted ───────────────────────
+       *  Same hand-tuned path as v2, but accent-tinted so it
+       *  reads as the audio-track motif it's meant to evoke. */}
+      <Waveform className="absolute bottom-44 left-0 right-0 h-12 text-accent opacity-55" />
 
-      {/* ── Keyframe diamonds ───────────────────────────────────
-       *  Three rotated squares scattered through the page's empty
-       *  zones. Reads as "this is editing software" without
-       *  spelling it out. */}
+      {/* ── Keyframe diamonds — mixed palette ───────────────────
+       *  Five diamonds in four colors. Two are accent (cyan,
+       *  bright), one is video-lane (blue), one is audio-lane
+       *  (purple), one is captions-lane (amber). Reads as
+       *  "everything's here" without being busy. */}
       <Diamond
-        size={10}
-        className="absolute left-[8%] top-[34%] text-accent opacity-70"
+        size={12}
+        className="absolute left-[10%] top-[34%] text-accent opacity-90"
       />
       <Diamond
-        size={8}
-        className="absolute right-[12%] top-[22%] text-fg-muted opacity-50"
+        size={10}
+        className="absolute right-[12%] top-[22%] text-lane-video opacity-75"
       />
       <Diamond
         size={12}
-        className="absolute left-[14%] bottom-[26%] text-accent opacity-50"
+        className="absolute left-[16%] bottom-[28%] text-accent opacity-70"
       />
       <Diamond
-        size={8}
-        className="absolute right-[22%] bottom-[36%] text-fg-muted opacity-60"
+        size={9}
+        className="absolute right-[22%] bottom-[40%] text-lane-audio opacity-75"
       />
-
-      {/* ── Soft accent glow ────────────────────────────────────
-       *  A single radial gradient parked behind the header — a
-       *  whisper of accent color so the page has a "direction"
-       *  to the eye without anything visibly graphic. */}
-      <div
-        className="absolute -top-32 left-1/2 h-96 w-[640px] -translate-x-1/2 rounded-full opacity-25 blur-3xl"
-        style={{
-          background:
-            "radial-gradient(ellipse at center, hsl(var(--accent) / 0.35), transparent 70%)",
-        }}
+      <Diamond
+        size={10}
+        className="absolute left-[42%] top-[14%] text-lane-captions opacity-70"
       />
     </div>
   );
 }
 
-/* ── Building blocks ────────────────────────────────────────────
- *
- * Each piece is its own component because (a) they're naturally
- * parameterized (perforation count, tick spacing, etc.) and
- * (b) keeping them separate makes future iterations cheap — e.g.
- * a film-strip variant with sprocket holes that animate on
- * hover would just be a prop on FilmStrip.
- */
+/* ── Building blocks ─────────────────────────────────────────── */
 
 function FilmStrip({
   className,
@@ -129,11 +139,6 @@ function FilmStrip({
   className?: string;
   perforations: number;
 }) {
-  // Each perforation is a circular cutout punched through the
-  // strip's two rails. We render them as filled circles with a
-  // currentColor stroke so the parent's `text-*` class controls
-  // tint, and the perforations look like "holes" against a
-  // lighter rail.
   const perfs = Array.from({ length: perforations }, (_, i) => i);
   return (
     <svg
@@ -148,7 +153,7 @@ function FilmStrip({
         width="420"
         height="40"
         fill="currentColor"
-        fillOpacity="0.5"
+        fillOpacity="0.55"
       />
       {/* Bottom rail */}
       <rect
@@ -157,10 +162,10 @@ function FilmStrip({
         width="420"
         height="40"
         fill="currentColor"
-        fillOpacity="0.5"
+        fillOpacity="0.55"
       />
-      {/* Perforations — split between the two rails so the strip
-       *  reads as proper 35mm stock with sprocket holes. */}
+      {/* Perforations — punched through with the page bg color
+       *  so the "holes" read as actual cutouts. */}
       {perfs.map((i) => {
         const cx = 24 + i * 56;
         return (
@@ -184,24 +189,129 @@ function FilmStrip({
           </g>
         );
       })}
-      {/* Faint film body between the rails */}
+      {/* Film body between the rails */}
       <rect
         x="0"
         y="54"
         width="420"
         height="92"
         fill="currentColor"
-        fillOpacity="0.18"
+        fillOpacity="0.22"
       />
     </svg>
   );
 }
 
+/** Three thin colored horizontal bars evoking the editor's
+ *  Video / Audio / Captions lanes. Each lane has a tinted body
+ *  + ~6 segment-shaped tick marks to read as "this lane has
+ *  clips on it." Pure decoration; the marks don't map to any
+ *  real data. */
+function LaneStack({ className }: { className?: string }) {
+  // Segment x-positions per lane. Slightly offset so the three
+  // lanes don't look like a single block of color (which would
+  // read as a stripe, not three lanes).
+  const videoSegs = [40, 200, 360, 540, 720, 940, 1180, 1400, 1620];
+  const audioSegs = [40, 230, 420, 600, 820, 1040, 1220, 1440, 1640];
+  const captionSegs = [40, 220, 400, 560, 740, 920, 1120, 1320, 1520, 1740];
+
+  return (
+    <svg
+      viewBox="0 0 1920 96"
+      preserveAspectRatio="none"
+      className={className}
+    >
+      {/* Video lane */}
+      <g opacity="0.35">
+        <rect
+          x="0"
+          y="4"
+          width="1920"
+          height="24"
+          fill="hsl(var(--lane-video-bg))"
+        />
+        {videoSegs.map((x, i) => {
+          const next = videoSegs[i + 1] ?? 1900;
+          return (
+            <rect
+              key={`v-${i}`}
+              x={x}
+              y="6"
+              width={next - x - 14}
+              height="20"
+              rx="2"
+              fill="hsl(var(--lane-video))"
+              fillOpacity="0.55"
+              stroke="hsl(var(--lane-video))"
+              strokeOpacity="0.8"
+              strokeWidth="1"
+            />
+          );
+        })}
+      </g>
+      {/* Audio lane — waveform-style bars instead of solid blocks
+       *  so the visual rhythm differs from the video lane above. */}
+      <g opacity="0.35">
+        <rect
+          x="0"
+          y="34"
+          width="1920"
+          height="20"
+          fill="hsl(var(--lane-audio-bg))"
+        />
+        {audioSegs.flatMap((startX, i) => {
+          const next = audioSegs[i + 1] ?? 1900;
+          const segWidth = next - startX - 14;
+          const bars = Math.floor(segWidth / 8);
+          return Array.from({ length: bars }, (_, j) => {
+            const h = 4 + ((j * 7) % 14); // pseudo-random bar height
+            return (
+              <rect
+                key={`a-${i}-${j}`}
+                x={startX + j * 8}
+                y={44 - h / 2}
+                width="3"
+                height={h}
+                fill="hsl(var(--lane-audio))"
+                fillOpacity="0.75"
+              />
+            );
+          });
+        })}
+      </g>
+      {/* Captions lane */}
+      <g opacity="0.4">
+        <rect
+          x="0"
+          y="60"
+          width="1920"
+          height="20"
+          fill="hsl(var(--lane-captions-bg))"
+        />
+        {captionSegs.map((x, i) => {
+          const next = captionSegs[i + 1] ?? 1900;
+          return (
+            <rect
+              key={`c-${i}`}
+              x={x}
+              y="62"
+              width={next - x - 14}
+              height="16"
+              rx="2"
+              fill="hsl(var(--lane-captions))"
+              fillOpacity="0.45"
+              stroke="hsl(var(--lane-captions))"
+              strokeOpacity="0.75"
+              strokeWidth="1"
+            />
+          );
+        })}
+      </g>
+    </svg>
+  );
+}
+
 function TimelineRuler({ className }: { className?: string }) {
-  // Tick layout: 1 tick per 24px → ~50 ticks across a 1200px
-  // viewport. Every 5th tick is taller, mimicking the
-  // "every 5 seconds is a major mark" pattern in the actual
-  // editor's TimeRuler.
   const ticks = Array.from({ length: 80 }, (_, i) => i);
   return (
     <svg
@@ -209,7 +319,6 @@ function TimelineRuler({ className }: { className?: string }) {
       preserveAspectRatio="none"
       className={className}
     >
-      {/* Baseline */}
       <line
         x1="0"
         y1="22"
@@ -217,7 +326,7 @@ function TimelineRuler({ className }: { className?: string }) {
         y2="22"
         stroke="currentColor"
         strokeWidth="1"
-        strokeOpacity="0.4"
+        strokeOpacity="0.6"
       />
       {ticks.map((i) => {
         const x = i * 24;
@@ -228,10 +337,10 @@ function TimelineRuler({ className }: { className?: string }) {
             x1={x}
             y1="22"
             x2={x}
-            y2={major ? 8 : 16}
+            y2={major ? 6 : 16}
             stroke="currentColor"
             strokeWidth="1"
-            strokeOpacity={major ? "0.9" : "0.5"}
+            strokeOpacity={major ? "1" : "0.55"}
           />
         );
       })}
@@ -240,12 +349,6 @@ function TimelineRuler({ className }: { className?: string }) {
 }
 
 function Waveform({ className }: { className?: string }) {
-  // A single SVG path traced as a hand-tuned audio waveform —
-  // peaks and troughs that suggest a voiceover track. The path
-  // was sketched by hand at viewBox 0 0 1920 48; tweak the
-  // coordinates here if you want a different shape, not a
-  // generated wave function (a generated sine would feel
-  // synthetic).
   return (
     <svg
       viewBox="0 0 1920 48"
@@ -268,7 +371,7 @@ function Waveform({ className }: { className?: string }) {
         "
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.5"
+        strokeWidth="1.75"
         strokeLinejoin="round"
         strokeLinecap="round"
       />

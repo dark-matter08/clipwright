@@ -39,13 +39,17 @@
    * ───────────────────────────────────────────────────────────── */
   :root,
   [data-theme="light"] {
-    /* 1. Surfaces */
-    --surface-base:    220 22% 96%;   /* slate-tinted page */
-    --surface-subtle:  220 24% 92%;   /* sidebars / rails  */
-    --surface:           0  0% 100%;  /* cards / panels    */
-    --surface-raised:  220 30% 99%;   /* hover             */
-    --surface-overlay:   0  0% 100%;  /* modal             */
-    --surface-inset:   220 18% 88%;   /* textarea / code   */
+    /* 1. Surfaces — wider elevation deltas than v2 so the
+     * hierarchy actually reads. v2 lived in 92-99% lightness;
+     * the cards-on-page barely separated. v3 spreads from
+     * 86% (deep recess) → 100% (peak elevation) so the eye can
+     * track depth even before chroma kicks in. */
+    --surface-base:    218 30% 95%;   /* slate-tinted page  */
+    --surface-subtle:  218 32% 89%;   /* sidebars / rails   */
+    --surface:           0  0% 100%;  /* cards / panels     */
+    --surface-raised:    0  0% 100%;  /* hover (white)      */
+    --surface-overlay:   0  0% 100%;  /* modal              */
+    --surface-inset:   218 22% 86%;   /* textarea / code    */
 
     /* 2. Borders — more contrast than v1 so the chrome actually
      *    reads as separators on the warmer surfaces. */
