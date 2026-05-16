@@ -1,0 +1,280 @@
+/* Design system tokens — Clipwright Studio
+ *
+ * Two themes, one variable layout. Each token is an HSL triplet
+ * (space-separated, no `hsl()` wrapper, no commas) so Tailwind can
+ * compose alpha modifiers like `bg-surface/40` via the
+ * `hsl(var(--name) / <alpha-value>)` pattern in tailwind.config.ts.
+ *
+ * Design notes (after a user-feedback round):
+ *
+ *   * **Light mode now has chroma.** The first pass was a "sea of
+ *     gray-blue" — every surface lived in 91-100% lightness with
+ *     12-14% saturation. The values below shift to a warmer slate
+ *     base, push the elevation deltas wider, give the accent
+ *     materially more pop, and let the per-lane tints (video /
+ *     audio / captions) read as actual colors instead of a
+ *     whisper of color. Light mode should feel like a clean
+ *     drafting table, not an office whiteboard.
+ *
+ *   * **Dark mode unchanged in spirit.** Same hues, same
+ *     elevation ladder. Minor tweaks to lane-fg readability.
+ *
+ *   * **The accent is the only "expressive" hue in either mode.**
+ *     Everything else stays within a controlled neutral or its
+ *     status family. That keeps the playhead + render CTA
+ *     iconic — they're the bright cyan thing in a calm app.
+ */
+
+@layer base {
+  /* ─────────────────────────────────────────────────────────────
+   * LIGHT MODE (default for the `:root` selector AND when the
+   * user explicitly picks Light via the ThemeToggle).
+   *
+   * Surfaces ladder UP toward white:
+   *   base   (page)   — slate-tinted off-white, NOT pure paper
+   *   subtle (rails)  — one notch darker
+   *   surface (cards) — clean white
+   *   raised (hover)  — paper-white with a touch of warmth
+   *   inset (textarea/code) — gently recessed gray
+   * ───────────────────────────────────────────────────────────── */
+  :root,
+  [data-theme="light"] {
+    /* 1. Surfaces — wider elevation deltas than v2 so the
+     * hierarchy actually reads. v2 lived in 92-99% lightness;
+     * the cards-on-page barely separated. v3 spreads from
+     * 86% (deep recess) → 100% (peak elevation) so the eye can
+     * track depth even before chroma kicks in. */
+    --surface-base:    218 30% 95%;   /* slate-tinted page  */
+    --surface-subtle:  218 32% 89%;   /* sidebars / rails   */
+    --surface:           0  0% 100%;  /* cards / panels     */
+    --surface-raised:    0  0% 100%;  /* hover (white)      */
+    --surface-overlay:   0  0% 100%;  /* modal              */
+    --surface-inset:   218 22% 86%;   /* textarea / code    */
+
+    /* 2. Borders — more contrast than v1 so the chrome actually
+     *    reads as separators on the warmer surfaces. */
+    --border-subtle:   220 16% 84%;
+    --border:          220 14% 72%;
+    --border-strong:   220 12% 52%;
+
+    /* 3. Foreground — deep slate, not pure black */
+    --fg:              220 28% 12%;
+    --fg-subtle:       220 18% 28%;
+    --fg-muted:        220 12% 44%;
+    --fg-disabled:     220 10% 62%;
+    --fg-on-accent:      0  0% 100%;  /* white text on accent fills */
+
+    /* 4. Accent — vivid teal-cyan with enough saturation to feel
+     *    like a real brand color, not a watery tint. AA-pass on
+     *    `--surface-base`. */
+    --accent:          188 90% 36%;
+    --accent-hover:    188 95% 30%;
+    --accent-active:   188 100% 24%;
+    --accent-soft:     188 80% 88%;
+    --accent-soft-fg:  188 90% 24%;
+
+    /* 5. Status — each is a confident color, not a pastel hint */
+    --info:            217 92% 48%;
+    --info-soft:       217 96% 92%;
+    --info-soft-fg:    217 90% 28%;
+
+    --success:         150 70% 32%;
+    --success-soft:    150 60% 90%;
+    --success-soft-fg: 150 75% 18%;
+
+    --warn:             32 92% 40%;
+    --warn-soft:        38 95% 88%;
+    --warn-soft-fg:     32 90% 24%;
+
+    --danger:            0 80% 46%;
+    --danger-soft:       0 80% 93%;
+    --danger-soft-fg:    0 75% 32%;
+
+    /* 6. Lanes — vivid enough to read as "this is the video lane"
+     *    at a glance. The bg is a tinted card (~94-95% L with
+     *    saturation), the border is a confident mid-tone, the fg
+     *    is a deep tone that holds against the bg. */
+    --lane-video:        217 92% 48%;
+    --lane-video-bg:     217 100% 95%;
+    --lane-video-border: 217  80% 66%;
+    --lane-video-fg:     217  85% 22%;
+
+    --lane-audio:        262 80% 56%;
+    --lane-audio-bg:     262 100% 96%;
+    --lane-audio-border: 262  72% 70%;
+    --lane-audio-fg:     262  75% 28%;
+
+    --lane-captions:      32 92% 40%;
+    --lane-captions-bg:   38 100% 93%;
+    --lane-captions-border: 32 92% 60%;
+    --lane-captions-fg:   28  90% 22%;
+
+    /* 7. Special */
+    --playhead:        188 90% 36%;
+    --render:          188 90% 36%;
+    --render-hover:    188 95% 30%;
+    --render-fg:         0  0% 100%;
+
+    --ring-focus:      188 90% 36%;
+    --selection-bg:    188 80% 88%;
+
+    color-scheme: light;
+  }
+
+  /* ─────────────────────────────────────────────────────────────
+   * DARK MODE
+   *
+   * Surfaces ladder DOWN — page is the darkest level, cards
+   * elevate toward lighter. Accent gets brighter (more
+   * saturated, higher lightness) — dark surfaces tolerate and
+   * benefit from vivid hues that would feel garish in light.
+   * ───────────────────────────────────────────────────────────── */
+  [data-theme="dark"] {
+    /* 1. Surfaces — preserved close to the original
+     * #0b0d10 / #13161a / #191d22 / #0f1216 hex values, just
+     * expressed in HSL so the system stays consistent. */
+    --surface-base:    216 16%  6%;
+    --surface-subtle:  216 14% 10%;
+    --surface:         220 12% 13%;
+    --surface-raised:  216 12% 13%;
+    --surface-overlay: 220 14% 11%;
+    --surface-inset:   216 16%  8%;
+
+    /* 2. Borders */
+    --border-subtle:   220 12% 14%;
+    --border:          218 10% 18%;
+    --border-strong:   220  8% 32%;
+
+    /* 3. Foreground */
+    --fg:              216 10% 91%;
+    --fg-subtle:       216 10% 68%;
+    --fg-muted:        217  8% 46%;
+    --fg-disabled:     217  8% 32%;
+    --fg-on-accent:    220 25%  8%;   /* dark text on bright accent */
+
+    /* 4. Accent — cyan-500 family (#22d3ee) */
+    --accent:          188 96% 53%;
+    --accent-hover:    188 90% 47%;
+    --accent-active:   188 88% 40%;
+    --accent-soft:     188 50% 18%;
+    --accent-soft-fg:  188 86% 78%;
+
+    /* 5. Status */
+    --info:            217 91% 60%;
+    --info-soft:       217 60% 18%;
+    --info-soft-fg:    217 91% 80%;
+
+    --success:         142 65% 50%;
+    --success-soft:    142 50% 16%;
+    --success-soft-fg: 142 70% 78%;
+
+    --warn:             38 92% 55%;
+    --warn-soft:        38 60% 18%;
+    --warn-soft-fg:     38 92% 76%;
+
+    --danger:            0 75% 65%;
+    --danger-soft:       0 60% 22%;
+    --danger-soft-fg:    0 80% 82%;
+
+    /* 6. Lanes — same hue families as light, dark-mode treatment */
+    --lane-video:        217 91% 60%;
+    --lane-video-bg:     217 35%  9%;
+    --lane-video-border: 217 70% 38%;
+    --lane-video-fg:     217 70% 78%;
+
+    --lane-audio:        258 85% 70%;
+    --lane-audio-bg:     258 30% 11%;
+    --lane-audio-border: 258 60% 42%;
+    --lane-audio-fg:     258 80% 82%;
+
+    --lane-captions:      38 92% 55%;
+    --lane-captions-bg:   38 30% 10%;
+    --lane-captions-border: 38 70% 40%;
+    --lane-captions-fg:   38 92% 74%;
+
+    /* 7. Special */
+    --playhead:        188 96% 53%;
+    --render:          188 96% 53%;
+    --render-hover:    188 90% 47%;
+    --render-fg:       220 25%  8%;
+
+    --ring-focus:      188 96% 53%;
+    --selection-bg:    188 50% 18%;
+
+    color-scheme: dark;
+  }
+
+  /* ─────────────────────────────────────────────────────────────
+   * System-preference fallback
+   *
+   * When the user hasn't explicitly picked a theme (no
+   * `data-theme` attribute on <html>) and the OS prefers dark,
+   * apply the dark token block. The selector
+   * `:root:not([data-theme])` has higher specificity than `:root`
+   * (because `:not([data-theme])` adds an attribute-selector
+   * component), so it cleanly wins over the light defaults at
+   * the top of this file.
+   * ───────────────────────────────────────────────────────────── */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) {
+      --surface-base:    216 16%  6%;
+      --surface-subtle:  216 14% 10%;
+      --surface:         220 12% 13%;
+      --surface-raised:  216 12% 13%;
+      --surface-overlay: 220 14% 11%;
+      --surface-inset:   216 16%  8%;
+
+      --border-subtle:   220 12% 14%;
+      --border:          218 10% 18%;
+      --border-strong:   220  8% 32%;
+
+      --fg:              216 10% 91%;
+      --fg-subtle:       216 10% 68%;
+      --fg-muted:        217  8% 46%;
+      --fg-disabled:     217  8% 32%;
+      --fg-on-accent:    220 25%  8%;
+
+      --accent:          188 96% 53%;
+      --accent-hover:    188 90% 47%;
+      --accent-active:   188 88% 40%;
+      --accent-soft:     188 50% 18%;
+      --accent-soft-fg:  188 86% 78%;
+
+      --info:            217 91% 60%;
+      --info-soft:       217 60% 18%;
+      --info-soft-fg:    217 91% 80%;
+      --success:         142 65% 50%;
+      --success-soft:    142 50% 16%;
+      --success-soft-fg: 142 70% 78%;
+      --warn:             38 92% 55%;
+      --warn-soft:        38 60% 18%;
+      --warn-soft-fg:     38 92% 76%;
+      --danger:            0 75% 65%;
+      --danger-soft:       0 60% 22%;
+      --danger-soft-fg:    0 80% 82%;
+
+      --lane-video:        217 91% 60%;
+      --lane-video-bg:     217 35%  9%;
+      --lane-video-border: 217 70% 38%;
+      --lane-video-fg:     217 70% 78%;
+      --lane-audio:        258 85% 70%;
+      --lane-audio-bg:     258 30% 11%;
+      --lane-audio-border: 258 60% 42%;
+      --lane-audio-fg:     258 80% 82%;
+      --lane-captions:      38 92% 55%;
+      --lane-captions-bg:   38 30% 10%;
+      --lane-captions-border: 38 70% 40%;
+      --lane-captions-fg:   38 92% 74%;
+
+      --playhead:        188 96% 53%;
+      --render:          188 96% 53%;
+      --render-hover:    188 90% 47%;
+      --render-fg:       220 25%  8%;
+
+      --ring-focus:      188 96% 53%;
+      --selection-bg:    188 50% 18%;
+
+      color-scheme: dark;
+    }
+  }
+}

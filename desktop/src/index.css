@@ -1,0 +1,56 @@
+/* IMPORTANT: @import must come BEFORE @tailwind directives.
+ * CSS spec (§6.5) requires @import rules to precede all other
+ * rules except @charset; PostCSS silently DROPS @import rules
+ * that follow @tailwind, which means tokens.css never made it
+ * into the built bundle and the theme toggle had nothing to
+ * swap. Keep this import at the top of the file. */
+@import "./styles/tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+    overflow: hidden;
+  }
+  body {
+    background-color: hsl(var(--surface-base));
+    color: hsl(var(--fg));
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  /* Subtle, monochrome scrollbars — track stays invisible so the
+   * thumb reads as a thin separator rather than a chrome element. */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 6px;
+    border: 2px solid hsl(var(--surface-base));
+  }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--fg-muted)); }
+  ::-webkit-scrollbar-track { background: transparent; }
+}
+
+@layer utilities {
+  .focus-ring {
+    @apply outline-none ring-1 ring-accent ring-offset-1 ring-offset-bg;
+  }
+
+  /* Theme-toggle fade. `theme.ts` adds this class to <html> for
+   * ~220ms around an explicit theme change so the surface + text
+   * swap reads as a fade rather than a flash. Initial-load
+   * transitions are deliberately NOT animated (no FOUC). */
+  .theme-transition,
+  .theme-transition *,
+  .theme-transition *::before,
+  .theme-transition *::after {
+    transition:
+      background-color 180ms ease-out,
+      color 180ms ease-out,
+      border-color 180ms ease-out,
+      fill 180ms ease-out,
+      stroke 180ms ease-out !important;
+  }
+}

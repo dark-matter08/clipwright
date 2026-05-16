@@ -11,7 +11,17 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+
 from .schema import Action, BrowsePlan
+
+# Per-step timeouts. Default Playwright is 30s for goto and unbounded
+# for wait_for_load_state(networkidle), both of which fail on modern apps
+# with WebSockets, SSE, long-polling, or hot-reload pings. We use shorter
+# bounded waits and swallow the TimeoutError — the action's own `wait`
+# field provides the dwell time the recorder needs.
+NAVIGATE_TIMEOUT_MS = 15_000
+NETWORK_IDLE_TIMEOUT_MS = 3_000
 
 
 async def execute_plan(page, plan: BrowsePlan, mark, plan_dir: Path) -> None:
@@ -40,10 +50,37 @@ def _load_auth_helper(spec: str, plan_dir: Path) -> Callable[[Any], Awaitable[No
     return fn
 
 
+async def _get_bbox(page, action: Action) -> dict | None:
+    """Return {x, y, w, h} in CSS pixels for locator-bearing actions, else None.
+
+    Called BEFORE the action so the element is still in its pre-interaction state.
+    Failures are silently swallowed — bbox is best-effort metadata.
+    """
+    if action.type not in {"click", "type", "hover"}:
+        return None
+    if not any(action.fields.get(k) for k in ("selector", "test_id", "role", "text")):
+        return None
+    try:
+        loc = _resolve_locator(page, action.fields)
+        bb = await loc.bounding_box()
+        if bb:
+            return {
+                "x": round(bb["x"], 1),
+                "y": round(bb["y"], 1),
+                "w": round(bb["width"], 1),
+                "h": round(bb["height"], 1),
+            }
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
 async def _execute_action(page, action: Action, base_url: str, mark) -> None:
     handler = _HANDLERS.get(action.type)
     if handler is None:
         raise ValueError(f"no handler for action type {action.type!r}")
+    # Capture bbox before the action so element state is pre-interaction.
+    bbox = await _get_bbox(page, action)
     await handler(page, action, base_url)
     await page.wait_for_timeout(int(action.wait * 1000))
     await mark(
@@ -52,6 +89,7 @@ async def _execute_action(page, action: Action, base_url: str, mark) -> None:
         fields=action.fields,
         wait=action.wait,
         chapter=action.chapter,
+        bbox=bbox,
     )
 
 
@@ -59,8 +97,23 @@ async def _navigate(page, action: Action, base_url: str) -> None:
     url = action.fields["url"]
     if url.startswith("/"):
         url = base_url.rstrip("/") + url
-    await page.goto(url)
-    await page.wait_for_load_state("networkidle")
+    # `wait_until="domcontentloaded"` fires when the HTML is parsed, well
+    # before subresources finish. This tolerates slow CDN assets, analytics
+    # beacons, and SPA bundles that delay the `load` event.
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=NAVIGATE_TIMEOUT_MS)
+    except PlaywrightTimeoutError:
+        # Best-effort: even if DOMContentLoaded didn't fire (truly stuck or
+        # blocked URL), we keep the recording going so the user sees what
+        # happened instead of getting a 30s wall.
+        pass
+    # Network-idle is a *nice-to-have* settle. Modern apps with WebSockets,
+    # SSE, long-polling, or hot-reload pings never reach 500ms of zero
+    # network — so bound it tight and swallow the timeout.
+    try:
+        await page.wait_for_load_state("networkidle", timeout=NETWORK_IDLE_TIMEOUT_MS)
+    except PlaywrightTimeoutError:
+        pass
 
 
 def _resolve_scope(page, fields: dict[str, Any]):

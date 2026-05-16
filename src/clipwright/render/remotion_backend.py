@@ -51,6 +51,26 @@ def clear_stage() -> None:
                 shutil.rmtree(p)
 
 
+def _read_brand(out_dir: Path) -> dict:
+    """Read out/brand/ assets and return a brand dict for Remotion props."""
+    brand_dir = out_dir / "brand"
+    if not brand_dir.exists():
+        return {}
+    copy_path = brand_dir / "copy.json"
+    copy = json.loads(copy_path.read_text()) if copy_path.exists() else {}
+    color_path = brand_dir / "primary_color"
+    primary_color = color_path.read_text().strip() if color_path.exists() else "#1a1a2e"
+    hero_path = brand_dir / "hero.png"
+    logo_path = brand_dir / "logo.png"
+    return {
+        "title": copy.get("title", ""),
+        "description": copy.get("description", ""),
+        "primary_color": primary_color,
+        "hero": str(hero_path) if hero_path.exists() else None,
+        "logo": str(logo_path) if logo_path.exists() else None,
+    }
+
+
 def build_inputs(
     *,
     out_dir: Path,
@@ -65,6 +85,9 @@ def build_inputs(
 ) -> dict:
     segments_doc = json.loads((out_dir / "segments.json").read_text())
     camera_doc = json.loads((out_dir / "camera.json").read_text())
+    annotations_path = out_dir / "annotations.json"
+    annotations_doc = json.loads(annotations_path.read_text()) if annotations_path.exists() else {}
+    brand = _read_brand(out_dir)
     audio_dir = out_dir / "audio"
     subs_dir = out_dir / "subs"
 
@@ -110,6 +133,17 @@ def build_inputs(
     if outro:
         outro_key = _stage_asset(outro, "outro.mp4")
 
+    # Stage brand assets.
+    brand_hero_key: str | None = None
+    brand_logo_key: str | None = None
+    if brand.get("hero"):
+        brand_hero_key = _stage_asset(Path(brand["hero"]), "brand_hero.png")
+    if brand.get("logo"):
+        try:
+            brand_logo_key = _stage_asset(Path(brand["logo"]), "brand_logo.png")
+        except Exception:  # noqa: BLE001
+            pass
+
     return {
         "fps": fps,
         "width": width,
@@ -120,7 +154,15 @@ def build_inputs(
         "keyframes": camera_doc.get("keyframes", []),
         "outro": outro_key,
         "outro_duration": float(outro_duration) if outro else 0.0,
-        "brand_title": brand_title,
+        "brand_title": brand.get("title") or brand_title,
+        "viewport_w": int(annotations_doc.get("viewport_w", 540)),
+        "viewport_h": int(annotations_doc.get("viewport_h", 960)),
+        "annotations": annotations_doc.get("events", []),
+        # Brand assets for TitleCard / Outro scenes.
+        "brand_color": brand.get("primary_color", "#1a1a2e"),
+        "brand_description": brand.get("description", ""),
+        "brand_hero": brand_hero_key,
+        "brand_logo": brand_logo_key,
     }
 
 

@@ -4,11 +4,27 @@ Clipwright turns a scripted browser session into a short-form how-to video:
 record, trim dead time, add voiceover with character-accurate captions, brand
 it with an outro, and render a vertical (or 16:9 / 1:1) MP4.
 
-It exists as two things in one repository:
+It exists as three things in one repository:
 
 - A standalone Python CLI (`clipwright ...`)
 - A [Claude Code](https://docs.claude.com/en/docs/claude-code) skill (see
   [`SKILL.md`](./SKILL.md)) so an agent can drive the whole pipeline
+- **Clipwright Studio** (alpha, see [`desktop/`](./desktop/)) — a Tauri
+  desktop app that wraps the CLI in a real editor and pairs every segment
+  with a Claude Code agent. See [`SRS.md`](./SRS.md) for the product spec.
+
+### Try the desktop alpha
+
+```bash
+cd desktop
+bun install              # first time
+bun run tauri:dev
+```
+
+Click **Open Existing** and point at any directory containing a v1
+`project.json` (produced by `clipwright import <video>` or
+`clipwright record-project <dir>`). The per-segment loop — VO synthesis,
+captions, render, Claude chat — works end-to-end.
 
 Clipwright was extracted from a real production pipeline built for
 [Vertex Reader](https://vertexreader.site) and then generalized. The browser
@@ -79,20 +95,35 @@ ln -sfn "$PWD/.venv/bin/clipwright" /opt/homebrew/bin/clipwright
 
 The pipeline is declarative: you describe a browser flow in `browse-plan.json`,
 Clipwright records it with annotated action moments, then builds segments,
-camera keyframes, an edit-plan, a script skeleton (copy filled in separately),
+camera keyframes, a script skeleton (copy filled in separately),
 TTS with timing-aware stretch, captions, optional outro, and renders.
+
+### One-command build
 
 ```
 clipwright init my-demo
 cd my-demo
-# edit browse-plan.json — list of navigate/click/type/hover/scroll/wait actions
+# edit browse-plan.json, fill script.json text fields, then:
+clipwright build
+```
+
+`clipwright build` runs every stage in order, skips stages whose outputs are
+already current, and asks for confirmation before spending TTS tokens.
+
+### Step-by-step
+
+```
+clipwright init my-demo
+cd my-demo
+# edit browse-plan.json — see example below
 
 clipwright record --plan browse-plan.json
 clipwright segments
 clipwright keyframes
-clipwright edit-plan           # human/agent review checkpoint
+clipwright review              # inspect segments + total duration
 clipwright script init         # writes script.json skeleton (empty text)
 # fill in script.json "text" fields (Claude Code skill does this)
+# or: clipwright script init --draft  fills copy from action hints automatically
 
 clipwright tts script.json
 clipwright caption
@@ -101,6 +132,55 @@ clipwright render --backend remotion   # or --backend ffmpeg
 ```
 
 Output: `out/final.mp4`.
+
+### browse-plan.json format
+
+Describe your demo as a list of browser actions, grouped into **chapters**.
+Each chapter becomes one narrated segment in the final video.
+
+```json
+{
+  "viewport": {"width": 540, "height": 960, "mobile": true},
+  "base_url": "https://yourapp.com",
+  "actions": [
+    {
+      "type": "navigate",
+      "label": "Open the app",
+      "chapter": "intro",
+      "fields": {"url": "/"},
+      "wait": 3.0
+    },
+    {
+      "type": "click",
+      "label": "Tap the Add button",
+      "chapter": "create",
+      "fields": {"selector": "[data-testid='add-btn']"},
+      "wait": 2.5
+    },
+    {
+      "type": "type",
+      "label": "Enter a title",
+      "chapter": "create",
+      "fields": {"selector": "input[name='title']", "text": "My first item"},
+      "wait": 2.5
+    },
+    {
+      "type": "scroll",
+      "label": "Browse the result",
+      "chapter": "result",
+      "fields": {"by_y": 600},
+      "wait": 3.0
+    }
+  ]
+}
+```
+
+**Action types:** `navigate`, `click`, `type`, `hover`, `scroll`, `wait`, `key`
+
+**Key fields:**
+- `chapter` — groups contiguous same-chapter actions into one segment. Define 3–6 chapters per video.
+- `wait` — seconds to dwell after the action. Default 2.5s. Use 3–5s for moments the viewer needs to read; 1–1.5s only for rapid-fire inputs.
+- `fields` — action-specific payload (url, selector, text, by_y, …)
 
 ### Render backends
 

@@ -65,6 +65,7 @@ def build_keyframes(
     fps: int = 60,
     ramp: float = 0.25,
     hold: float = 0.8,
+    viewport: tuple[int, int] = (540, 960),
 ) -> CameraPlan:
     kfs: list[Keyframe] = []
     output_t = 0.0  # running output-timeline offset at current segment start
@@ -75,9 +76,28 @@ def build_keyframes(
         # Start of segment anchors to zoom 1.0.
         kfs.append(Keyframe(t=output_t, zoom=1.0))
 
+        vp_w, vp_h = viewport
         for m in seg.get("moments") or []:
             peak = ZOOM_BY_TYPE.get(m["type"], 1.0)
+            # Derive focus from bbox centroid when available.
+            bbox = m.get("bbox")
+            if bbox and vp_w > 0 and vp_h > 0:
+                cx = float(bbox["x"]) + float(bbox["w"]) / 2.0
+                cy = float(bbox["y"]) + float(bbox["h"]) / 2.0
+                focus: tuple[float, float] = (
+                    round(max(0.0, min(1.0, cx / vp_w)), 4),
+                    round(max(0.0, min(1.0, cy / vp_h)), 4),
+                )
+            else:
+                focus = (0.5, 0.5)
+
             if peak == 1.0:
+                # Even for flat camera, emit focus keyframe so camera.json
+                # carries bbox-derived focus for future zoom re-enablement.
+                if focus != (0.5, 0.5):
+                    local = max(0.0, float(m["t"]) - src_start)
+                    center = output_t + local
+                    kfs.append(Keyframe(t=center, zoom=1.0, focus=focus))
                 continue
             # Map moment time (source) into output time.
             local = max(0.0, float(m["t"]) - src_start)
@@ -95,8 +115,8 @@ def build_keyframes(
             peak_out = min(out_t, peak_out)
 
             kfs.append(Keyframe(t=in_t, zoom=1.0))
-            kfs.append(Keyframe(t=peak_in, zoom=peak))
-            kfs.append(Keyframe(t=peak_out, zoom=peak))
+            kfs.append(Keyframe(t=peak_in, zoom=peak, focus=focus))
+            kfs.append(Keyframe(t=peak_out, zoom=peak, focus=focus))
             kfs.append(Keyframe(t=out_t, zoom=1.0))
 
         output_t += dur

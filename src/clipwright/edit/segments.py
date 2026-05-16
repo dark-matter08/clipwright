@@ -29,6 +29,7 @@ class SegmentMoment:
     fields: dict[str, Any] = field(default_factory=dict)
     chapter: str = ""
     wait: float = 0.0
+    bbox: dict[str, Any] | None = None  # {x, y, w, h} in CSS recording pixels
 
 
 @dataclass
@@ -64,6 +65,7 @@ def build_segments(
             fields=dict(m.get("fields", {})),
             chapter=str(m.get("chapter", "")),
             wait=float(m.get("wait", 0.0)),
+            bbox=m.get("bbox") or None,
         )
         for m in moments
     ]

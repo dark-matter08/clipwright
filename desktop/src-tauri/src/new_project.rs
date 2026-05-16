@@ -1,0 +1,257 @@
+//! New-project Tauri commands — SRS §6.1 (Upload + Record modes).
+//!
+//! Both commands:
+//!   1. Create the target project directory (if it does not exist).
+//!   2. Invoke the appropriate `clipwright` subcommand.
+//!   3. Reload the freshly-written `project.json` + `timeline.json` and
+//!      return them to the frontend — same shape as `open_project`, so
+//!      the UI can land in the Workspace identically for both modes.
+
+use std::path::{Path, PathBuf};
+
+use thiserror::Error;
+
+use crate::clipwright::{self, ClipwrightCliError};
+use crate::project::{self, ProjectError, ProjectState};
+
+#[derive(Debug, Error)]
+pub enum NewProjectError {
+    #[error("target directory is not empty: {0}")]
+    NotEmpty(PathBuf),
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("clipwright cli: {0}")]
+    Cli(#[from] ClipwrightCliError),
+    #[error("loading the new project failed: {0}")]
+    Load(#[from] ProjectError),
+    #[error("{0}")]
+    Bad(String),
+}
+
+impl serde::Serialize for NewProjectError {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_str(&self.to_string())
+    }
+}
+
+fn require_empty_dir(dir: &Path) -> Result<(), NewProjectError> {
+    if dir.exists() {
+        let mut it = std::fs::read_dir(dir)?;
+        if it.next().is_some() {
+            return Err(NewProjectError::NotEmpty(dir.to_path_buf()));
+        }
+    }
+    Ok(())
+}
+
+/// Upload mode (F-UPL-1/2): import an existing video into a fresh project.
+///
+/// Calls `clipwright import <video> --into <project_dir> --title ... --aspect ...`.
+/// Auto-segmentation is enabled by default; scene detection can be toggled
+/// (it slows long imports and isn't useful for static screen recordings).
+#[tauri::command]
+pub async fn import_video_cmd(
+    app: tauri::AppHandle,
+    video_path: String,
+    project_dir: String,
+    title: String,
+    aspect: String,
+    auto_segment: bool,
+    scene_detection: bool,
+    // First-video identity. The frontend's New Project dialog now
+    // exposes a "First video name" field so the user can title the
+    // initial deliverable instead of being stuck with the default
+    // `main`. Empty `video_id` → fall back to "main" (back-compat
+    // for any older caller). `video_title` is purely cosmetic for
+    // the videos sidebar; it doesn't affect on-disk paths.
+    video_id: Option<String>,
+    video_title: Option<String>,
+    // Project-level TTS defaults, picked in the New Project dialog. The
+    // Python CLI writes these straight into `project.json`. Per-video
+    // overrides still live in `videos/<id>.json#recap_overrides` and
+    // win when set. Both default to empty → the Python side falls back
+    // to "kokoro" + "" for back-compat with non-desktop callers.
+    tts_provider: Option<String>,
+    voice_id: Option<String>,
+) -> Result<ProjectState, NewProjectError> {
+    let dir = PathBuf::from(&project_dir);
+    require_empty_dir(&dir)?;
+    std::fs::create_dir_all(&dir)?;
+
+    let resolved_video_id = video_id
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .unwrap_or_else(|| "main".to_string());
+    let resolved_video_title = video_title.unwrap_or_default();
+    let resolved_tts_provider = tts_provider.unwrap_or_default();
+    let resolved_voice_id = voice_id.unwrap_or_default();
+
+    let mut args: Vec<&str> = vec!["import", &video_path, "--into", &project_dir];
+    if !title.is_empty() {
+        args.extend(["--title", &title]);
+    }
+    args.extend(["--aspect", &aspect]);
+    args.push(if auto_segment { "--auto-segment" } else { "--no-auto-segment" });
+    args.push(if scene_detection { "--scene-detection" } else { "--no-scene-detection" });
+    args.extend(["--video", &resolved_video_id]);
+    if !resolved_video_title.is_empty() {
+        args.extend(["--video-title", &resolved_video_title]);
+    }
+    if !resolved_tts_provider.is_empty() {
+        args.extend(["--tts-provider", &resolved_tts_provider]);
+    }
+    if !resolved_voice_id.is_empty() {
+        args.extend(["--voice-id", &resolved_voice_id]);
+    }
+
+    clipwright::run(&args)?;
+    project::open_project(app, project_dir, Some(resolved_video_id)).await.map_err(Into::into)
+}
+
+/// Record mode (F-REC-1/2/4/5): scaffold a starter `browse-plan.json`,
+/// then drive Playwright via `clipwright record-project`.
+///
+/// The starter plan has one chapter ("intro") with one `navigate` action.
+/// Users can extend the plan in the desktop's plan editor (P1.x) or with
+/// their text editor; the Claude-authored draft (F-REC-2) lands in P1.9.
+#[tauri::command]
+pub async fn record_project_cmd(
+    app: tauri::AppHandle,
+    project_dir: String,
+    title: String,
+    aspect: String,
+    base_url: String,
+    mobile: bool,
+    video_id: String,
+    video_title: String,
+    // When true, the target directory must already be a v2 project and
+    // the recording appends to / replaces the named video. When false,
+    // the directory must be empty (first-creation flow).
+    append: bool,
+    // Project-level TTS defaults — see `import_video_cmd` for the
+    // semantics. Only consumed on first-creation (when append=false);
+    // re-records preserve the existing project.json values.
+    tts_provider: Option<String>,
+    voice_id: Option<String>,
+) -> Result<ProjectState, NewProjectError> {
+    if base_url.trim().is_empty() {
+        return Err(NewProjectError::Bad("base_url is required for Record mode".into()));
+    }
+    let dir = PathBuf::from(&project_dir);
+    if append {
+        if !dir.join("project.json").exists() {
+            return Err(NewProjectError::Bad(format!(
+                "--append needs an existing project at {}",
+                dir.display()
+            )));
+        }
+        std::fs::create_dir_all(&dir)?;
+    } else {
+        require_empty_dir(&dir)?;
+        std::fs::create_dir_all(&dir)?;
+    }
+
+    // Write/overwrite a starter browse-plan.json. On append flows the
+    // user typically edits this file (or asks Claude to draft a real
+    // plan, F-REC-2) before triggering recording. On first-creation
+    // we drop a one-action stub so the recording produces *something*.
+    let plan = serde_json::json!({
+        "viewport": {
+            "width":   if mobile { 540 } else { 1280 },
+            "height":  if mobile { 960 } else { 800 },
+            "mobile":  mobile
+        },
+        "base_url": base_url,
+        "actions": [{
+            "type": "navigate",
+            "label": "Open the app",
+            "chapter": "intro",
+            "fields": { "url": "/" },
+            "wait": 3.0
+        }]
+    });
+    std::fs::write(
+        dir.join("browse-plan.json"),
+        serde_json::to_vec_pretty(&plan).expect("static JSON"),
+    )?;
+
+    let resolved_tts_provider = tts_provider.unwrap_or_default();
+    let resolved_voice_id = voice_id.unwrap_or_default();
+
+    let mut args: Vec<&str> = vec!["record-project", &project_dir];
+    if !title.is_empty() {
+        args.extend(["--title", &title]);
+    }
+    args.extend(["--aspect", &aspect]);
+    args.push(if mobile { "--mobile" } else { "--desktop" });
+    args.extend(["--video", &video_id]);
+    if !video_title.is_empty() {
+        args.extend(["--video-title", &video_title]);
+    }
+    if !resolved_tts_provider.is_empty() {
+        args.extend(["--tts-provider", &resolved_tts_provider]);
+    }
+    if !resolved_voice_id.is_empty() {
+        args.extend(["--voice-id", &resolved_voice_id]);
+    }
+
+    clipwright::run(&args)?;
+    project::open_project(app, project_dir, Some(video_id)).await.map_err(Into::into)
+}
+
+/// Check whether the `clipwright` binary is reachable. Used by the New
+/// Project dialog to fail-fast with a clear message instead of a vague
+/// subprocess error after the user has filled the form.
+#[tauri::command]
+pub async fn clipwright_doctor() -> ClipwrightDoctorReport {
+    let bin = clipwright::find_binary();
+    let path = bin.as_ref().map(|p| p.display().to_string());
+    let installed = bin.is_some();
+    ClipwrightDoctorReport { installed, path }
+}
+
+/// Append an additional video to an open project (SRS F-UPL-3 multi-source).
+///
+/// Wraps `clipwright import <video> --into <project_dir> --add`. New
+/// segments are appended to `timeline.json`; project.json is unchanged;
+/// the source filename is uniquified from the video stem.
+#[tauri::command]
+pub async fn add_source_cmd(
+    app: tauri::AppHandle,
+    video_path: String,
+    project_dir: String,
+    video_id: String,
+    video_title: String,
+    auto_segment: bool,
+    scene_detection: bool,
+) -> Result<ProjectState, NewProjectError> {
+    // The project must already exist; the library would accept an empty
+    // dir but the UX intent of "Add source" is "to an open project".
+    if !PathBuf::from(&project_dir).join("project.json").exists() {
+        return Err(NewProjectError::Bad(format!(
+            "no project at {project_dir} — open one first",
+        )));
+    }
+
+    let mut args: Vec<&str> = vec![
+        "import", &video_path,
+        "--into", &project_dir,
+        "--add",
+        "--video", &video_id,
+    ];
+    if !video_title.is_empty() {
+        args.extend(["--video-title", &video_title]);
+    }
+    args.push(if auto_segment { "--auto-segment" } else { "--no-auto-segment" });
+    args.push(if scene_detection { "--scene-detection" } else { "--no-scene-detection" });
+
+    clipwright::run(&args)?;
+    project::open_project(app, project_dir, Some(video_id)).await.map_err(Into::into)
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ClipwrightDoctorReport {
+    pub installed: bool,
+    pub path: Option<String>,
+}

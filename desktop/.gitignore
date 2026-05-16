@@ -1,0 +1,17 @@
+# Frontend
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+
+# OS / editor
+.DS_Store
+.vscode/.tauri/
+
+# tsc emits these for vite.config.ts even though noEmit is set;
+# ignore so they don't poison the next commit.
+vite.config.d.ts
+vite.config.js
