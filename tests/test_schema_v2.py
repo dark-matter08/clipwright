@@ -147,6 +147,49 @@ def test_panelframe_rejects_empty_source() -> None:
         PanelFrame.from_dict({})
 
 
+def test_segment_ref_accepts_per_segment_file_paths() -> None:
+    """The validator must accept BOTH ref layouts the renderer supports.
+
+    Regression: a user reported `clipwright render-final` failing with
+    "SegmentRef.ref must match '<path>.json#seg_<id>'; got
+    'camera/my-simulated-path-to-immortality/seg_001.json'" — even
+    though the actual renderer reads per-segment files and that path
+    was correct on disk. The regex was too strict.
+    """
+    # 1. Legacy fragment shape — still legal.
+    legacy = SegmentRef.from_dict({"enabled": True, "ref": "camera.json#seg_001"})
+    assert legacy.ref == "camera.json#seg_001"
+    # 2. Flat per-segment file — legal now.
+    flat = SegmentRef.from_dict({"enabled": True, "ref": "camera/seg_001.json"})
+    assert flat.ref == "camera/seg_001.json"
+    # 3. Per-segment file scoped by video — legal now (what the agent
+    #    actually wrote in the failing project).
+    nested = SegmentRef.from_dict({
+        "enabled": True,
+        "ref": "camera/my-simulated-path-to-immortality/seg_001.json",
+    })
+    assert nested.ref == "camera/my-simulated-path-to-immortality/seg_001.json"
+    # 4. Captions index file with fragment — legal.
+    caps = SegmentRef.from_dict({"enabled": True, "ref": "captions/index.json#seg_042"})
+    assert caps.ref == "captions/index.json#seg_042"
+    # 5. Annotations file at the project root — legal.
+    ann = SegmentRef.from_dict({"enabled": False, "ref": "annotations.json"})
+    assert ann.ref == "annotations.json"
+
+
+def test_segment_ref_still_rejects_garbage() -> None:
+    """The relaxed regex must still catch obviously-wrong shapes."""
+    # Not ending in .json.
+    with pytest.raises(ValueError, match="ending in .json"):
+        SegmentRef.from_dict({"ref": "camera/seg_001"})
+    # Bogus fragment shape.
+    with pytest.raises(ValueError, match="ending in .json"):
+        SegmentRef.from_dict({"ref": "camera.json#wrong"})
+    # Empty fragment after #.
+    with pytest.raises(ValueError, match="ending in .json"):
+        SegmentRef.from_dict({"ref": "camera.json#"})
+
+
 def test_video_rejects_duplicate_segment_ids() -> None:
     payload = {
         "schema_version": 2,

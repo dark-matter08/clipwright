@@ -27,7 +27,17 @@ VALID_KINDS: set[str] = {"recording", "scene", "generated"}
 VALID_SCENE_TYPES: set[str] = {"title", "broll", "outro", "intro", "hero", "panel"}
 
 _SEG_ID_RE = re.compile(r"^seg_[a-z0-9]+$")
-_REF_RE = re.compile(r"^[a-zA-Z0-9_./-]+\.json#seg_[a-z0-9]+$")
+# `SegmentRef.ref` accepts both physical layouts:
+#   - Legacy single-file-with-fragment:    `camera.json#seg_001`
+#   - Modern per-segment files (preferred): `camera/seg_001.json`
+#   - Per-segment files scoped by video:    `camera/<video_id>/seg_001.json`
+# The renderer (e.g. `manhwa_backend._load_camera`) only ever opens the
+# per-segment file directly — fragments are descriptive labels, not
+# parsed as part of the load. The prior regex required the fragment
+# form, which made the agent's correctly-written per-segment refs
+# fail validation on load. Now we accept any path ending in `.json`
+# with an optional `#seg_<id>` fragment trailer.
+_REF_RE = re.compile(r"^[a-zA-Z0-9_./-]+\.json(#seg_[a-z0-9]+)?$")
 
 
 @dataclass
@@ -56,7 +66,16 @@ class SegmentVoiceover:
 class SegmentRef:
     """Pointer to another file's per-segment data.
 
-    Shape: `<relative_path>.json#<segment_id>`. Example: `camera.json#seg_001`.
+    Two layouts are supported — the renderer picks whichever exists on
+    disk, so use whichever fits the source artifact better:
+
+      1. Per-segment file (preferred for camera + annotations):
+         `camera/seg_001.json` or `camera/<video_id>/seg_001.json`.
+         The whole file is the data for that one segment.
+      2. Single file with fragment (legacy, still works for caption
+         indices): `captions/index.json#seg_001`. One file holds N
+         entries; the fragment selects this segment's chunk.
+
     `enabled=False` skips the overlay/operation entirely at render time.
     """
 
@@ -71,7 +90,10 @@ class SegmentRef:
         ref = str(d.get("ref", ""))
         if ref and not _REF_RE.match(ref):
             raise ValueError(
-                f"SegmentRef.ref must match '<path>.json#seg_<id>'; got {ref!r}"
+                "SegmentRef.ref must be a path ending in .json, optionally "
+                "with a '#seg_<id>' fragment. Examples: "
+                "'camera/seg_001.json', 'camera/my-video/seg_001.json', "
+                f"'captions/index.json#seg_001'. Got {ref!r}"
             )
         return cls(enabled=bool(d.get("enabled", True)), ref=ref)
 
