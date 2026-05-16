@@ -116,6 +116,13 @@ def _assemble(
 ) -> str:
     parts: list[str] = []
     parts.append(_section_header(project_dir, project, video))
+    # The scope rule lives at the top, right after the header, BEFORE the
+    # timeline / focus / template guidance. Putting it in the trailing
+    # constraints list buried this in a 9-bullet sea where Claude could
+    # miss it; users reported the rail editing files outside the project
+    # tree (e.g. tweaking the clipwright source itself) in real sessions.
+    # Promoting it here makes it impossible to miss.
+    parts.append(_section_scope(project_dir))
     parts.append(_section_timeline(video, focus=focus))
     if focus is not None:
         parts.append(_section_focus(focus, script_payload))
@@ -596,10 +603,73 @@ def _section_template(project_dir: Path) -> str:
     return "\n\n".join(blocks)
 
 
+def _section_scope(project_dir: Path) -> str:
+    """Top-of-prompt working directory scope rule.
+
+    This is the single most important constraint in the prompt: Claude
+    must only read/write inside the project directory. Without this,
+    the rail can edit the bundled clipwright source tree itself, the
+    user's home directory, or anywhere else the OS will let it. That's
+    a hard "no" for both shipping the app and for the user's trust in
+    the rail.
+
+    We list the project root, name the kinds of files Claude legitimately
+    creates / edits, and name the kinds of paths that are forbidden —
+    repeating the rule from a couple of angles because LLM compliance
+    correlates with how concretely the boundary is described.
+    """
+    return (
+        "## Working directory scope — HARD RULE\n"
+        "\n"
+        f"All file operations MUST stay inside: `{project_dir}`\n"
+        "\n"
+        "The only files you create, edit, or delete are project artifacts "
+        "for THIS video:\n"
+        "\n"
+        f"- `{project_dir}/project.json`\n"
+        f"- `{project_dir}/videos/<id>.json`\n"
+        f"- `{project_dir}/voiceover/scripts/<id>.json` and `voiceover/audio/<id>/…`\n"
+        f"- `{project_dir}/captions/<id>/…` and `captions/style.json`\n"
+        f"- `{project_dir}/camera/<seg_id>.json`\n"
+        f"- `{project_dir}/annotations.json`\n"
+        f"- `{project_dir}/sources/…` (downloaded panels / staged media)\n"
+        f"- `{project_dir}/notes/…` (planning markdown — `panels.md`, etc.)\n"
+        f"- `{project_dir}/brand/…` (from `clipwright inspire`)\n"
+        f"- `{project_dir}/out/…` (rendered output — usually pipeline-managed)\n"
+        f"- `{project_dir}/.clipwright/…` (session state, claude config)\n"
+        "\n"
+        "**FORBIDDEN paths — do not read, write, or delete any of these:**\n"
+        "\n"
+        "- The Clipwright installation itself — `src/clipwright/…`, "
+        "  `~/.venv/`, `node_modules/`, `~/.local/…`, anywhere under the "
+        "  clipwright package install. Even if you spot a bug in the tool, "
+        "  do NOT patch it from the rail — report it and let the user "
+        "  switch projects to fix it.\n"
+        "- The user's home directory outside the project — `~/.bashrc`, "
+        "  `~/.ssh/`, `~/Documents/<other-projects>/`, etc.\n"
+        "- System directories — `/etc/`, `/usr/`, `/Applications/`, "
+        "  `/Library/`, `C:\\Program Files\\`, etc.\n"
+        "- Any absolute path that doesn't start with the project directory "
+        "  shown above. When in doubt, use paths relative to the project "
+        "  root.\n"
+        "\n"
+        "If a task seems to require editing outside the project (e.g. "
+        "\"fix the clipwright CLI to do X\"), STOP and tell the user that "
+        "the rail is project-scoped; they need to make tooling changes "
+        "from a code editor against the clipwright repo, not from this "
+        "chat.\n"
+        "\n"
+        "Network reads via `WebFetch` / `WebSearch` are fine — they don't "
+        "touch the local filesystem outside the project's `sources/` "
+        "downloads."
+    )
+
+
 def _section_constraints(*, focus: Segment | None) -> str:
     lines = [
         "## Constraints",
-        "1. Edit only files inside the project directory above. Never read or write outside it.",
+        "1. Stay scoped to the project directory (see *Working directory scope* above). "
+        "Repeated here for emphasis: no edits outside the project tree.",
         "2. Do not make arbitrary network requests outside the WebFetch/WebSearch tools.",
         "3. Do not modify `schema_version` fields in any project JSON file.",
         "4. Preserve segment IDs across edits. Splitting `seg_001` yields a new id; never renumber.",
