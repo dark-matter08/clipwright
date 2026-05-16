@@ -96,14 +96,14 @@ def init(
                 "label": "Open the landing page",
                 "chapter": "intro",
                 "fields": {"url": "/"},
-                "wait": 2.5,
+                "wait": 1.5,
             },
             {
                 "type": "scroll",
                 "label": "Browse what's on offer",
                 "chapter": "intro",
                 "fields": {"by_y": 600},
-                "wait": 2.5,
+                "wait": 1.2,
             },
         ],
     }
@@ -1295,6 +1295,20 @@ def _generate_slot(
             rprint(f"[yellow]Fallback:[/yellow] {exc} — using static scene")
             return
         _handle_error(exc)
+        return
+
+    # Wire the generated hero into the brand pipeline so the TitleCard scene
+    # actually picks it up. Without this copy step the downstream Remotion
+    # composition keeps falling back to inspire's hero.png (or none at all).
+    if slot == "hero":
+        brand_dir.mkdir(parents=True, exist_ok=True)
+        dst = brand_dir / "hero.png"
+        try:
+            import shutil as _shutil
+            _shutil.copyfile(out_path, dst)
+            rprint(f"[dim]Wired[/dim] {out_path.name} → {dst}")
+        except OSError as exc:  # noqa: BLE001
+            rprint(f"[yellow]Warn:[/yellow] generated hero saved at {out_path} but copy to {dst} failed: {exc}")
 
 
 @generate_app.command("intro")
@@ -1373,8 +1387,8 @@ def generate_hero(
 ) -> None:
     """Generate a static hero illustration for the TitleCard background.
 
-    Writes out/generated/hero.png and symlinks it as out/brand/hero.png.
-    Requires OPENAI_API_KEY.
+    Writes ``out/generated/hero.png`` and copies it to ``out/brand/hero.png``
+    so the Remotion ``TitleCard`` scene picks it up. Requires ``OPENAI_API_KEY``.
     """
     _generate_slot("hero", project=project, provider=provider, prompt=prompt,
                    duration=0.0, fallback=fallback, force=force)

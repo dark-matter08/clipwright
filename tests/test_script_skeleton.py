@@ -107,6 +107,26 @@ def test_draft_respects_word_budget():
     assert words <= 18, f"draft text too long ({words} words) for a 5s clip"
 
 
+def test_draft_empty_hint_returns_empty_text():
+    """A segment with no actions must NOT get repeated placeholder copy.
+
+    Regression: the old fallback produced
+        "Introducing a new feature. Introducing a new feature. ..."
+    which shipped to TTS verbatim and burned ElevenLabs credits.
+    """
+    doc = _segments_doc([
+        {
+            "source_start": 0.0, "source_end": 8.0, "duration": 8.0,
+            "chapter": "",
+            "moments": [],  # no actions → empty hint
+        },
+    ])
+    sk = build_skeleton(doc, draft=True)
+    text = sk["clips"][0]["text"]
+    assert text == "", "empty-hint draft must be empty so a human fills it"
+    assert "Introducing a new feature" not in text
+
+
 def test_draft_no_llm(tmp_path):
     # draft=True must not make any network calls — it's purely deterministic.
     segs_path = tmp_path / "segments.json"
