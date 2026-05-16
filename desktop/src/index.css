@@ -1,14 +1,14 @@
+/* IMPORTANT: @import must come BEFORE @tailwind directives.
+ * CSS spec (§6.5) requires @import rules to precede all other
+ * rules except @charset; PostCSS silently DROPS @import rules
+ * that follow @tailwind, which means tokens.css never made it
+ * into the built bundle and the theme toggle had nothing to
+ * swap. Keep this import at the top of the file. */
+@import "./styles/tokens.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* Design system tokens — light + dark mode. See styles/tokens.css
- * for the full token list, semantics, and rationale.
- * tailwind.config.ts maps these CSS variables into Tailwind color
- * names so utility classes like `bg-bg`, `text-fg-muted`,
- * `border-accent/30` resolve to the right value for the active
- * theme. */
-@import "./styles/tokens.css";
 
 @layer base {
   html, body, #root {

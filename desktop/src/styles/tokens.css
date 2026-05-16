@@ -2,106 +2,117 @@
  *
  * Two themes, one variable layout. Each token is an HSL triplet
  * (space-separated, no `hsl()` wrapper, no commas) so Tailwind can
- * compose alpha-modifiers like `bg-surface/40` via the
+ * compose alpha modifiers like `bg-surface/40` via the
  * `hsl(var(--name) / <alpha-value>)` pattern in tailwind.config.ts.
  *
- * Token categories (in order):
- *   1. Surfaces       — background hierarchy, lowest → highest elevation
- *   2. Borders        — dividers + focus
- *   3. Foreground     — text + icon levels, including on-accent
- *   4. Accent         — the brand cyan, with soft variants
- *   5. Status         — info / success / warn / danger (filled + soft)
- *   6. Lanes          — per-track tints (video / audio / captions)
- *   7. Special        — playhead + render CTA
+ * Design notes (after a user-feedback round):
  *
- * Memorable thing: "a video editor that reads more like a code editor
- * than a Premiere clone." Calm, technical, monospace-friendly. The
- * one expressive moment is the playhead + render CTA (cyan against
- * an otherwise restrained palette).
+ *   * **Light mode now has chroma.** The first pass was a "sea of
+ *     gray-blue" — every surface lived in 91-100% lightness with
+ *     12-14% saturation. The values below shift to a warmer slate
+ *     base, push the elevation deltas wider, give the accent
+ *     materially more pop, and let the per-lane tints (video /
+ *     audio / captions) read as actual colors instead of a
+ *     whisper of color. Light mode should feel like a clean
+ *     drafting table, not an office whiteboard.
+ *
+ *   * **Dark mode unchanged in spirit.** Same hues, same
+ *     elevation ladder. Minor tweaks to lane-fg readability.
+ *
+ *   * **The accent is the only "expressive" hue in either mode.**
+ *     Everything else stays within a controlled neutral or its
+ *     status family. That keeps the playhead + render CTA
+ *     iconic — they're the bright cyan thing in a calm app.
  */
 
 @layer base {
   /* ─────────────────────────────────────────────────────────────
-   * LIGHT MODE (default)
+   * LIGHT MODE (default for the `:root` selector AND when the
+   * user explicitly picks Light via the ThemeToggle).
    *
-   * Surfaces go UP (subtle → base → raised) as elevation increases.
-   * Page is a soft warm-near-white, NOT pure #FFF — full white reads
-   * harsh in a dense editor UI. The accent stays cyan but shifts a
-   * notch darker than the dark-mode value for AA contrast on light
-   * backgrounds.
+   * Surfaces ladder UP toward white:
+   *   base   (page)   — slate-tinted off-white, NOT pure paper
+   *   subtle (rails)  — one notch darker
+   *   surface (cards) — clean white
+   *   raised (hover)  — paper-white with a touch of warmth
+   *   inset (textarea/code) — gently recessed gray
    * ───────────────────────────────────────────────────────────── */
   :root,
   [data-theme="light"] {
     /* 1. Surfaces */
-    --surface-base:    220 14% 97%;   /* page bg */
-    --surface-subtle:  220 14% 94%;   /* sidebar / rail */
-    --surface:           0  0% 100%;   /* card / panel */
-    --surface-raised:  220 14% 99%;   /* hover */
-    --surface-overlay:   0  0% 100%;   /* modal */
-    --surface-inset:   220 12% 91%;   /* code block, textarea bg */
+    --surface-base:    220 22% 96%;   /* slate-tinted page */
+    --surface-subtle:  220 24% 92%;   /* sidebars / rails  */
+    --surface:           0  0% 100%;  /* cards / panels    */
+    --surface-raised:  220 30% 99%;   /* hover             */
+    --surface-overlay:   0  0% 100%;  /* modal             */
+    --surface-inset:   220 18% 88%;   /* textarea / code   */
 
-    /* 2. Borders */
-    --border-subtle:   220 14% 88%;
-    --border:          220 12% 80%;
-    --border-strong:   220 10% 62%;
+    /* 2. Borders — more contrast than v1 so the chrome actually
+     *    reads as separators on the warmer surfaces. */
+    --border-subtle:   220 16% 84%;
+    --border:          220 14% 72%;
+    --border-strong:   220 12% 52%;
 
-    /* 3. Foreground */
-    --fg:              220 18% 14%;   /* primary text */
-    --fg-subtle:       220 12% 32%;   /* secondary */
-    --fg-muted:        220  8% 48%;   /* labels / hints */
-    --fg-disabled:     220  8% 65%;
-    --fg-on-accent:    220 25%  8%;   /* dark text on bright accent */
+    /* 3. Foreground — deep slate, not pure black */
+    --fg:              220 28% 12%;
+    --fg-subtle:       220 18% 28%;
+    --fg-muted:        220 12% 44%;
+    --fg-disabled:     220 10% 62%;
+    --fg-on-accent:      0  0% 100%;  /* white text on accent fills */
 
-    /* 4. Accent — cyan family, darker in light mode for contrast */
-    --accent:          188 86% 38%;
-    --accent-hover:    188 90% 32%;
-    --accent-active:   188 95% 28%;
-    --accent-soft:     188 70% 92%;
-    --accent-soft-fg:  188 90% 26%;
+    /* 4. Accent — vivid teal-cyan with enough saturation to feel
+     *    like a real brand color, not a watery tint. AA-pass on
+     *    `--surface-base`. */
+    --accent:          188 90% 36%;
+    --accent-hover:    188 95% 30%;
+    --accent-active:   188 100% 24%;
+    --accent-soft:     188 80% 88%;
+    --accent-soft-fg:  188 90% 24%;
 
-    /* 5. Status */
-    --info:            217 91% 50%;
-    --info-soft:       217 92% 94%;
-    --info-soft-fg:    217 90% 32%;
+    /* 5. Status — each is a confident color, not a pastel hint */
+    --info:            217 92% 48%;
+    --info-soft:       217 96% 92%;
+    --info-soft-fg:    217 90% 28%;
 
-    --success:         142 71% 35%;
-    --success-soft:    142 60% 91%;
-    --success-soft-fg: 142 71% 22%;
+    --success:         150 70% 32%;
+    --success-soft:    150 60% 90%;
+    --success-soft-fg: 150 75% 18%;
 
-    --warn:             32 95% 40%;
-    --warn-soft:        38 92% 92%;
-    --warn-soft-fg:     32 90% 28%;
+    --warn:             32 92% 40%;
+    --warn-soft:        38 95% 88%;
+    --warn-soft-fg:     32 90% 24%;
 
-    --danger:            0 78% 48%;
-    --danger-soft:       0 75% 94%;
-    --danger-soft-fg:    0 75% 35%;
+    --danger:            0 80% 46%;
+    --danger-soft:       0 80% 93%;
+    --danger-soft-fg:    0 75% 32%;
 
-    /* 6. Lanes (timeline tracks) */
-    --lane-video:        217 91% 50%;
-    --lane-video-bg:     217 100% 97%;
-    --lane-video-border: 217  85% 78%;
-    --lane-video-fg:     217  85% 28%;
+    /* 6. Lanes — vivid enough to read as "this is the video lane"
+     *    at a glance. The bg is a tinted card (~94-95% L with
+     *    saturation), the border is a confident mid-tone, the fg
+     *    is a deep tone that holds against the bg. */
+    --lane-video:        217 92% 48%;
+    --lane-video-bg:     217 100% 95%;
+    --lane-video-border: 217  80% 66%;
+    --lane-video-fg:     217  85% 22%;
 
-    --lane-audio:        258 80% 55%;
-    --lane-audio-bg:     258 100% 97%;
-    --lane-audio-border: 258  75% 78%;
-    --lane-audio-fg:     258  75% 32%;
+    --lane-audio:        262 80% 56%;
+    --lane-audio-bg:     262 100% 96%;
+    --lane-audio-border: 262  72% 70%;
+    --lane-audio-fg:     262  75% 28%;
 
-    --lane-captions:      38 92% 45%;
-    --lane-captions-bg:   38 100% 95%;
-    --lane-captions-border: 38 92% 70%;
-    --lane-captions-fg:   32 90% 28%;
+    --lane-captions:      32 92% 40%;
+    --lane-captions-bg:   38 100% 93%;
+    --lane-captions-border: 32 92% 60%;
+    --lane-captions-fg:   28  90% 22%;
 
-    /* 7. Special — playhead + render CTA both ride the accent so
-     * "the bright cyan thing" reads as one consistent affordance */
-    --playhead:        188 86% 38%;
-    --render:          188 86% 38%;
-    --render-hover:    188 90% 32%;
+    /* 7. Special */
+    --playhead:        188 90% 36%;
+    --render:          188 90% 36%;
+    --render-hover:    188 95% 30%;
     --render-fg:         0  0% 100%;
 
-    /* Selection / focus */
-    --ring-focus:      188 86% 38%;
-    --selection-bg:    188 70% 92%;
+    --ring-focus:      188 90% 36%;
+    --selection-bg:    188 80% 88%;
 
     color-scheme: light;
   }
@@ -109,40 +120,35 @@
   /* ─────────────────────────────────────────────────────────────
    * DARK MODE
    *
-   * Surfaces step DOWN — page is the darkest level, cards float
-   * UP toward lighter. Accent gets brighter (more saturated, higher
-   * lightness) because dark mode tolerates and benefits from
-   * vivid hues that would feel garish in light mode.
-   *
-   * The header comment in the original tailwind.config noted SRS
-   * §8.7: "calm + technical. Closer to Linear / Raycast than
-   * Premiere." This palette honors that — a tight neutral ramp
-   * with one strong accent, no decorative gradients.
+   * Surfaces ladder DOWN — page is the darkest level, cards
+   * elevate toward lighter. Accent gets brighter (more
+   * saturated, higher lightness) — dark surfaces tolerate and
+   * benefit from vivid hues that would feel garish in light.
    * ───────────────────────────────────────────────────────────── */
   [data-theme="dark"] {
-    /* 1. Surfaces — kept very close to the original
-     * #0b0d10 / #13161a / #191d22 / #0f1216 values, just expressed
-     * in HSL so the rest of the system can stay consistent. */
-    --surface-base:    216 16%  6%;   /* #0b0d10 */
-    --surface-subtle:  216 14% 10%;   /* #13161a */
-    --surface:         220 12% 13%;   /* card */
-    --surface-raised:  216 12% 13%;   /* #191d22 */
+    /* 1. Surfaces — preserved close to the original
+     * #0b0d10 / #13161a / #191d22 / #0f1216 hex values, just
+     * expressed in HSL so the system stays consistent. */
+    --surface-base:    216 16%  6%;
+    --surface-subtle:  216 14% 10%;
+    --surface:         220 12% 13%;
+    --surface-raised:  216 12% 13%;
     --surface-overlay: 220 14% 11%;
-    --surface-inset:   216 16%  8%;   /* #0f1216 */
+    --surface-inset:   216 16%  8%;
 
-    /* 2. Borders — also from originals (#262b32, #1d2127) */
-    --border-subtle:   220  12% 14%;
-    --border:          218  10% 18%;
-    --border-strong:   220   8% 32%;
+    /* 2. Borders */
+    --border-subtle:   220 12% 14%;
+    --border:          218 10% 18%;
+    --border-strong:   220  8% 32%;
 
-    /* 3. Foreground (from #e6e8eb, #a5acb5, #6b7380) */
-    --fg:              216  10% 91%;
-    --fg-subtle:       216  10% 68%;
-    --fg-muted:        217   8% 46%;
-    --fg-disabled:     217   8% 32%;
-    --fg-on-accent:    220  25%  8%;
+    /* 3. Foreground */
+    --fg:              216 10% 91%;
+    --fg-subtle:       216 10% 68%;
+    --fg-muted:        217  8% 46%;
+    --fg-disabled:     217  8% 32%;
+    --fg-on-accent:    220 25%  8%;   /* dark text on bright accent */
 
-    /* 4. Accent (cyan-500: #22d3ee → 188 96% 53%) */
+    /* 4. Accent — cyan-500 family (#22d3ee) */
     --accent:          188 96% 53%;
     --accent-hover:    188 90% 47%;
     --accent-active:   188 88% 40%;
@@ -162,27 +168,25 @@
     --warn-soft:        38 60% 18%;
     --warn-soft-fg:     38 92% 76%;
 
-    --danger:            0 75% 65%;   /* #f87171 family */
+    --danger:            0 75% 65%;
     --danger-soft:       0 60% 22%;
     --danger-soft-fg:    0 80% 82%;
 
-    /* 6. Lanes — kept hue-matched to the original
-     * Timeline.tsx hardcodes (blue / purple / amber) but pulled
-     * into tokens so light mode can have its own values. */
+    /* 6. Lanes — same hue families as light, dark-mode treatment */
     --lane-video:        217 91% 60%;
-    --lane-video-bg:     217  35%  9%;
-    --lane-video-border: 217  70% 38%;
-    --lane-video-fg:     217  70% 78%;
+    --lane-video-bg:     217 35%  9%;
+    --lane-video-border: 217 70% 38%;
+    --lane-video-fg:     217 70% 78%;
 
     --lane-audio:        258 85% 70%;
-    --lane-audio-bg:     258  30% 11%;
-    --lane-audio-border: 258  60% 42%;
-    --lane-audio-fg:     258  80% 82%;
+    --lane-audio-bg:     258 30% 11%;
+    --lane-audio-border: 258 60% 42%;
+    --lane-audio-fg:     258 80% 82%;
 
     --lane-captions:      38 92% 55%;
-    --lane-captions-bg:   38  30% 10%;
+    --lane-captions-bg:   38 30% 10%;
     --lane-captions-border: 38 70% 40%;
-    --lane-captions-fg:   38  92% 74%;
+    --lane-captions-fg:   38 92% 74%;
 
     /* 7. Special */
     --playhead:        188 96% 53%;
@@ -200,16 +204,15 @@
    * System-preference fallback
    *
    * When the user hasn't explicitly picked a theme (no
-   * `data-theme` attribute on <html>), follow the OS. We default
-   * the document to dark because Clipwright is a video-editor and
-   * dark chrome is the conventional baseline in that space.
+   * `data-theme` attribute on <html>) and the OS prefers dark,
+   * apply the dark token block. The selector
+   * `:root:not([data-theme])` has higher specificity than `:root`
+   * (because `:not([data-theme])` adds an attribute-selector
+   * component), so it cleanly wins over the light defaults at
+   * the top of this file.
    * ───────────────────────────────────────────────────────────── */
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme]) {
-      /* Re-apply the dark token block. Kept in sync with the
-       * [data-theme="dark"] selector above; the tokens here ARE
-       * those — extracted into a media query so the OS
-       * preference takes over when no explicit attribute. */
       --surface-base:    216 16%  6%;
       --surface-subtle:  216 14% 10%;
       --surface:         220 12% 13%;
@@ -217,15 +220,15 @@
       --surface-overlay: 220 14% 11%;
       --surface-inset:   216 16%  8%;
 
-      --border-subtle:   220  12% 14%;
-      --border:          218  10% 18%;
-      --border-strong:   220   8% 32%;
+      --border-subtle:   220 12% 14%;
+      --border:          218 10% 18%;
+      --border-strong:   220  8% 32%;
 
-      --fg:              216  10% 91%;
-      --fg-subtle:       216  10% 68%;
-      --fg-muted:        217   8% 46%;
-      --fg-disabled:     217   8% 32%;
-      --fg-on-accent:    220  25%  8%;
+      --fg:              216 10% 91%;
+      --fg-subtle:       216 10% 68%;
+      --fg-muted:        217  8% 46%;
+      --fg-disabled:     217  8% 32%;
+      --fg-on-accent:    220 25%  8%;
 
       --accent:          188 96% 53%;
       --accent-hover:    188 90% 47%;
@@ -247,17 +250,17 @@
       --danger-soft-fg:    0 80% 82%;
 
       --lane-video:        217 91% 60%;
-      --lane-video-bg:     217  35%  9%;
-      --lane-video-border: 217  70% 38%;
-      --lane-video-fg:     217  70% 78%;
+      --lane-video-bg:     217 35%  9%;
+      --lane-video-border: 217 70% 38%;
+      --lane-video-fg:     217 70% 78%;
       --lane-audio:        258 85% 70%;
-      --lane-audio-bg:     258  30% 11%;
-      --lane-audio-border: 258  60% 42%;
-      --lane-audio-fg:     258  80% 82%;
+      --lane-audio-bg:     258 30% 11%;
+      --lane-audio-border: 258 60% 42%;
+      --lane-audio-fg:     258 80% 82%;
       --lane-captions:      38 92% 55%;
-      --lane-captions-bg:   38  30% 10%;
+      --lane-captions-bg:   38 30% 10%;
       --lane-captions-border: 38 70% 40%;
-      --lane-captions-fg:   38  92% 74%;
+      --lane-captions-fg:   38 92% 74%;
 
       --playhead:        188 96% 53%;
       --render:          188 96% 53%;

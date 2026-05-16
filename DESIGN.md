@@ -72,40 +72,40 @@ All values are HSL space-separated triplets in
 
 | Token              | Light                 | Dark                  | Use |
 |--------------------|-----------------------|-----------------------|-----|
-| `bg` (`--surface-base`)  | `220 14% 97%`   | `216 16% 6%`    | Page background |
-| `bg-subtle` (`--surface-subtle`) | `220 14% 94%` | `216 14% 10%` | Sidebars, rails |
+| `bg` (`--surface-base`)  | `220 22% 96%`   | `216 16% 6%`    | Page background |
+| `bg-subtle` (`--surface-subtle`) | `220 24% 92%` | `216 14% 10%` | Sidebars, rails |
 | `surface` (`--surface`) | `0 0% 100%` | `220 12% 13%` | Cards, panels |
-| `bg-raised` (`--surface-raised`) | `220 14% 99%` | `216 12% 13%` | Hovered surfaces |
+| `bg-raised` (`--surface-raised`) | `220 30% 99%` | `216 12% 13%` | Hovered surfaces |
 | `surface-overlay` (`--surface-overlay`) | `0 0% 100%` | `220 14% 11%` | Modal bodies |
-| `bg-inset` (`--surface-inset`) | `220 12% 91%` | `216 16% 8%` | Code blocks, textareas |
+| `bg-inset` (`--surface-inset`) | `220 18% 88%` | `216 16% 8%` | Code blocks, textareas |
 
 ### Borders
 
 | Token            | Light            | Dark            | Use |
 |------------------|------------------|-----------------|-----|
-| `border`         | `220 12% 80%`    | `218 10% 18%`   | Default divider |
-| `border-subtle`  | `220 14% 88%`    | `220 12% 14%`   | Quiet separator |
-| `border-strong`  | `220 10% 62%`    | `220 8% 32%`    | Emphasized edge |
+| `border`         | `220 14% 72%`    | `218 10% 18%`   | Default divider |
+| `border-subtle`  | `220 16% 84%`    | `220 12% 14%`   | Quiet separator |
+| `border-strong`  | `220 12% 52%`    | `220 8% 32%`    | Emphasized edge |
 
 ### Foreground
 
 | Token            | Light            | Dark            |
 |------------------|------------------|-----------------|
-| `fg`             | `220 18% 14%`    | `216 10% 91%`   |
-| `fg-subtle`      | `220 12% 32%`    | `216 10% 68%`   |
-| `fg-muted`       | `220 8% 48%`     | `217 8% 46%`    |
-| `fg-disabled`    | `220 8% 65%`     | `217 8% 32%`    |
-| `fg-on-accent`   | `220 25% 8%`     | `220 25% 8%`    |
+| `fg`             | `220 28% 12%`    | `216 10% 91%`   |
+| `fg-subtle`      | `220 18% 28%`    | `216 10% 68%`   |
+| `fg-muted`       | `220 12% 44%`    | `217 8% 46%`    |
+| `fg-disabled`    | `220 10% 62%`    | `217 8% 32%`    |
+| `fg-on-accent`   | `0 0% 100%`      | `220 25% 8%`    |
 
 ### Accent (the brand cyan)
 
 | Token            | Light             | Dark              | Use |
 |------------------|-------------------|-------------------|-----|
-| `accent`         | `188 86% 38%`     | `188 96% 53%`     | Primary CTA, playhead |
-| `accent-hover`   | `188 90% 32%`     | `188 90% 47%`     | Hover state |
-| `accent-active`  | `188 95% 28%`     | `188 88% 40%`     | Pressed state |
-| `accent-soft`    | `188 70% 92%`     | `188 50% 18%`     | Tinted selection bg |
-| `accent-soft-fg` | `188 90% 26%`     | `188 86% 78%`     | Text on `accent-soft` |
+| `accent`         | `188 90% 36%`     | `188 96% 53%`     | Primary CTA, playhead |
+| `accent-hover`   | `188 95% 30%`     | `188 90% 47%`     | Hover state |
+| `accent-active`  | `188 100% 24%`    | `188 88% 40%`     | Pressed state |
+| `accent-soft`    | `188 80% 88%`     | `188 50% 18%`     | Tinted selection bg |
+| `accent-soft-fg` | `188 90% 24%`     | `188 86% 78%`     | Text on `accent-soft` |
 
 The accent shifts a notch darker in light mode to maintain AA
 contrast on near-white surfaces. The hue is identical in both
@@ -205,3 +205,5 @@ Things explicitly NOT changed:
 | 2026-05-15 | Three-state theme (system / light / dark)         | System default keeps existing dark-only users at parity while reactive OS-flip works for new users |
 | 2026-05-15 | Theme provider initializes at module load         | Prevents flash of wrong theme on first paint |
 | 2026-05-15 | Existing Tailwind names preserved (`bg`, `fg`...) | Zero-migration light-mode for ~30 existing components |
+| 2026-05-15 | Light palette boosted (chroma + elevation deltas) | First pass felt monochromatic ("sea of gray-blue"); slate-tinted surfaces, wider elevation steps, vivid lane colors |
+| 2026-05-15 | `@import` moved BEFORE `@tailwind` directives    | CSS spec requires imports first; PostCSS was silently dropping `tokens.css` so theme toggle had nothing to swap |
