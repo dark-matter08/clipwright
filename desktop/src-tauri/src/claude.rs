@@ -1417,7 +1417,11 @@ pub async fn run_clipwright_command(
 /// (e.g. shell-style splitting via `shlex`) would otherwise let it escape
 /// other rejections.
 fn validate_clipwright_tail(tail: &str) -> Result<(), ClaudeError> {
-    for bad in [';', '&', '|', '`', '$', '<', '>', '\n', '\r', '\\', '"', '\'', '(', ')', '{', '}'] {
+    // NUL byte is special: some platforms truncate argv at the first NUL, so
+    // it can hide content from later validators. Lump it in with the shell
+    // metacharacter set even though we don't shell-eval — the principle of
+    // "if it looks weird, refuse it" is the right posture here.
+    for bad in [';', '&', '|', '`', '$', '<', '>', '\n', '\r', '\\', '"', '\'', '(', ')', '{', '}', '\0'] {
         if tail.contains(bad) {
             return Err(ClaudeError::Bad(format!(
                 "command contains unsupported shell metacharacter {bad:?}; \
@@ -1428,18 +1432,32 @@ fn validate_clipwright_tail(tail: &str) -> Result<(), ClaudeError> {
     // Defense in depth: refuse argv tokens that include `..` path components.
     // A future CLI path argument that doesn't normalize input could otherwise
     // be tricked into reading outside the project root via the Play button.
+    //
+    // We check both the bare token AND the post-`=` suffix so flag-style
+    // arguments like `--project=../etc` are caught. Without the suffix
+    // check, the segment split sees `["--project=..", "etc"]` and the
+    // first segment isn't equal to literal `".."`, slipping through.
     for token in tail.split_whitespace() {
-        // Match `..`, `../`, `..\\`, `foo/..`, `foo/../bar`, etc. Any path
-        // segment that's literally `..` is rejected.
-        let normalized = token.replace('\\', "/");
-        let has_dot_dot = normalized
-            .split('/')
-            .any(|seg| seg == "..");
-        if has_dot_dot {
-            return Err(ClaudeError::Bad(format!(
-                "command argv token {token:?} contains a `..` path component; \
-                 not allowed via the Play button (would escape the project sandbox)"
-            )));
+        let candidates: [&str; 2] = match token.split_once('=') {
+            Some((_, after)) => [token, after],
+            None => [token, ""],
+        };
+        for candidate in candidates {
+            if candidate.is_empty() {
+                continue;
+            }
+            // Match `..`, `../`, `..\\`, `foo/..`, `foo/../bar`, etc. Any path
+            // segment that's literally `..` is rejected.
+            let normalized = candidate.replace('\\', "/");
+            let has_dot_dot = normalized
+                .split('/')
+                .any(|seg| seg == "..");
+            if has_dot_dot {
+                return Err(ClaudeError::Bad(format!(
+                    "command argv token {token:?} contains a `..` path component; \
+                     not allowed via the Play button (would escape the project sandbox)"
+                )));
+            }
         }
     }
     Ok(())
@@ -1487,10 +1505,37 @@ mod tests {
             "render-final --project ../../other",
             "import sources/../../etc/passwd",
             "import ..",
+            // Flag-with-equals form — previously bypassed the segment-equality check
+            // because `--project=..` is not literally equal to `..`. Now caught.
+            "render-final --project=../etc",
+            "import --source=foo/../bar",
+            "render-segment seg_001 --out=../escape/x.mp4",
         ] {
             assert!(
                 validate_clipwright_tail(tail).is_err(),
                 "path-traversal tail {tail:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_nul_byte() {
+        let tail = "render-segment seg_001\0--evil";
+        assert!(validate_clipwright_tail(tail).is_err(), "NUL byte should be rejected");
+    }
+
+    #[test]
+    fn allows_flag_with_equals_when_safe() {
+        // `--video=main` is a perfectly fine flag form; it must NOT be rejected
+        // just because the equals-split check exists.
+        for tail in [
+            "render-segment seg_001 --video=main",
+            "render-final --backend=remotion",
+            "import sources/video.mp4 --video=chapter-1",
+        ] {
+            assert!(
+                validate_clipwright_tail(tail).is_ok(),
+                "benign flag-with-equals {tail:?} should be accepted"
             );
         }
     }

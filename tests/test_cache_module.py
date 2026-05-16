@@ -57,3 +57,12 @@ def test_write_overwrites_existing(tmp_path):
     write_input_hash(path, "sha256:first")
     write_input_hash(path, "sha256:second")
     assert read_input_hash(path) == "sha256:second"
+
+
+def test_write_leaves_no_tmp_files(tmp_path):
+    """Atomic-write tmp suffix must be cleaned up after rename."""
+    path = tmp_path / "x.cache.json"
+    write_input_hash(path, "sha256:abc")
+    # Parent dir should contain exactly the final file, no `.tmp-*` siblings.
+    siblings = [p.name for p in path.parent.iterdir()]
+    assert siblings == ["x.cache.json"], f"unexpected tmp leftovers: {siblings}"

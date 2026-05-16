@@ -1329,14 +1329,26 @@ def _generate_slot(
     # Wire the generated hero into the brand pipeline so the TitleCard scene
     # actually picks it up. Without this copy step the downstream Remotion
     # composition keeps falling back to inspire's hero.png (or none at all).
+    #
+    # Use copy + os.replace so a concurrent Remotion render reading
+    # `brand/hero.png` never catches a partial PNG. Guard SameFileError in
+    # case `out_path` and `dst` resolve to the same file under a custom
+    # `out_dir` config.
     if slot == "hero":
+        import os as _os
+        import shutil as _shutil
+
         brand_dir.mkdir(parents=True, exist_ok=True)
         dst = brand_dir / "hero.png"
         try:
-            import shutil as _shutil
-            _shutil.copyfile(out_path, dst)
-            rprint(f"[dim]Wired[/dim] {out_path.name} → {dst}")
-        except OSError as exc:  # noqa: BLE001
+            if out_path.resolve() == dst.resolve():
+                rprint(f"[dim]Skipped copy[/dim] (out_path == dst): {dst}")
+            else:
+                tmp = dst.with_suffix(f".png.tmp-{_os.getpid()}")
+                _shutil.copyfile(out_path, tmp)
+                _os.replace(tmp, dst)
+                rprint(f"[dim]Wired[/dim] {out_path.name} → {dst}")
+        except OSError as exc:
             rprint(f"[yellow]Warn:[/yellow] generated hero saved at {out_path} but copy to {dst} failed: {exc}")
 
 

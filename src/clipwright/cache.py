@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 from pathlib import Path
 
 from . import __version__
@@ -60,11 +61,15 @@ def read_input_hash(cache_path: Path) -> str | None:
 def write_input_hash(cache_path: Path, input_hash: str) -> None:
     """Atomically replace ``cache_path`` with a fresh sidecar for ``input_hash``.
 
-    Note: we write through ``.read_text``/``.write_text`` here, not the
-    atomic helper used for project manifests — sidecars are throwaway. A
-    half-written sidecar is treated as a cache miss on the next read (see
-    :func:`read_input_hash`'s broad exception handling) and the stage will
-    just re-run.
+    Writes through a temp file + ``os.replace`` so a SIGKILL or concurrent
+    write never leaves a torn sidecar mid-loop. Concurrent ``render-segment``
+    invocations targeting the same seg are the realistic case here — without
+    atomicity, a Windows reader catches a `PermissionError` mid-write and
+    a Unix reader catches a partial-JSON file (handled gracefully but still
+    forces an unnecessary re-render).
+
+    ``os.replace`` is atomic on POSIX and on Windows (atomic-rename was
+    added in Python 3.3 specifically for this case).
     """
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -73,4 +78,9 @@ def write_input_hash(cache_path: Path, input_hash: str) -> None:
         "produced_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
         "tool_version": __version__,
     }
-    cache_path.write_text(json.dumps(payload, indent=2) + "\n")
+    # Suffix with the PID so two parallel writers don't clobber each other's
+    # temp file (last-replace-wins is still correct; we just don't want one
+    # writer to delete the other's in-flight tmp).
+    tmp_path = cache_path.with_suffix(cache_path.suffix + f".tmp-{os.getpid()}")
+    tmp_path.write_text(json.dumps(payload, indent=2) + "\n")
+    os.replace(tmp_path, cache_path)

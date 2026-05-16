@@ -79,11 +79,24 @@ class DalleProvider(GenerateProvider):
             )
 
         import base64
-        png_bytes = base64.b64decode(b64)
+        import binascii
+
+        try:
+            png_bytes = base64.b64decode(b64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ClipwrightError(
+                f"DALL·E 3 returned malformed base64 data: {exc}",
+                fix="Retry the generation; this usually indicates a transient API issue",
+            ) from exc
+
         out.parent.mkdir(parents=True, exist_ok=True)
 
         # Upscale to exactly 1080×1920 if Pillow is available; otherwise
-        # write the 1024×1792 PNG as-is.
+        # write the 1024×1792 PNG as-is. The bare-except covers PIL import
+        # failure, PIL unable-to-decode (e.g. the API returned non-PNG bytes
+        # that decoded cleanly from base64 but aren't an image), and any
+        # other PIL runtime issue — none of those are worth crashing the
+        # whole run when we can fall back to the raw bytes.
         try:
             import io
 
