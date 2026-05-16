@@ -8,6 +8,7 @@ import { listRecents, openProject, pickProjectDir } from "../lib/tauri";
 import type { RecentProject } from "../lib/types";
 import { useApp } from "../lib/store";
 import { cn } from "../lib/cn";
+import { HubBackground } from "./HubBackground";
 import { NewProjectDialog } from "./NewProjectDialog";
 
 export function Hub() {
@@ -46,8 +47,13 @@ export function Hub() {
   }
 
   return (
-    <div className="flex h-full w-full items-start justify-center overflow-y-auto bg-bg">
-      <div className="flex w-full max-w-2xl flex-col gap-8 px-8 pb-16 pt-16">
+    <div className="relative flex h-full w-full items-start justify-center overflow-y-auto bg-bg">
+      {/* Editing-motif background — film strips, timeline ruler,
+       *  waveform line, scattered keyframe diamonds. Pointer-
+       *  events disabled, sits behind the content. Theme-aware via
+       *  the design-system tokens. */}
+      <HubBackground />
+      <div className="relative z-10 flex w-full max-w-2xl flex-col gap-8 px-8 pb-16 pt-16">
         <header className="flex items-baseline justify-between">
           <h1 className="text-lg font-medium tracking-tight">
             Clipwright Studio
