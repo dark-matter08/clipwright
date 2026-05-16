@@ -342,20 +342,6 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
     // `finally` clears `busy` — no need to flip it here.
   }
 
-  if (collapsed) {
-    return (
-      <button
-        type="button"
-        onClick={toggle}
-        title="Open Claude rail (⌘\\)"
-        className="flex h-full w-full flex-col items-center justify-start gap-3 pt-3 text-fg-muted transition-colors hover:text-fg"
-      >
-        <MessageSquare size={16} strokeWidth={1.75} />
-        <span className="rotate-180 [writing-mode:vertical-rl] text-xs">Claude</span>
-      </button>
-    );
-  }
-
   // Filter the discovered slash commands + skills by what the user
   // has typed so far. The popover opens only when:
   //   * the draft starts with "/" AND
@@ -369,6 +355,16 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
   // Each entry carries a `kind` so the popover can render a distinct
   // chip ("built-in" / "command" / "skill") and the user can see what
   // they're about to invoke.
+  //
+  // **This MUST stay above the `collapsed` early-return** so the hook
+  // count is stable across renders. Putting the return first and these
+  // two hooks below it triggers React's "Rendered fewer hooks than
+  // expected" error on every toggle: open → 15 hooks; collapsed →
+  // 13 hooks; React's per-component hook counter mismatches and the
+  // whole rail throws, blanking the app. The expanded rail still uses
+  // `slashMatches` / `slashOpen` further down; the collapsed view just
+  // ignores them. Cheap to compute when collapsed (empty draft → early
+  // null match in the regex).
   const slashMatches = useMemo(() => {
     const m = draft.match(/^\/([A-Za-z0-9_\-:]*)$/);
     if (!m) return [] as SlashEntry[];
@@ -412,6 +408,20 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
     setSlashIndex(0);
   }, [slashMatches.length, draft]);
   const slashOpen = slashMatches.length > 0;
+
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={toggle}
+        title="Open Claude rail (⌘\\)"
+        className="flex h-full w-full flex-col items-center justify-start gap-3 pt-3 text-fg-muted transition-colors hover:text-fg"
+      >
+        <MessageSquare size={16} strokeWidth={1.75} />
+        <span className="rotate-180 [writing-mode:vertical-rl] text-xs">Claude</span>
+      </button>
+    );
+  }
 
   return (
     <div className="flex h-full w-full flex-col">
