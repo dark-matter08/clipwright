@@ -44,11 +44,17 @@ import {
   type SlashCommand,
 } from "../lib/tauri";
 import { useApp } from "../lib/store";
-import type { ChatRuntime } from "../lib/store";
+import type { ChatRuntime, TranscriptFontSize, TranscriptView } from "../lib/store";
 import { cn } from "../lib/cn";
+import {
+  groupIntoTurns,
+  type InFlightOverlay,
+  type Turn,
+} from "../lib/transcript";
 import { Dropdown } from "./Dropdown";
 import { MarkdownView } from "./MarkdownView";
 import { parseAskBlocks, QuestionCard } from "./QuestionCard";
+import { TranscriptViewMenu } from "./TranscriptViewMenu";
 
 interface ClaudeRailProps {
   collapsed: boolean;
@@ -116,6 +122,13 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
   // Empty string = "CLI default" — the user's claude config picks.
   const [model, setModelState] = useState<string>("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const topRef = useRef<HTMLDivElement>(null);
+  // Subscribe to view-mode + font-size. The transcript body picks its
+  // layout from `transcriptView`; the wrapper div applies a font-size
+  // class derived from `transcriptFontSize` so every text element
+  // inside scales together.
+  const transcriptView = useApp((s) => s.transcriptView);
+  const transcriptFontSize = useApp((s) => s.transcriptFontSize);
 
   // Pull the persisted permission mode whenever the project changes. It's
   // a per-project setting so different videos in the same project share
@@ -237,8 +250,29 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
       setHistory([]);
       return;
     }
-    loadChatHistory(project.project_dir, project.video.video_id)
-      .then(setHistory)
+    const videoId = project.video.video_id;
+    loadChatHistory(project.project_dir, videoId)
+      .then((entries) => {
+        setHistory(entries);
+        // Dedupe: disk is now authoritative for this video, so any
+        // optimistic `pending` bubble whose text matches the most
+        // recent disk-side user row is redundant. Clearing it kills
+        // the "two USER resume bubbles" duplication-on-switch bug
+        // (the prior pending was queued on a different render path
+        // and didn't see the disk catch-up). The transcript grouper
+        // ALSO dedupes inside `groupIntoTurns`, but clearing the
+        // store slice keeps the data shape clean for future renders.
+        const lastUser = [...entries].reverse().find((e) => e.role === "user");
+        const currentPending =
+          useApp.getState().chatRuntime[videoId]?.pending ?? null;
+        if (
+          lastUser &&
+          currentPending &&
+          currentPending.text.trim() === lastUser.text.trim()
+        ) {
+          useApp.getState().updateChatRuntime(videoId, { pending: null });
+        }
+      })
       .catch(() => setHistory([]));
   }, [project?.project_dir, project?.video?.video_id]);
 
@@ -491,6 +525,10 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
             historyEmpty={history.length === 0 && !pending}
             onConfirm={onFreshChat}
           />
+          <TranscriptViewMenu
+            onJumpTop={() => topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            onJumpLatest={() => bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })}
+          />
           <button
             type="button"
             onClick={toggle}
@@ -504,102 +542,26 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
       </header>
 
       <div className="flex-1 overflow-y-auto px-3 py-3">
-        {history.length === 0 && !pending && (
+        <div ref={topRef} />
+        {history.length === 0 && !pending && !streamText && (
           <p className="text-xs text-fg-muted">
             Ask Claude anything about this project. Right-click a segment for a
             scoped ask.
           </p>
         )}
-        <div className="flex flex-col gap-3 text-sm">
-          {history.map((m, i) => {
-            // tool_use / tool_result are persisted alongside the bubble
-            // entries (so a refresh or mid-turn stop preserves them).
-            // Render them as ToolChip-style boxes inline with the
-            // assistant bubbles — the JSONL order is the same order
-            // the stream emitted them, so the replay reads naturally.
-            //
-            // We try to pair a tool_result with its preceding
-            // tool_use by `tool_id` so the chip can show both `input`
-            // and `output` together (matching the live bubble's
-            // chip). If no pairing is found we render the orphan as
-            // its own chip.
-            if (m.role === "tool_use") {
-              const pair = history
-                .slice(i + 1)
-                .find(
-                  (x) =>
-                    x.role === "tool_result" &&
-                    x.tool_id &&
-                    x.tool_id === m.tool_id,
-                );
-              const tool: StreamToolUse = {
-                id: m.tool_id ?? "",
-                name: m.tool_name ?? "tool",
-                status: pair ? (pair.tool_error ? "error" : "ok") : "ok",
-                input: m.tool_input,
-                output: pair ? pair.tool_output : undefined,
-              };
-              return <HistoryToolChip key={i} tool={tool} />;
-            }
-            if (m.role === "tool_result") {
-              // Already merged into the matching tool_use above; only
-              // render as a standalone chip if we couldn't find the
-              // partner (legacy log fragment, partial write, etc.).
-              const partnerSeen = history
-                .slice(0, i)
-                .some(
-                  (x) =>
-                    x.role === "tool_use" &&
-                    x.tool_id &&
-                    x.tool_id === m.tool_id,
-                );
-              if (partnerSeen) return null;
-              const tool: StreamToolUse = {
-                id: m.tool_id ?? "",
-                name: "tool_result (orphaned)",
-                status: m.tool_error ? "error" : "ok",
-                input: undefined,
-                output: m.tool_output,
-              };
-              return <HistoryToolChip key={i} tool={tool} />;
-            }
-            // A bubble is "stale" once any newer message has landed —
-            // its embedded questions represent decisions the
-            // conversation has already moved past.
-            const stale = i !== history.length - 1;
-            return (
-              <ChatBubble
-                key={i}
-                role={m.role as "user" | "assistant"}
-                text={m.text}
-                onAnswer={(ans) => void send(ans)}
-                answerDisabled={busy || stale}
-                stale={stale}
-                onRunCommand={onRunCommand}
-              />
-            );
-          })}
-          {pending && <ChatBubble role={pending.role} text={pending.text} />}
-          {busy && (
-            <LiveAssistantBubble
-              text={streamText}
-              tools={streamTools}
-              elapsed={elapsed}
-              onRunCommand={onRunCommand}
-            />
-          )}
-          {busy && (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="flex items-center gap-1 self-start rounded border border-border-subtle bg-bg px-2 py-0.5 text-[11px] text-fg-muted transition-colors hover:bg-bg-raised hover:text-fg"
-              title="Kill the running claude subprocess"
-            >
-              <Square size={10} strokeWidth={2} fill="currentColor" />
-              Cancel
-            </button>
-          )}
-        </div>
+        <Transcript
+          history={history}
+          pending={pending}
+          streamText={streamText}
+          streamTools={streamTools}
+          busy={busy}
+          elapsed={elapsed}
+          view={transcriptView}
+          fontSize={transcriptFontSize}
+          onAnswer={(ans) => void send(ans)}
+          onRunCommand={onRunCommand}
+          onCancel={onCancel}
+        />
         <div ref={bottomRef} />
       </div>
 
@@ -1006,6 +968,404 @@ function FreshChatButton({
       {confirming ? "Confirm reset" : "Fresh"}
     </button>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Transcript — view-mode-aware renderer for the chat scroll
+// ---------------------------------------------------------------------------
+//
+// Reads the persisted `history` + in-flight overlay, groups into
+// `Turn[]` via `groupIntoTurns`, then dispatches to the per-mode
+// renderer. The grouping does double duty as the dedupe — when the
+// optimistic `pending` user message matches the most recent disk
+// user row, the grouper merges them into one turn instead of
+// rendering two USER bubbles.
+
+interface TranscriptProps {
+  history: ChatHistoryEntry[];
+  pending: { role: "user"; text: string } | null;
+  streamText: string;
+  streamTools: StreamToolUse[];
+  busy: boolean;
+  elapsed: number;
+  view: TranscriptView;
+  fontSize: TranscriptFontSize;
+  onAnswer: (answer: string) => void;
+  onRunCommand: (cmd: string) => Promise<CommandResult>;
+  onCancel: () => void;
+}
+
+const FONT_SIZE_CLASS: Record<TranscriptFontSize, string> = {
+  sm: "text-[11px] leading-snug",
+  md: "text-sm leading-snug",
+  lg: "text-base leading-relaxed",
+};
+
+function Transcript({
+  history,
+  pending,
+  streamText,
+  streamTools,
+  busy,
+  elapsed,
+  view,
+  fontSize,
+  onAnswer,
+  onRunCommand,
+  onCancel,
+}: TranscriptProps) {
+  // Build the in-flight overlay from the rail's live state and feed
+  // it through the grouper. `pending.text` and the disk's most-recent
+  // user row dedupe inside `groupIntoTurns`.
+  const overlay: InFlightOverlay | null = useMemo(() => {
+    if (!pending && !streamText && streamTools.length === 0 && !busy) return null;
+    return {
+      userText: pending?.text ?? null,
+      streamText,
+      streamTools: streamTools.map((t) => ({
+        id: t.id,
+        name: t.name,
+        status: t.status,
+        input: t.input,
+        output: t.output,
+      })),
+    };
+  }, [pending, streamText, streamTools, busy]);
+
+  const turns = useMemo(
+    () => groupIntoTurns(history, overlay, busy),
+    [history, overlay, busy],
+  );
+
+  const fontClass = FONT_SIZE_CLASS[fontSize];
+
+  let body: React.ReactNode;
+  if (view === "verbose") {
+    body = (
+      <VerboseTranscript history={history} pending={pending} streamText={streamText} streamTools={streamTools} busy={busy} />
+    );
+  } else if (view === "summary") {
+    body = <SummaryTranscript turns={turns} />;
+  } else {
+    // Normal + Thinking share the same bubble layout; Thinking adds
+    // reveal-by-default for any `Turn.thinking` blocks (Normal hides
+    // them behind a click-to-expand toggle).
+    body = (
+      <NormalTranscript
+        turns={turns}
+        showThinking={view === "thinking"}
+        onAnswer={onAnswer}
+        onRunCommand={onRunCommand}
+        elapsed={elapsed}
+        busy={busy}
+      />
+    );
+  }
+
+  return (
+    <div className={cn("flex flex-col gap-3", fontClass)}>
+      {body}
+      {busy && (
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex items-center gap-1 self-start rounded border border-border-subtle bg-bg px-2 py-0.5 text-[11px] text-fg-muted transition-colors hover:bg-bg-raised hover:text-fg"
+          title="Kill the running claude subprocess"
+        >
+          <Square size={10} strokeWidth={2} fill="currentColor" />
+          Cancel
+        </button>
+      )}
+    </div>
+  );
+}
+
+function NormalTranscript({
+  turns,
+  showThinking,
+  onAnswer,
+  onRunCommand,
+  elapsed,
+  busy,
+}: {
+  turns: Turn[];
+  showThinking: boolean;
+  onAnswer: (a: string) => void;
+  onRunCommand: (cmd: string) => Promise<CommandResult>;
+  elapsed: number;
+  busy: boolean;
+}) {
+  return (
+    <>
+      {turns.map((turn, i) => {
+        const isLast = i === turns.length - 1;
+        const stale = !isLast;
+        return (
+          <div key={turn.id} className="flex flex-col gap-2">
+            {turn.userText && (
+              <ChatBubble
+                role="user"
+                text={turn.userText}
+                onAnswer={onAnswer}
+                answerDisabled={busy || stale}
+                stale={stale}
+                onRunCommand={onRunCommand}
+              />
+            )}
+            {showThinking && turn.thinking.length > 0 && (
+              <div className="flex flex-col gap-1.5 rounded border border-border-subtle bg-bg-inset px-2 py-1.5">
+                <span className="text-[10px] font-medium uppercase tracking-wider text-fg-muted">
+                  Thinking
+                </span>
+                {turn.thinking.map((t, j) => (
+                  <p key={j} className="whitespace-pre-wrap text-xs text-fg-subtle">
+                    {t.text}
+                  </p>
+                ))}
+              </div>
+            )}
+            {turn.tools.map((tool, j) => (
+              <HistoryToolChip key={`${turn.id}-tool-${j}`} tool={tool} />
+            ))}
+            {turn.assistant.map((block, j) => (
+              <ChatBubble
+                key={`${turn.id}-asst-${j}`}
+                role="assistant"
+                text={block.text}
+                onAnswer={onAnswer}
+                answerDisabled={busy || stale}
+                stale={stale}
+                onRunCommand={onRunCommand}
+              />
+            ))}
+            {turn.inFlight && turn.assistant.length === 0 && (
+              // No assistant text yet — show the live spinner so the
+              // user knows the turn is still cooking.
+              <LiveAssistantBubble
+                text=""
+                tools={[]}
+                elapsed={elapsed}
+                onRunCommand={onRunCommand}
+              />
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function SummaryTranscript({ turns }: { turns: Turn[] }) {
+  if (turns.length === 0) {
+    return <p className="text-xs text-fg-muted">No turns yet.</p>;
+  }
+  return (
+    <ol className="flex flex-col gap-1.5">
+      {turns.map((turn, i) => {
+        const gist = firstSentence(turn.assistant.map((a) => a.text).join(" ").trim());
+        const toolCount = turn.tools.length;
+        return (
+          <li
+            key={turn.id}
+            className="flex flex-col gap-0.5 rounded border border-border-subtle bg-bg-inset px-2 py-1.5"
+          >
+            <div className="flex items-baseline gap-2">
+              <span className="shrink-0 font-mono text-[10px] text-fg-muted">
+                #{i + 1}
+              </span>
+              <span className="truncate font-medium text-fg">
+                {turn.userText || "(no user message)"}
+              </span>
+            </div>
+            <div className="flex items-baseline gap-2 pl-5">
+              <span className="line-clamp-2 text-fg-subtle">
+                {gist || (turn.inFlight ? "(in flight…)" : "(no reply)")}
+              </span>
+              {toolCount > 0 && (
+                <span className="shrink-0 rounded border border-border-subtle px-1 py-0.5 font-mono text-[10px] text-fg-muted">
+                  {toolCount} tool{toolCount === 1 ? "" : "s"}
+                </span>
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function VerboseTranscript({
+  history,
+  pending,
+  streamText,
+  streamTools,
+  busy,
+}: {
+  history: ChatHistoryEntry[];
+  pending: { role: "user"; text: string } | null;
+  streamText: string;
+  streamTools: StreamToolUse[];
+  busy: boolean;
+}) {
+  type Row = {
+    role: string;
+    ts: string;
+    text?: string;
+    tool_name?: string;
+    tool_input?: unknown;
+    tool_output?: unknown;
+    tool_error?: boolean;
+  };
+  const rows: Row[] = history.map((h) => ({
+    role: h.role,
+    ts: h.ts,
+    text: h.text,
+    tool_name: h.tool_name,
+    tool_input: h.tool_input,
+    tool_output: h.tool_output,
+    tool_error: h.tool_error,
+  }));
+  // Append in-flight overlay (pending user + streaming assistant +
+  // running tools) — explicitly NOT deduped against history here.
+  // Verbose's job is to show the rail's literal state including any
+  // optimistic-but-not-persisted entries.
+  const nowIso = new Date().toISOString();
+  if (pending && !history.some((h) => h.role === "user" && h.text === pending.text)) {
+    rows.push({ role: "user (pending)", ts: nowIso, text: pending.text });
+  }
+  for (const t of streamTools) {
+    rows.push({
+      role: `tool_${t.status}`,
+      ts: nowIso,
+      tool_name: t.name,
+      tool_input: t.input,
+      tool_output: t.output,
+    });
+  }
+  if (streamText) {
+    rows.push({ role: "assistant (stream)", ts: nowIso, text: streamText });
+  }
+  if (busy) {
+    rows.push({ role: "status", ts: nowIso, text: "turn in flight" });
+  }
+  if (rows.length === 0) return <p className="text-xs text-fg-muted">No events yet.</p>;
+  return (
+    <div className="flex flex-col gap-1.5 font-mono text-[11px]">
+      {rows.map((r, i) => (
+        <VerboseRow key={i} row={r} />
+      ))}
+    </div>
+  );
+}
+
+function VerboseRow({
+  row,
+}: {
+  row: {
+    role: string;
+    ts: string;
+    text?: string;
+    tool_name?: string;
+    tool_input?: unknown;
+    tool_output?: unknown;
+    tool_error?: boolean;
+  };
+}) {
+  const [open, setOpen] = useState(false);
+  const hasPayload =
+    row.tool_input !== undefined ||
+    row.tool_output !== undefined ||
+    Boolean(row.text && row.text.length > 80);
+  return (
+    <div className="rounded border border-border-subtle bg-bg-inset px-2 py-1">
+      <button
+        type="button"
+        onClick={() => hasPayload && setOpen((v) => !v)}
+        className={cn(
+          "flex w-full items-center gap-2 text-left",
+          hasPayload && "cursor-pointer",
+        )}
+      >
+        <span className="shrink-0 text-fg-muted">{shortTime(row.ts)}</span>
+        <span
+          className={cn(
+            "shrink-0 rounded px-1 py-0.5 text-[10px] uppercase tracking-wider",
+            row.role.startsWith("tool")
+              ? row.tool_error
+                ? "bg-danger/15 text-danger"
+                : "bg-accent/15 text-accent"
+              : row.role.startsWith("user")
+                ? "bg-bg text-fg-subtle"
+                : "bg-bg text-fg-muted",
+          )}
+        >
+          {row.role}
+        </span>
+        {row.tool_name && (
+          <span className="shrink-0 font-mono text-fg-subtle">{row.tool_name}</span>
+        )}
+        <span className="min-w-0 flex-1 truncate text-fg-subtle">
+          {row.text ?? ""}
+        </span>
+        {hasPayload && (
+          <span className="shrink-0 text-fg-muted">{open ? "▾" : "▸"}</span>
+        )}
+      </button>
+      {open && (
+        <div className="mt-1 flex flex-col gap-1 text-fg-subtle">
+          {row.text && row.text.length > 80 && (
+            <pre className="whitespace-pre-wrap break-words">{row.text}</pre>
+          )}
+          {row.tool_input !== undefined && (
+            <details className="flex flex-col">
+              <summary className="cursor-pointer text-[10px] text-fg-muted">
+                input
+              </summary>
+              <pre className="overflow-x-auto rounded border border-border-subtle bg-bg p-1 text-[10px]">
+                {safeStringify(row.tool_input)}
+              </pre>
+            </details>
+          )}
+          {row.tool_output !== undefined && (
+            <details className="flex flex-col">
+              <summary className="cursor-pointer text-[10px] text-fg-muted">
+                output
+              </summary>
+              <pre className="overflow-x-auto rounded border border-border-subtle bg-bg p-1 text-[10px]">
+                {safeStringify(row.tool_output)}
+              </pre>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function firstSentence(s: string): string {
+  if (!s) return "";
+  const m = s.match(/^[^.!?\n]+[.!?]?/);
+  return (m?.[0] ?? s).slice(0, 180).trim();
+}
+
+function shortTime(ts: string): string {
+  try {
+    return new Date(ts).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    return ts.slice(11, 19);
+  }
+}
+
+function safeStringify(v: unknown): string {
+  try {
+    return JSON.stringify(v, null, 2);
+  } catch {
+    return String(v);
+  }
 }
 
 function ChatBubble({

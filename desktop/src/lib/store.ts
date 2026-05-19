@@ -74,6 +74,52 @@ export function emptyChatRuntime(): ChatRuntime {
 }
 
 
+/** Transcript view modes, inspired by Claude Code desktop's rail menu.
+ *  Each mode is a different lens on the same underlying `Turn[]`:
+ *
+ *  - `normal`   — user/assistant bubbles, tool calls folded inline as
+ *                 chips on the assistant side. The default.
+ *  - `thinking` — Normal + reveals any thinking blocks above each
+ *                 assistant reply (extended-thinking turns).
+ *  - `verbose`  — flat event list with timestamps, raw JSON drawers
+ *                 per tool, every text block as its own row.
+ *                 Debugging view.
+ *  - `summary`  — user message + 1-line gist of the assistant reply
+ *                 + tool-count chip. Skimming view; great for long
+ *                 sessions you want to navigate.
+ */
+export type TranscriptView = "normal" | "thinking" | "verbose" | "summary";
+
+/** Font size knob for the transcript. Scales the whole transcript
+ *  body without affecting headers / picker UI. */
+export type TranscriptFontSize = "sm" | "md" | "lg";
+
+const TRANSCRIPT_VIEW_KEY = "clipwright.transcriptView";
+const TRANSCRIPT_FONT_KEY = "clipwright.transcriptFontSize";
+
+function loadTranscriptView(): TranscriptView {
+  try {
+    const v = window.localStorage.getItem(TRANSCRIPT_VIEW_KEY);
+    if (v === "normal" || v === "thinking" || v === "verbose" || v === "summary") {
+      return v;
+    }
+  } catch {
+    /* SSR / quota — fall through */
+  }
+  return "normal";
+}
+
+function loadTranscriptFont(): TranscriptFontSize {
+  try {
+    const v = window.localStorage.getItem(TRANSCRIPT_FONT_KEY);
+    if (v === "sm" || v === "md" || v === "lg") return v;
+  } catch {
+    /* fall through */
+  }
+  return "md";
+}
+
+
 /** One persisted error record. We don't truncate the message — the
  *  user needs the full stack trace to file a useful bug report. */
 export interface ErrorRecord {
@@ -112,6 +158,12 @@ interface AppState {
    *  switches so concurrent chats stay visible. Lazily populated on
    *  first send / first stream event for a video. */
   chatRuntime: Record<string, ChatRuntime>;
+  /** Active transcript view mode (Normal / Thinking / Verbose /
+   *  Summary). Persisted to localStorage — view prefs travel with
+   *  the user across projects, not per-project. */
+  transcriptView: TranscriptView;
+  /** Transcript body font size. Persisted same way as the mode. */
+  transcriptFontSize: TranscriptFontSize;
   pxPerSec: number | null;
   /** Per-video undo/redo stacks of Video snapshots. */
   past: Video[];
@@ -179,6 +231,8 @@ interface AppState {
     videoId: string,
     patch: Partial<ChatRuntime> | ((prev: ChatRuntime) => Partial<ChatRuntime>),
   ) => void;
+  setTranscriptView: (mode: TranscriptView) => void;
+  setTranscriptFontSize: (size: TranscriptFontSize) => void;
   askClaudeForSegment: (segId: string) => void;
   clearPendingAsk: () => void;
   /** Toggle inspector drawer visibility. */
@@ -258,6 +312,8 @@ export const useApp = create<AppState>((set, get) => ({
   error: null,
   errorHistory: [],
   chatRuntime: {},
+  transcriptView: loadTranscriptView(),
+  transcriptFontSize: loadTranscriptFont(),
   pxPerSec: null,
   past: [],
   future: [],
@@ -340,6 +396,22 @@ export const useApp = create<AppState>((set, get) => ({
         },
       };
     }),
+  setTranscriptView: (mode) => {
+    try {
+      window.localStorage.setItem(TRANSCRIPT_VIEW_KEY, mode);
+    } catch {
+      /* ignore quota / SSR */
+    }
+    set({ transcriptView: mode });
+  },
+  setTranscriptFontSize: (size) => {
+    try {
+      window.localStorage.setItem(TRANSCRIPT_FONT_KEY, size);
+    } catch {
+      /* ignore */
+    }
+    set({ transcriptFontSize: size });
+  },
   askClaudeForSegment: (segId) =>
     set({ pendingAskSegmentId: segId, claudeRailOpen: true }),
   clearPendingAsk: () => set({ pendingAskSegmentId: null }),
