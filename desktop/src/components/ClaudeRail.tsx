@@ -12,7 +12,6 @@
 // so the UI can repopulate on app restart.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import {
   ChevronRight,
   MessageSquare,
@@ -45,6 +44,7 @@ import {
   type SlashCommand,
 } from "../lib/tauri";
 import { useApp } from "../lib/store";
+import type { ChatRuntime } from "../lib/store";
 import { cn } from "../lib/cn";
 import { Dropdown } from "./Dropdown";
 import { MarkdownView } from "./MarkdownView";
@@ -62,11 +62,39 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
   const clearAsk = useApp((s) => s.clearPendingAsk);
   const loadProject = useApp((s) => s.loadProject);
 
+  // Per-video runtime — busy / pending / streamText / streamTools / draft
+  // all live in the global store, keyed by `video_id`. Switching videos
+  // mid-turn no longer wipes the in-flight state; both videos can have
+  // simultaneous turns going on the Tauri side and the rail just shows
+  // whichever one is currently selected.
+  const currentVideoId = project?.video?.video_id ?? "";
+  const runtime = useApp((s) =>
+    currentVideoId ? s.chatRuntime[currentVideoId] : undefined,
+  );
+  const updateChatRuntime = useApp((s) => s.updateChatRuntime);
+  const busy = runtime?.busy ?? false;
+  const busyStartedAt = runtime?.busyStartedAt ?? null;
+  const pending = runtime?.pending ?? null;
+  const streamText = runtime?.streamText ?? "";
+  const streamTools = runtime?.streamTools ?? [];
+  const draft = runtime?.draft ?? "";
+  // Convenience setter — every per-video state mutation flows through
+  // here. Uses the currentVideoId captured at call-time so a switch
+  // in flight doesn't write to the wrong slice.
+  const setRuntime = (patch: Partial<ChatRuntime>) => {
+    if (!currentVideoId) return;
+    updateChatRuntime(currentVideoId, patch);
+  };
+  const setDraft = (d: string) => setRuntime({ draft: d });
+  const setPending = (p: { role: "user"; text: string } | null) =>
+    setRuntime({ pending: p });
+  const setBusy = (b: boolean) => setRuntime({ busy: b });
+  const setBusyStartedAt = (t: number | null) => setRuntime({ busyStartedAt: t });
+  const setStreamText = (text: string) => setRuntime({ streamText: text });
+  const setStreamTools = (tools: StreamToolUse[]) =>
+    setRuntime({ streamTools: tools });
+
   const [history, setHistory] = useState<ChatHistoryEntry[]>([]);
-  const [pending, setPending] = useState<{ role: "user"; text: string } | null>(null);
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [busyStartedAt, setBusyStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [installed, setInstalled] = useState<boolean | null>(null);
   const [permMode, setPermMode] = useState<PermissionMode>("acceptEdits");
@@ -87,13 +115,6 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
   const [slashIndex, setSlashIndex] = useState(0);
   // Empty string = "CLI default" — the user's claude config picks.
   const [model, setModelState] = useState<string>("");
-  // Live stream state — built up from `claude:turn` Tauri events while
-  // the chat is in flight. Cleared on completion. The accumulated text
-  // is what the user sees grow in real time; the trail of tool uses is
-  // shown as small "🔧 running clipwright record" indicators so they
-  // know Claude is actively working, not stuck.
-  const [streamText, setStreamText] = useState("");
-  const [streamTools, setStreamTools] = useState<StreamToolUse[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Pull the persisted permission mode whenever the project changes. It's
@@ -204,29 +225,12 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
     claudeDoctor().then((r) => setInstalled(r.installed)).catch(() => setInstalled(false));
   }, []);
 
-  // Subscribe to `claude:turn` events emitted by the streaming Rust
-  // runner. Each event is one parsed line from `claude --output-format
-  // stream-json`, scoped to a video_id. We pattern-match on
-  // `payload.type` to grow the live assistant bubble.
-  //
-  // The listener is global (no per-render churn), but only events for
-  // the currently-loaded video are surfaced — that way a chat in
-  // chapter-2 doesn't pollute chapter-1's rail when the user switches.
-  useEffect(() => {
-    const currentVideoId = project?.video?.video_id;
-    if (!currentVideoId) return;
-    let cancelled = false;
-    const unlisten = listen<ClaudeStreamEvent>("claude:turn", (e) => {
-      if (cancelled) return;
-      const { video_id, payload } = e.payload;
-      if (video_id !== currentVideoId) return;
-      applyStreamEvent(payload, setStreamText, setStreamTools);
-    });
-    return () => {
-      cancelled = true;
-      void unlisten.then((un) => un());
-    };
-  }, [project?.video?.video_id]);
+  // NOTE: the `claude:turn` event listener lives in `Workspace.tsx`,
+  // not here. That listener routes each event into the matching
+  // `chatRuntime[video_id]` slice REGARDLESS of which video is
+  // currently shown — which is what lets parallel chats survive a
+  // video switch. The rail just reads `chatRuntime[currentVideoId]`
+  // for display.
 
   useEffect(() => {
     if (!project?.video) {
@@ -1084,7 +1088,7 @@ function ChatBubble({
  * matching tool_result arrives. Both are kept verbatim so the user can
  * click the chip and inspect exactly what Claude sent and got back —
  * useful for debugging why a turn went sideways. */
-interface StreamToolUse {
+export interface StreamToolUse {
   id: string;
   name: string;
   /** Status mirrors the lifecycle: started → completed/error. We don't
@@ -1101,7 +1105,7 @@ interface StreamToolUse {
 
 /** Wire shape of the `claude:turn` Tauri event. Mirrors
  *  `ClaudeStreamEvent` in `desktop/src-tauri/src/claude.rs`. */
-interface ClaudeStreamEvent {
+export interface ClaudeStreamEvent {
   video_id: string;
   payload: Record<string, unknown>;
 }
@@ -1119,7 +1123,7 @@ interface ClaudeStreamEvent {
  *      because the `result` text is the SAME text the assistant lines
  *      already streamed in. Duplicating it would double the bubble.
  */
-function applyStreamEvent(
+export function applyStreamEvent(
   payload: Record<string, unknown>,
   setStreamText: React.Dispatch<React.SetStateAction<string>>,
   setStreamTools: React.Dispatch<React.SetStateAction<StreamToolUse[]>>,

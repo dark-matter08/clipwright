@@ -21,10 +21,58 @@ import {
   loadVideo as loadVideoCmd,
   saveVideo as saveVideoCmd,
 } from "./tauri";
+import type { StreamToolUse } from "../components/ClaudeRail";
 import * as TL from "./timeline";
 import type { ProjectState, Video } from "./types";
 
 export type ViewMode = "hub" | "workspace";
+
+/** Per-video Claude rail runtime state.
+ *
+ *  Previously each ClaudeRail kept `busy / pending / streamText /
+ *  streamTools` in local React state. That made parallel chats
+ *  impossible — the moment the user switched videos, all in-flight
+ *  state disappeared from the UI and a fresh empty rail appeared.
+ *  The Tauri side already supports concurrent chats per video
+ *  (sessions, cancellation, and chat logs are all keyed by
+ *  `video_id`); only the React layer was the bottleneck.
+ *
+ *  Now the rail reads its slice of this map by the currently-shown
+ *  `video_id` and a single global stream-event listener (mounted in
+ *  `Workspace.tsx`) routes events from EVERY in-flight turn into the
+ *  matching slice. Result: send a turn on video A, switch to B, send
+ *  another turn on B; both keep running; switch back and you see
+ *  each video's stream where you left it. */
+export interface ChatRuntime {
+  /** True while a turn for this video is in flight on the Tauri side. */
+  busy: boolean;
+  /** Epoch ms when the current turn started — drives the elapsed timer. */
+  busyStartedAt: number | null;
+  /** Optimistic "user just sent this" bubble; cleared when the assistant
+   *  reply lands in chat history. */
+  pending: { role: "user"; text: string } | null;
+  /** Accumulated streaming assistant text from `claude:turn` events. */
+  streamText: string;
+  /** Tool-use chips streamed from the assistant; status flips when the
+   *  matching tool_result lands. */
+  streamTools: StreamToolUse[];
+  /** Half-typed message that travels with the video. Switching videos
+   *  no longer wipes your draft; you can park a half-thought on one
+   *  video, work on another, and come back. */
+  draft: string;
+}
+
+export function emptyChatRuntime(): ChatRuntime {
+  return {
+    busy: false,
+    busyStartedAt: null,
+    pending: null,
+    streamText: "",
+    streamTools: [],
+    draft: "",
+  };
+}
+
 
 /** One persisted error record. We don't truncate the message — the
  *  user needs the full stack trace to file a useful bug report. */
@@ -60,6 +108,10 @@ interface AppState {
    *  on dismiss and the user had no way to retrieve the message.
    *  Capped at 50 entries (FIFO) to keep memory bounded. */
   errorHistory: ErrorRecord[];
+  /** Per-video Claude rail runtime, keyed by `video_id`. Survives video
+   *  switches so concurrent chats stay visible. Lazily populated on
+   *  first send / first stream event for a video. */
+  chatRuntime: Record<string, ChatRuntime>;
   pxPerSec: number | null;
   /** Per-video undo/redo stacks of Video snapshots. */
   past: Video[];
@@ -120,6 +172,13 @@ interface AppState {
   setError: (msg: string | null, source?: string) => void;
   /** Drop all persisted error records (after a user reviewed them). */
   clearErrorHistory: () => void;
+  /** Mutate one slice of `chatRuntime`. Auto-creates an empty slice
+   *  on first use so callers don't have to seed it before the first
+   *  send. */
+  updateChatRuntime: (
+    videoId: string,
+    patch: Partial<ChatRuntime> | ((prev: ChatRuntime) => Partial<ChatRuntime>),
+  ) => void;
   askClaudeForSegment: (segId: string) => void;
   clearPendingAsk: () => void;
   /** Toggle inspector drawer visibility. */
@@ -198,6 +257,7 @@ export const useApp = create<AppState>((set, get) => ({
   claudeRailOpen: true,
   error: null,
   errorHistory: [],
+  chatRuntime: {},
   pxPerSec: null,
   past: [],
   future: [],
@@ -269,6 +329,17 @@ export const useApp = create<AppState>((set, get) => ({
       return { error: msg, errorHistory: trimmed };
     }),
   clearErrorHistory: () => set({ errorHistory: [] }),
+  updateChatRuntime: (videoId, patch) =>
+    set((s) => {
+      const prev = s.chatRuntime[videoId] ?? emptyChatRuntime();
+      const delta = typeof patch === "function" ? patch(prev) : patch;
+      return {
+        chatRuntime: {
+          ...s.chatRuntime,
+          [videoId]: { ...prev, ...delta },
+        },
+      };
+    }),
   askClaudeForSegment: (segId) =>
     set({ pendingAskSegmentId: segId, claudeRailOpen: true }),
   clearPendingAsk: () => set({ pendingAskSegmentId: null }),

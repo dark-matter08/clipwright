@@ -4,9 +4,11 @@
 //   timeline + Claude rail) + status bar.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { X } from "lucide-react";
 import { useApp } from "../lib/store";
-import { ClaudeRail } from "./ClaudeRail";
+import { applyStreamEvent, ClaudeRail } from "./ClaudeRail";
+import type { ClaudeStreamEvent, StreamToolUse } from "./ClaudeRail";
 import { Inspector } from "./Inspector";
 import { Preview } from "./Preview";
 import { Timeline } from "./Timeline";
@@ -99,6 +101,53 @@ export function Workspace() {
       window.removeEventListener("pointercancel", onUp);
     };
   }, [dragging]);
+
+  // Global `claude:turn` stream listener — mounted ONCE while a project
+  // is open, routes every event into the matching per-video chatRuntime
+  // slice. Previously this lived in ClaudeRail (one listener per
+  // currently-visible video). That meant: switch videos mid-turn and
+  // the stream for the prior video stopped landing in store; no way
+  // to see two in-flight chats at once. Now the listener doesn't
+  // care which video is visible — events for video A keep populating
+  // `chatRuntime[A]` even while the user works on video B.
+  const updateChatRuntime = useApp((s) => s.updateChatRuntime);
+  useEffect(() => {
+    if (!project?.project_dir) return;
+    let cancelled = false;
+    const unlisten = listen<ClaudeStreamEvent>("claude:turn", (e) => {
+      if (cancelled) return;
+      const { video_id, payload } = e.payload;
+      if (!video_id) return;
+      // `applyStreamEvent` was written against React setters; adapt by
+      // routing each setState callback through the store's per-video
+      // patch action. The two-step shape (text setter + tools setter)
+      // is preserved verbatim so the existing stream-event tests stay
+      // valid.
+      const setStreamText = (
+        updater: string | ((prev: string) => string),
+      ) => {
+        updateChatRuntime(video_id, (prev) => ({
+          streamText:
+            typeof updater === "function" ? updater(prev.streamText) : updater,
+        }));
+      };
+      const setStreamTools = (
+        updater:
+          | StreamToolUse[]
+          | ((prev: StreamToolUse[]) => StreamToolUse[]),
+      ) => {
+        updateChatRuntime(video_id, (prev) => ({
+          streamTools:
+            typeof updater === "function" ? updater(prev.streamTools) : updater,
+        }));
+      };
+      applyStreamEvent(payload, setStreamText, setStreamTools);
+    });
+    return () => {
+      cancelled = true;
+      void unlisten.then((un) => un());
+    };
+  }, [project?.project_dir, updateChatRuntime]);
 
   if (!project) return null;
 
