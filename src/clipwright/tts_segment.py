@@ -159,11 +159,13 @@ def tts_segment(
     ts_path = schema_paths.video_audio_timestamps(project_dir, video_id, seg_id)
     cache_path = schema_paths.video_audio_cache(project_dir, video_id, seg_id)
 
+    speed = float(clip.get("speed") or 1.0)
     input_hash = _compute_input_hash(
         text=text,
         provider=provider_name,
         voice=voice_id,
         target_seconds=target_seconds,
+        speed=speed,
     )
 
     if not force and mp3_path.exists() and ts_path.exists():
@@ -184,7 +186,13 @@ def tts_segment(
     require()  # ffmpeg/ffprobe on PATH (needed for stretch + duration probe)
 
     provider = get_provider(provider_name)
-    provider.synthesize(text, out_mp3=mp3_path, out_timestamps=ts_path, voice=voice_id)
+    synth_kwargs: dict = {"voice": voice_id}
+    # Kokoro supports a `speed` multiplier with correct token timestamps;
+    # faster delivery (~1.1x) reads as more energetic for recap pacing.
+    # Other providers don't accept the kwarg, so only pass it for kokoro.
+    if provider_name == "kokoro" and abs(speed - 1.0) > 1e-3:
+        synth_kwargs["speed"] = speed
+    provider.synthesize(text, out_mp3=mp3_path, out_timestamps=ts_path, **synth_kwargs)
 
     natural = probe_duration(mp3_path)
     stretched = False
@@ -328,12 +336,14 @@ def _compute_input_hash(
     provider: str,
     voice: str,
     target_seconds: float,
+    speed: float = 1.0,
 ) -> str:
     payload = {
         "tool_version": __version__,
         "provider": provider,
         "voice": voice,
         "target_seconds": round(target_seconds, 4),
+        "speed": round(speed, 3),
         "text": text,
     }
     blob = json.dumps(payload, sort_keys=True).encode()

@@ -162,6 +162,20 @@ def _load_captions(project_dir: Path, video_id: str, seg: Segment, script_text: 
         payload = json.loads(ts_path.read_text())
     except (json.JSONDecodeError, OSError):
         return []
+    # ElevenLabs character-level format — what `clipwright tts-segment`
+    # writes today: {characters, character_start_times_seconds,
+    # character_end_times_seconds}. The legacy ffmpeg caption path parses
+    # this via captions.chunker; reuse the SAME chunker here so the Remotion
+    # captions are byte-identical to the burned PNG captions. Without this
+    # branch the `words`/`segments` lookup below misses entirely and the
+    # manhwa-recap finals render with no captions at all.
+    if isinstance(payload, dict) and "characters" in payload:
+        from ..captions.chunker import chars_to_words, chunk_words
+        try:
+            chunks = chunk_words(chars_to_words(payload))
+        except Exception:
+            chunks = []
+        return [{"text": c.text, "start": c.start, "end": c.end} for c in chunks]
     words = payload.get("words") or payload.get("segments") or []
     # Tolerate both whisper-style flat shape and our own shape.
     flat: list[dict] = []

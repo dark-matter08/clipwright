@@ -100,8 +100,16 @@ def synthesize(
     try:
         import wave
 
+        chunks = list(voice_obj.synthesize(text))
+        if not chunks:
+            raise RuntimeError("Piper produced no audio chunks")
+        first = chunks[0]
         with wave.open(str(wav_path), "wb") as wf:
-            voice_obj.synthesize(text, wf)
+            wf.setnchannels(first.sample_channels)
+            wf.setsampwidth(first.sample_width)
+            wf.setframerate(first.sample_rate)
+            for chunk in chunks:
+                wf.writeframes(chunk.audio_int16_bytes)
 
         run(["ffmpeg", "-y", "-i", str(wav_path), "-b:a", "192k", str(out_mp3)])
 

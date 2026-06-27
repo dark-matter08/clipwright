@@ -111,5 +111,6 @@ class KokoroProvider:
         out_timestamps: Path,
         *,
         voice: str | None = None,
+        speed: float = 1.0,
     ) -> None:
-        synthesize(text, out_mp3, out_timestamps, voice=voice)
+        synthesize(text, out_mp3, out_timestamps, voice=voice, speed=speed)

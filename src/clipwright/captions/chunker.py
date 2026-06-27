@@ -5,6 +5,13 @@ from dataclasses import dataclass
 
 SENT_TERMINATORS = {".", "!", "?"}
 BREAK_PUNCT = {".", ",", "!", "?", ";", ":", "—", "-"}
+# Words that read badly as the LAST word of a caption chunk ("NOW THE", "ONE OF").
+# When a full chunk would end on one of these, we pull in one more word.
+GLUE_WORDS = {
+    "a", "an", "the", "of", "to", "and", "in", "on", "for", "with", "at",
+    "by", "as", "but", "or", "nor", "so", "yet", "his", "her", "its", "my",
+    "your", "their", "our", "no", "into", "from", "is", "was", "this", "that",
+}
 
 
 @dataclass
@@ -61,7 +68,15 @@ def chunk_words(
     buf: list[Word] = []
     for w in words:
         buf.append(w)
-        if len(buf) >= n or w.ends_sentence:
+        last_clean = buf[-1].text.lower().strip(".,;:!?—-'\"")
+        # Flush at a sentence end, a hard cap of n+1, or a full chunk that does
+        # NOT dangle on a glue word (avoids "NOW THE" / "ONE OF" orphans).
+        flush = (
+            w.ends_sentence
+            or len(buf) >= n + 1
+            or (len(buf) >= n and last_clean not in GLUE_WORDS)
+        )
+        if flush:
             text = " ".join(x.text for x in buf)
             if upper:
                 text = text.upper()
