@@ -32,10 +32,15 @@ export function TemplateDialog({ onClose }: Props) {
   const initial = projectTemplateIds(project?.project);
   const [picked, setPicked] = useState<string[]>(initial);
   const [templates, setTemplates] = useState<TemplateMeta[]>([]);
+  const [templatesError, setTemplatesError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    listTemplates().then(setTemplates).catch(() => setTemplates([]));
+    listTemplates()
+      .then(setTemplates)
+      .catch((e) =>
+        setTemplatesError(e instanceof Error ? e.message : String(e)),
+      );
   }, []);
 
   const dirty = JSON.stringify(picked) !== JSON.stringify(initial);
@@ -116,6 +121,7 @@ export function TemplateDialog({ onClose }: Props) {
           </p>
           <TemplatePicker
             templates={templates}
+            error={templatesError}
             values={picked}
             onChange={(next) => setPicked(next)}
           />

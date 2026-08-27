@@ -81,6 +81,7 @@ export function NewProjectDialog({ onClose }: Props) {
   const [templateIds, setTemplateIds] = useState<string[]>([]);
   const [templateMetas, setTemplateMetas] = useState<TemplateMeta[]>([]);
   const [templates, setTemplates] = useState<TemplateMeta[]>([]);
+  const [templatesError, setTemplatesError] = useState<string | null>(null);
   const primaryMeta = templateMetas[0] ?? null;
   // Project-default voice. Lives at the dialog level (not per-step)
   // so swapping between Upload and Record doesn't lose the picks. The
@@ -108,7 +109,13 @@ export function NewProjectDialog({ onClose }: Props) {
       .catch(() => setDoctorOk(false));
     // Catalog is small — fetch once at open and pass into children so
     // each step doesn't repeat the round-trip.
-    listTemplates().then(setTemplates).catch(() => setTemplates([]));
+    listTemplates()
+      .then(setTemplates)
+      .catch((e) =>
+        // Surface it — an empty catalog here is almost always a broken
+        // `clipwright` install, not a genuinely empty template dir.
+        setTemplatesError(e instanceof Error ? e.message : String(e)),
+      );
   }, []);
 
   /** After a project is created, bind the chosen template (if any) and
@@ -259,6 +266,7 @@ export function NewProjectDialog({ onClose }: Props) {
               </div>
               <TemplatePicker
                 templates={templates}
+                error={templatesError}
                 values={templateIds}
                 onChange={(next, metas) => {
                   setTemplateIds(next);

@@ -34,6 +34,12 @@ interface TemplatePickerProps {
   onChange: (next: string[], metas: TemplateMeta[]) => void;
   /** Compact mode for the TopBar — smaller cards, no preview pane. */
   compact?: boolean;
+  /** Load failure from a parent that fetched the catalog itself.
+   *  Parents that pass `templates` bypass this component's own fetch
+   *  (and therefore its error branch), so they must forward the
+   *  failure here — otherwise a broken `clipwright` install renders as
+   *  an empty picker with no explanation. */
+  error?: string | null;
 }
 
 export function TemplatePicker({
@@ -41,6 +47,7 @@ export function TemplatePicker({
   values,
   onChange,
   compact,
+  error: providedError,
 }: TemplatePickerProps) {
   const [templates, setTemplates] = useState<TemplateMeta[] | null>(
     providedTemplates ?? null,
@@ -65,15 +72,27 @@ export function TemplatePicker({
     };
   }, [providedTemplates]);
 
-  if (loadError) {
+  const err = providedError ?? loadError;
+  if (err) {
     return (
       <p className="rounded border border-warn/40 bg-warn/10 px-2 py-1.5 text-xs text-warn">
-        Couldn't load templates: {loadError}
+        Couldn't load templates: {err}
       </p>
     );
   }
   if (templates == null) {
     return <p className="text-xs text-fg-muted">Loading templates…</p>;
+  }
+  if (templates.length === 0) {
+    // Distinct from the error case: the CLI answered, it just had
+    // nothing to offer. Without this the dialog renders a blank space
+    // under "Choose at least one template" and looks broken.
+    return (
+      <p className="rounded border border-warn/40 bg-warn/10 px-2 py-1.5 text-xs text-warn">
+        No templates found. Check that <code>clipwright templates list</code>{" "}
+        works in a terminal.
+      </p>
+    );
   }
 
   function commit(nextIds: string[]) {
