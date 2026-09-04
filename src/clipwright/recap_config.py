@@ -70,6 +70,14 @@ class RecapConfig:
     target_duration_seconds: int = DEFAULT_TARGET_DURATION
     narration_style: str = ""
     additional_notes: str = ""
+    # Who Claude should BE when writing for this project — e.g. "an
+    # expert manhwa scriptwriter who specializes in high-retention
+    # hooks and dramatic pacing". Distinct from `narration_style`,
+    # which describes the *voice actor* (timbre, delivery); the
+    # persona describes the *writer* (expertise, editorial instincts).
+    # Empty = no persona section in the prompt, so existing projects
+    # keep behaving exactly as before.
+    persona: str = ""
     outro: OutroSpec = field(default_factory=OutroSpec)
 
     def to_dict(self) -> dict:
@@ -95,6 +103,7 @@ class RecapConfig:
             target_duration_seconds=int(d.get("target_duration_seconds", 0)),
             narration_style=str(d.get("narration_style", "")),
             additional_notes=str(d.get("additional_notes", "")),
+            persona=str(d.get("persona", "")),
             outro=outro,
         )
 
@@ -107,6 +116,11 @@ class RecapConfig:
         user wanted ("video duration should always default to 1:30").
         Kept as a method so future fields can opt out of injection
         when truly unset.
+
+        `persona` is deliberately NOT counted here: it renders as its
+        own `## Persona` section with its own emptiness gate, so a
+        persona-only config must not resurrect an otherwise-empty
+        "Project preferences" block.
         """
         return (
             self.target_duration_seconds > 0

@@ -72,6 +72,12 @@ pub struct RecapConfig {
     pub narration_style: String,
     #[serde(default)]
     pub additional_notes: String,
+    /// Who Claude should BE when writing for this project ("an expert
+    /// manhwa scriptwriter who specializes in high-retention hooks…").
+    /// Empty = no persona section in the agent prompt. Mirrors
+    /// `RecapConfig.persona` in `src/clipwright/recap_config.py`.
+    #[serde(default)]
+    pub persona: String,
     #[serde(default)]
     pub outro: OutroSpec,
 }
@@ -82,6 +88,7 @@ impl Default for RecapConfig {
             target_duration_seconds: default_target_duration(),
             narration_style: String::new(),
             additional_notes: String::new(),
+            persona: String::new(),
             outro: OutroSpec::default(),
         }
     }

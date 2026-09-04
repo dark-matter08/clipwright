@@ -139,6 +139,15 @@ def _assemble(
     template_block = _section_template(project_dir)
     if template_block:
         parts.append(template_block)
+    # Who you ARE when writing for this project. Sits after the
+    # template because the template teaches the *method* (how a manhwa
+    # recap is structured) while the persona sets the *voice* — and
+    # when the two disagree on voice, the user's persona wins. Empty
+    # unless the user filled it in, so untouched projects are
+    # unaffected.
+    persona_block = _section_persona(project_dir, video=video)
+    if persona_block:
+        parts.append(persona_block)
     # User-set preferences (target duration, narration style, outro
     # spec). These OVERRIDE the template's defaults — when the user
     # says "make it 3 minutes" via the project settings, the template's
@@ -389,6 +398,62 @@ def _section_interactive_questions() -> str:
         "- The only exception is `multi: true` (one card, several picks at once).\n"
         "- Free-prose questions ('what should the title be?') stay as plain markdown — no fence."
     )
+
+
+def _section_persona(project_dir: Path, *, video: Video | None = None) -> str:
+    """Inject the user's writing persona for this project.
+
+    The persona answers "who are you when you write for this project?"
+    — e.g. "an expert manhwa scriptwriter who specializes in
+    high-retention hooks and dramatic pacing". It is deliberately
+    separate from `narration_style`: that describes the *voice actor*
+    (timbre, delivery, accent), this describes the *writer* (expertise,
+    editorial instincts, what they reach for).
+
+    Resolution mirrors every other recap field — a non-blank
+    `Video.recap_overrides["persona"]` beats the project-level
+    `RecapConfig.persona`. An empty persona returns "" so the section
+    vanishes entirely and projects that never touch the setting get
+    the same prompt they got before.
+    """
+    from ..recap_config import load_recap_config
+
+    cfg = load_recap_config(project_dir)
+    project_persona = cfg.persona.strip()
+    overrides = (getattr(video, "recap_overrides", {}) or {}) if video is not None else {}
+    raw_override = str(overrides.get("persona") or "").strip()
+    persona = raw_override or project_persona
+    if not persona:
+        return ""
+
+    # Blockquote the persona verbatim rather than splicing it into a
+    # sentence — users write it both ways ("You are an expert…" and
+    # "an expert…") and a prefix would produce "You are You are an
+    # expert…" for half of them.
+    quoted = "\n".join(f"> {line}" for line in persona.splitlines())
+    lines = [
+        "## Persona (user-specified — write in character)",
+        "",
+        quoted,
+        "",
+        "- Adopt this persona for every piece of editorial output you produce "
+        "in this project: voiceover scripts, captions, titles, segment labels, "
+        "and the way you pitch ideas back to the user.",
+        "- Where the persona and the template's editorial guidance disagree on "
+        "**tone or voice**, the persona wins — the user set it deliberately, "
+        "and it applies to every video in this project.",
+        "- The persona does NOT relax any hard constraint. Schema shape, file "
+        "scope, word budgets, and the template's forbidden-source rules all "
+        "still bind. Stay in character *within* them.",
+    ]
+    if raw_override:
+        scope = (
+            f'this video only (per-video override; the project persona is "{project_persona}")'
+            if project_persona
+            else "this video only (per-video override; no project-level persona is set)"
+        )
+        lines.append(f"- Scope: {scope}.")
+    return "\n".join(lines)
 
 
 def _section_user_preferences(

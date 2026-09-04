@@ -178,6 +178,7 @@ export function ProjectSettingsDialog({ onClose }: Props) {
             </div>
           ) : scope === "project" ? (
             <div className="flex flex-col gap-6">
+              <PersonaPanel config={config} onChange={setConfig} />
               <ScriptPanel config={config} onChange={setConfig} />
               <OutroPanel
                 config={config}
@@ -239,6 +240,111 @@ export function ProjectSettingsDialog({ onClose }: Props) {
 }
 
 // ---------------------------------------------------------------------------
+// Persona panel — who Claude IS when writing for this project
+// ---------------------------------------------------------------------------
+//
+// Distinct from "Narration style" in the Script panel below:
+//   persona  → the WRITER (expertise, editorial instincts, what they
+//              reach for). Shapes structure, hooks, word choice.
+//   narration → the VOICE ACTOR (timbre, delivery, accent). Shapes
+//              how the finished line is spoken.
+// The prompt renders the persona as its own `## Persona` section that
+// outranks the template on tone.
+
+/** One-click starting points. The user is expected to edit these —
+ *  they exist so the box is never a blank page, and so the phrasing
+ *  ("you open on the sharpest moment…") teaches what a *useful*
+ *  persona looks like versus a two-word label. */
+const PERSONA_PRESETS: { label: string; text: string }[] = [
+  {
+    label: "Manhwa scriptwriter",
+    text:
+      "an expert manhwa scriptwriter who specializes in high-retention hooks " +
+      "and dramatic pacing. You open on the sharpest image in the chapter, " +
+      "keep every beat in present tense, name one concrete event per beat, " +
+      "and never resolve the climax — the unread chapter is the product.",
+  },
+  {
+    label: "Sardonic narrator",
+    text:
+      "a sardonic present-tense narrator. You play the plot straight and earn " +
+      "one dry aside every three beats. No solemn \"in a world where\" framing, " +
+      "no melodrama the story hasn't paid for.",
+  },
+  {
+    label: "Product demo host",
+    text:
+      "a product demo host who shows rather than tells. You lead with the " +
+      "outcome the viewer wants, narrate each step in plain language, and cut " +
+      "every sentence that doesn't move the demo forward.",
+  },
+  {
+    label: "Documentary explainer",
+    text:
+      "a documentary explainer with a calm, authoritative voice. You build one " +
+      "idea at a time, define a term the moment you use it, and let the visuals " +
+      "carry the weight the words don't need to.",
+  },
+];
+
+function PersonaPanel({
+  config,
+  onChange,
+}: {
+  config: RecapConfig;
+  onChange: (next: RecapConfig) => void;
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <header className="flex flex-col">
+        <h3 className="text-sm font-medium text-fg">Persona</h3>
+        <span className="text-[11px] text-fg-muted">
+          Who Claude <em>is</em> when it writes for this project. Applies to
+          every video here and outranks the template on tone. This is the
+          writer, not the voice — set the speaking voice under Narration style
+          below.
+        </span>
+      </header>
+      <Field
+        label="Persona"
+        hint='Finish the sentence "You are…". Leave blank to let the template set the voice on its own.'
+      >
+        <textarea
+          value={config.persona}
+          onChange={(e) => onChange({ ...config, persona: e.target.value })}
+          rows={4}
+          placeholder={PERSONA_PRESETS[0].text}
+          className="w-full resize-y rounded border border-border-subtle bg-bg-inset px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:focus-ring"
+        />
+      </Field>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] text-fg-muted">Start from:</span>
+        {PERSONA_PRESETS.map((p) => (
+          <button
+            key={p.label}
+            type="button"
+            onClick={() => onChange({ ...config, persona: p.text })}
+            title={p.text}
+            className="rounded border border-border-subtle px-2 py-0.5 text-[11px] text-fg-subtle transition-colors hover:border-accent/50 hover:bg-accent/10 hover:text-fg focus:focus-ring"
+          >
+            {p.label}
+          </button>
+        ))}
+        {config.persona.trim() && (
+          <button
+            type="button"
+            onClick={() => onChange({ ...config, persona: "" })}
+            className="ml-auto text-[11px] text-fg-muted transition-colors hover:text-fg"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Script panel — target duration + narration + free-form notes
 // ---------------------------------------------------------------------------
 
@@ -287,7 +393,7 @@ function ScriptPanel({
       </Field>
       <Field
         label="Narration style"
-        hint="One-line description of the voiceover voice + tone. e.g. 'deep male narrator, conversational, slight rasp'."
+        hint="How the finished line is spoken — one-line description of the voiceover voice + tone. e.g. 'deep male narrator, conversational, slight rasp'. For who's doing the writing, use Persona above."
       >
         <input
           type="text"
@@ -404,6 +510,9 @@ function PreviewBanner({
   projectTitle: string;
 }) {
   const lines: string[] = [];
+  if (config.persona.trim()) {
+    lines.push(`persona: ${truncate(config.persona.trim(), 90)}`);
+  }
   if (config.target_duration_seconds > 0) {
     lines.push(
       `target duration: ${config.target_duration_seconds}s (≈ ${formatDuration(config.target_duration_seconds)})`,
@@ -542,6 +651,23 @@ function VideoOverridesPanel({
           Leave a field blank to inherit the project value.
         </span>
       </header>
+
+      <Field
+        label="Persona"
+        hint={
+          projectConfig.persona
+            ? `Project default: ${truncate(projectConfig.persona, 80)}`
+            : "No project-level persona set — write one here to give just this video a voice."
+        }
+      >
+        <textarea
+          value={(overrides.persona as string) || ""}
+          onChange={(e) => set("persona", e.target.value)}
+          rows={3}
+          placeholder="(use project default)"
+          className="w-full resize-y rounded border border-border-subtle bg-bg-inset px-2 py-1.5 text-sm text-fg focus:focus-ring"
+        />
+      </Field>
 
       <Field
         label="Target duration"

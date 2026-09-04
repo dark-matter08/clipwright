@@ -524,6 +524,12 @@ export interface RecapConfig {
   target_duration_seconds: number;
   narration_style: string;
   additional_notes: string;
+  /** Who Claude should BE when writing for this project — "an expert
+   *  manhwa scriptwriter who specializes in high-retention hooks and
+   *  dramatic pacing". Distinct from `narration_style`, which
+   *  describes the voice actor rather than the writer. Empty string =
+   *  no persona section in the agent prompt. */
+  persona: string;
   outro: OutroSpec;
 }
 
@@ -536,6 +542,7 @@ export const DEFAULT_RECAP_CONFIG: RecapConfig = {
   target_duration_seconds: 90,
   narration_style: "",
   additional_notes: "",
+  persona: "",
   outro: { description: "", duration_seconds: 3.0 },
 };
 
