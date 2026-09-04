@@ -317,6 +317,33 @@ function CreateForm({
     );
   }, [skills, filter]);
 
+  // Group by source so the skills that ship with the repo — the
+  // vendored Remotion set, which is what you actually want on a video
+  // whose render backend IS Remotion — sit at the top instead of
+  // sorting alphabetically into the middle of ~50 user-level skills.
+  // Without this you had to know a skill's name to filter for it.
+  const skillGroups = useMemo(
+    () =>
+      [
+        {
+          key: "project" as const,
+          label: "Project",
+          hint: "Vendored in this repo — Remotion skills live here",
+        },
+        {
+          key: "user" as const,
+          label: "User",
+          hint: "From ~/.claude/skills",
+        },
+      ]
+        .map((g) => ({
+          ...g,
+          items: filteredSkills.filter((s) => s.source === g.key),
+        }))
+        .filter((g) => g.items.length > 0),
+    [filteredSkills],
+  );
+
   function toggleSkill(name: string) {
     if (draftSkills.includes(name)) {
       setDraftSkills(draftSkills.filter((n) => n !== name));
@@ -400,48 +427,57 @@ function CreateForm({
             placeholder="Filter skills…"
             className="w-full rounded border border-border-subtle bg-bg px-1.5 py-0.5 text-[11px] text-fg placeholder:text-fg-muted focus:focus-ring"
           />
-          <div className="max-h-40 overflow-y-auto rounded">
+          <div className="max-h-56 overflow-y-auto rounded">
             {filteredSkills.length === 0 ? (
               <p className="px-1 py-1 text-[10px] text-fg-muted">
                 No skills match "{filter}".
               </p>
             ) : (
-              <ul className="flex flex-col">
-                {filteredSkills.map((s) => {
-                  const checked = draftSkills.includes(s.name);
-                  return (
-                    <li key={`${s.source}-${s.name}`}>
-                      <label
-                        className={cn(
-                          "flex cursor-pointer items-start gap-1.5 rounded px-1 py-0.5 transition-colors",
-                          checked ? "bg-accent/10" : "hover:bg-bg-raised",
-                        )}
-                        title={s.description}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleSkill(s.name)}
-                          className="mt-[3px] accent-accent"
-                        />
-                        <span className="flex min-w-0 flex-col">
-                          <span className="font-mono text-[11px] text-fg">
-                            {s.name}
-                            <span className="ml-1 text-[9px] uppercase tracking-wider text-fg-muted">
-                              · {s.source}
+              skillGroups.map((group) => (
+                <section key={group.key}>
+                  {/* Sticky so the group stays identifiable while you
+                   *  scroll a long user-level list. */}
+                  <h4
+                    title={group.hint}
+                    className="sticky top-0 z-10 bg-bg-inset px-1 pb-0.5 pt-1 text-[9px] uppercase tracking-wider text-fg-muted"
+                  >
+                    {group.label} · {group.items.length}
+                  </h4>
+                  <ul className="flex flex-col">
+                    {group.items.map((s) => {
+                      const checked = draftSkills.includes(s.name);
+                      return (
+                        <li key={`${s.source}-${s.name}`}>
+                          <label
+                            className={cn(
+                              "flex cursor-pointer items-start gap-1.5 rounded px-1 py-0.5 transition-colors",
+                              checked ? "bg-accent/10" : "hover:bg-bg-raised",
+                            )}
+                            title={s.description}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleSkill(s.name)}
+                              className="mt-[3px] accent-accent"
+                            />
+                            <span className="flex min-w-0 flex-col">
+                              <span className="font-mono text-[11px] text-fg">
+                                {s.name}
+                              </span>
+                              {s.description && (
+                                <span className="line-clamp-2 text-[10px] text-fg-muted">
+                                  {s.description}
+                                </span>
+                              )}
                             </span>
-                          </span>
-                          {s.description && (
-                            <span className="line-clamp-2 text-[10px] text-fg-muted">
-                              {s.description}
-                            </span>
-                          )}
-                        </span>
-                      </label>
-                    </li>
-                  );
-                })}
-              </ul>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ))
             )}
           </div>
           <p className="text-[9px] text-fg-muted/70">
