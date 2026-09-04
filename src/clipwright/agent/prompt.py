@@ -279,12 +279,13 @@ def _section_skill(project: Project) -> str:
     #
     #   1. `clipwright` (user-level, ~/.claude/skills/clipwright/) —
     #      domain skill for the Clipwright pipeline itself.
-    #   2. `remotion-best-practices` (project-level, vendored under
-    #      `.claude/skills/remotion-best-practices/`) — Remotion-team-
-    #      maintained best practices, conditional on `render_backend
-    #      == "remotion"`. Vendored so every contributor's rail picks
-    #      it up; see `ATTRIBUTION.md` in that dir for the snapshot
-    #      commit and refresh instructions.
+    #   2. The Remotion team's twelve-skill set (project-level,
+    #      vendored under `.claude/skills/remotion-*`), conditional on
+    #      `render_backend == "remotion"`. `remotion-best-practices`
+    #      is the router; the other eleven carry the actual rules and
+    #      are invocable directly. Vendored so every contributor's
+    #      rail picks them up; see `ATTRIBUTION.md` in the router dir
+    #      for the snapshot commit and refresh instructions.
     #
     # The second skill ships with a CLIPWRIGHT_NOTES.md that overrides
     # a couple of upstream defaults (e.g., the skill's ElevenLabs-by-
@@ -304,25 +305,38 @@ def _section_skill(project: Project) -> str:
         head += (
             "**Remotion best practices (always invoke at turn start when "
             "touching Remotion code).** This project ships a vendored "
-            "snapshot of the Remotion team's `remotion-best-practices` "
-            "skill under `.claude/skills/remotion-best-practices/SKILL.md`. "
-            "For ANY turn that involves the Remotion composition (under "
-            "`remotion/`), render code (`src/clipwright/render_*.py`), "
-            "captions, audio, or composition timing, you MUST invoke that "
-            "skill via the Skill tool BEFORE writing or editing code. The "
-            "skill teaches the use of `useCurrentFrame()` + `interpolate()` "
-            "(CSS transitions DO NOT render correctly), `<Sequence>` "
-            "timing, `trimBefore`/`trimAfter` on `<Video>` (which maps "
-            "directly to Clipwright's `source_start`/`source_end`), and "
-            "30+ topic rules.\n"
+            "snapshot of the Remotion team's twelve-skill set under "
+            "`.claude/skills/remotion-*`. For ANY turn that involves the "
+            "Remotion composition (under `remotion/`), render code "
+            "(`src/clipwright/render_*.py`), captions, audio, or "
+            "composition timing, you MUST invoke `remotion-best-practices` "
+            "via the Skill tool BEFORE writing or editing code.\n"
             "\n"
-            "After loading the upstream skill, ALWAYS read "
+            "`remotion-best-practices` is a ROUTER — it dispatches to the "
+            "sibling skill that actually carries the rules, and you should "
+            "follow that dispatch rather than stopping at the router. The "
+            "one you will need most is `remotion-markup` (compositions, "
+            "animation, timing, audio, fonts, effects): it teaches "
+            "`useCurrentFrame()` + `interpolate()` (CSS transitions DO NOT "
+            "render correctly), `<Sequence>` timing, and "
+            "`trimBefore`/`trimAfter` on `<Video>`, which maps directly to "
+            "Clipwright's `source_start`/`source_end`. The others are "
+            "`remotion-captions`, `remotion-render`, `remotion-studio`, "
+            "`remotion-create`, `remotion-maps`, `remotion-multimedia`, "
+            "`remotion-interactivity`, `remotion-saas`, `remotion-docs`, "
+            "and `remotion-upgrade` — all invocable directly by name when "
+            "you already know which one you need.\n"
+            "\n"
+            "After loading whichever upstream skills the router sends you "
+            "to, ALWAYS read "
             "`.claude/skills/remotion-best-practices/CLIPWRIGHT_NOTES.md` — "
-            "it overrides a few upstream defaults for this codebase, most "
-            "importantly: **do NOT default to ElevenLabs** for voiceover "
-            "(use the project's configured TTS provider) and **use the "
-            "system `ffmpeg` binary**, not `npx remotion ffmpeg`, for "
-            "backend code.\n"
+            "one file, and it overrides upstream defaults for the WHOLE "
+            "set, not just the router. Most importantly: **do NOT default "
+            "to ElevenLabs** for voiceover (use the project's configured "
+            "TTS provider), **use the system `ffmpeg` binary**, not `npx "
+            "remotion ffmpeg`, for backend code, and **never scaffold a "
+            "new Remotion project** — `remotion/` already exists and is "
+            "wired into the render pipeline.\n"
             "\n"
         )
     return head + (
