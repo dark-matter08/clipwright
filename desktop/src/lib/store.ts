@@ -151,6 +151,10 @@ interface AppState {
    *  want the same width and having both open would squeeze the
    *  preview to nothing. */
   personaRailOpen: boolean;
+  /** Bottom timeline visibility. Collapsed leaves only its header
+   *  strip, which buys ~180px of height for whichever side rail is
+   *  open — the persona builder in particular is a tall form. */
+  timelineCollapsed: boolean;
   error: string | null;
   /** Persistent error history. Every `setError(msg)` with a non-null
    *  message appends an entry here. The banner can be dismissed, but
@@ -227,6 +231,7 @@ interface AppState {
   selectRelative: (offset: number) => void;
   toggleClaudeRail: () => void;
   togglePersonaRail: () => void;
+  toggleTimelineCollapsed: () => void;
   setError: (msg: string | null, source?: string) => void;
   /** Drop all persisted error records (after a user reviewed them). */
   clearErrorHistory: () => void;
@@ -316,6 +321,7 @@ export const useApp = create<AppState>((set, get) => ({
   selectedSegmentId: null,
   claudeRailOpen: true,
   personaRailOpen: false,
+  timelineCollapsed: false,
   error: null,
   errorHistory: [],
   chatRuntime: {},
@@ -376,6 +382,8 @@ export const useApp = create<AppState>((set, get) => ({
       // slot, so the alternative is two panels fighting over it.
       personaRailOpen: s.claudeRailOpen ? s.personaRailOpen : false,
     })),
+  toggleTimelineCollapsed: () =>
+    set((s) => ({ timelineCollapsed: !s.timelineCollapsed })),
   togglePersonaRail: () =>
     set((s) => ({
       personaRailOpen: !s.personaRailOpen,

@@ -22,6 +22,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Captions as CaptionsIcon,
+  ChevronDown,
+  ChevronUp,
   Film,
   Pause,
   Play,
@@ -72,6 +74,8 @@ export function Timeline() {
   const selectedId = useApp((s) => s.selectedSegmentId);
   const selectSegment = useApp((s) => s.selectSegment);
   const pxPerSecOverride = useApp((s) => s.pxPerSec);
+  const timelineCollapsed = useApp((s) => s.timelineCollapsed);
+  const toggleTimelineCollapsed = useApp((s) => s.toggleTimelineCollapsed);
   const past = useApp((s) => s.past.length);
   const future = useApp((s) => s.future.length);
   const undo = useApp((s) => s.undo);
@@ -216,6 +220,29 @@ export function Timeline() {
   return (
     <div className="flex h-full w-full flex-col">
       <header className="flex h-8 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-subtle px-3 text-xs text-fg-muted">
+        <button
+          type="button"
+          onClick={toggleTimelineCollapsed}
+          title={
+            timelineCollapsed
+              ? "Expand timeline"
+              : "Collapse timeline — frees height for the side panels"
+          }
+          aria-label={timelineCollapsed ? "Expand timeline" : "Collapse timeline"}
+          aria-expanded={!timelineCollapsed}
+          className="rounded p-0.5 text-fg-muted transition-colors hover:bg-bg-raised hover:text-fg focus:focus-ring"
+        >
+          {timelineCollapsed ? (
+            <ChevronUp size={14} strokeWidth={2} />
+          ) : (
+            <ChevronDown size={14} strokeWidth={2} />
+          )}
+        </button>
+        {timelineCollapsed && (
+          <span className="font-mono text-[10px] uppercase tracking-wider">
+            Timeline · {segments.length}
+          </span>
+        )}
         {/* Transport — play/pause + timecode. Mirrors CapCut's
          *  bottom-bar transport: a clear primary button plus a
          *  monospace "current / total" readout. */}
