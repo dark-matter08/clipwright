@@ -31,8 +31,7 @@ def test_known_commands_include_v2_surface():
         "init", "record-project", "import",
         "render-segment", "render-final",
         "tts-segment", "caption-segment",
-        "review", "doctor", "status",
-        "script init",
+        "doctor", "status",
     ]:
         assert required in cmds, f"v2 command {required!r} missing from CLI"
 
@@ -51,9 +50,9 @@ def test_doctor_detects_stale_skill(tmp_path):
 
 
 def test_doctor_tolerates_flags_in_skill_text(tmp_path):
-    """A SKILL.md mention like `clipwright tts --provider kokoro` must
-    only check `tts`, not flag the flag as an unknown command."""
+    """A SKILL.md mention like `clipwright render-final --video main` must
+    only check `render-final`, not flag the flag as an unknown command."""
     fake_skill = tmp_path / "SKILL.md"
-    fake_skill.write_text("`clipwright tts --provider kokoro`\n")
+    fake_skill.write_text("`clipwright render-final --video main`\n")
     missing = _skill_md_unknown_commands(fake_skill)
     assert missing == []

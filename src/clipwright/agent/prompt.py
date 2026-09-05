@@ -724,7 +724,6 @@ def _section_scope(project_dir: Path) -> str:
         f"- `{project_dir}/annotations.json`\n"
         f"- `{project_dir}/sources/…` (downloaded panels / staged media)\n"
         f"- `{project_dir}/notes/…` (planning markdown — `panels.md`, etc.)\n"
-        f"- `{project_dir}/brand/…` (from `clipwright inspire`)\n"
         f"- `{project_dir}/out/…` (rendered output — usually pipeline-managed)\n"
         f"- `{project_dir}/.clipwright/…` (session state, claude config)\n"
         "\n"
