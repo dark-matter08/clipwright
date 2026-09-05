@@ -8,6 +8,7 @@ import { listen } from "@tauri-apps/api/event";
 import { X } from "lucide-react";
 import { useApp } from "../lib/store";
 import { applyStreamEvent, ClaudeRail } from "./ClaudeRail";
+import { PersonaRail } from "./PersonaRail";
 import type { ClaudeStreamEvent, StreamToolUse } from "./ClaudeRail";
 import { Inspector } from "./Inspector";
 import { Preview } from "./Preview";
@@ -40,6 +41,7 @@ function loadRailWidth(): number {
 export function Workspace() {
   const project = useApp((s) => s.project);
   const railOpen = useApp((s) => s.claudeRailOpen);
+  const personaOpen = useApp((s) => s.personaRailOpen);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [railWidth, setRailWidth] = useState<number>(() => loadRailWidth());
   const [dragging, setDragging] = useState(false);
@@ -187,15 +189,23 @@ export function Workspace() {
          *  The transition is suppressed while dragging so the rail
          *  tracks the pointer 1:1 instead of easing behind it. */}
         <aside
-          style={{ width: railOpen ? railWidth : 36 }}
+          style={{ width: railOpen || personaOpen ? railWidth : 36 }}
           className={`relative shrink-0 border-l border-border-subtle bg-bg-subtle ${
             dragging ? "" : "transition-[width] duration-slow"
           }`}
         >
-          {railOpen && (
+          {(railOpen || personaOpen) && (
             <ResizeHandle dragging={dragging} onPointerDown={onHandleDown} />
           )}
-          <ClaudeRail collapsed={!railOpen} />
+          {/* One slot, two tenants. Persona wins when open because the
+           *  store guarantees they're mutually exclusive; the collapsed
+           *  strip stays Claude's, since that's the rail users toggle
+           *  constantly and expect to find on the edge. */}
+          {personaOpen ? (
+            <PersonaRail collapsed={false} />
+          ) : (
+            <ClaudeRail collapsed={!railOpen} />
+          )}
         </aside>
       </div>
 

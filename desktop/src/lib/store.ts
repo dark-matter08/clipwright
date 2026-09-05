@@ -146,6 +146,11 @@ interface AppState {
   project: ProjectState | null;
   selectedSegmentId: string | null;
   claudeRailOpen: boolean;
+  /** Persona panel visibility. Shares the right-hand rail slot with
+   *  the Claude rail — opening one closes the other, because both
+   *  want the same width and having both open would squeeze the
+   *  preview to nothing. */
+  personaRailOpen: boolean;
   error: string | null;
   /** Persistent error history. Every `setError(msg)` with a non-null
    *  message appends an entry here. The banner can be dismissed, but
@@ -221,6 +226,7 @@ interface AppState {
   selectSegment: (id: string | null) => void;
   selectRelative: (offset: number) => void;
   toggleClaudeRail: () => void;
+  togglePersonaRail: () => void;
   setError: (msg: string | null, source?: string) => void;
   /** Drop all persisted error records (after a user reviewed them). */
   clearErrorHistory: () => void;
@@ -309,6 +315,7 @@ export const useApp = create<AppState>((set, get) => ({
   project: null,
   selectedSegmentId: null,
   claudeRailOpen: true,
+  personaRailOpen: false,
   error: null,
   errorHistory: [],
   chatRuntime: {},
@@ -362,7 +369,18 @@ export const useApp = create<AppState>((set, get) => ({
     if (next) set({ selectedSegmentId: next });
   },
 
-  toggleClaudeRail: () => set((s) => ({ claudeRailOpen: !s.claudeRailOpen })),
+  toggleClaudeRail: () =>
+    set((s) => ({
+      claudeRailOpen: !s.claudeRailOpen,
+      // Opening Claude closes Persona (and vice versa) — one rail
+      // slot, so the alternative is two panels fighting over it.
+      personaRailOpen: s.claudeRailOpen ? s.personaRailOpen : false,
+    })),
+  togglePersonaRail: () =>
+    set((s) => ({
+      personaRailOpen: !s.personaRailOpen,
+      claudeRailOpen: s.personaRailOpen ? s.claudeRailOpen : false,
+    })),
   setError: (msg, source = "unknown") =>
     set((s) => {
       // Null = dismiss the banner. We DO NOT clear errorHistory here —

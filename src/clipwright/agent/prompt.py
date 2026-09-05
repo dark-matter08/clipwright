@@ -429,12 +429,22 @@ def _section_persona(project_dir: Path, *, video: Video | None = None) -> str:
     `RecapConfig.persona`. An empty persona returns "" so the section
     vanishes entirely and projects that never touch the setting get
     the same prompt they got before.
+
+    A video can also opt OUT entirely via
+    `recap_overrides["persona_enabled"] = false` — for the one video in
+    a project that shouldn't be in character (a plain changelog cut in
+    a channel whose house voice is a sardonic narrator, say). The key
+    is absent by default and absence means enabled, so the opt-out has
+    to be written explicitly and every existing video keeps its
+    persona.
     """
     from ..recap_config import load_recap_config
 
     cfg = load_recap_config(project_dir)
     project_persona = cfg.persona.strip()
     overrides = (getattr(video, "recap_overrides", {}) or {}) if video is not None else {}
+    if overrides.get("persona_enabled") is False:
+        return ""
     raw_override = str(overrides.get("persona") or "").strip()
     persona = raw_override or project_persona
     if not persona:

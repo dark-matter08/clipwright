@@ -57,6 +57,27 @@ class OutroSpec:
 
 
 @dataclass
+class PersonaDraft:
+    """The desktop persona builder's field values.
+
+    Pure UI state: `RecapConfig.persona` is the prose the agent prompt
+    quotes, and these are the six blocks the builder composed it from
+    (identity, tone, structural rules, vocabulary, pacing, and the
+    forbidden failure mode). We persist them so reopening the persona
+    panel resumes the build instead of stranding the user in free-text
+    mode with prose they can no longer edit block-by-block. Nothing on
+    the Python side reads these — they never reach the prompt.
+    """
+
+    role: str = ""
+    voice: str = ""
+    moves: str = ""
+    vocabulary: str = ""
+    pacing: str = ""
+    avoid: str = ""
+
+
+@dataclass
 class RecapConfig:
     """User-tunable knobs that flow into the agent prompt.
 
@@ -78,6 +99,8 @@ class RecapConfig:
     # Empty = no persona section in the prompt, so existing projects
     # keep behaving exactly as before.
     persona: str = ""
+    # Builder state behind `persona` — see PersonaDraft. UI-only.
+    persona_draft: PersonaDraft = field(default_factory=PersonaDraft)
     outro: OutroSpec = field(default_factory=OutroSpec)
 
     def to_dict(self) -> dict:
@@ -104,6 +127,7 @@ class RecapConfig:
             narration_style=str(d.get("narration_style", "")),
             additional_notes=str(d.get("additional_notes", "")),
             persona=str(d.get("persona", "")),
+            persona_draft=_parse_persona_draft(d.get("persona_draft")),
             outro=outro,
         )
 
@@ -148,6 +172,22 @@ class RecapConfig:
             "background with subtle scanline/glitch. Voiceover (short, 1 line): "
             "tease the next chapter and prompt a follow."
         )
+
+
+def _parse_persona_draft(raw: object) -> PersonaDraft:
+    """Tolerant parse — anything that isn't a dict of strings yields an
+    empty draft. This is UI state written by the desktop; a malformed
+    value must never break loading the rest of the config."""
+    if not isinstance(raw, dict):
+        return PersonaDraft()
+    return PersonaDraft(
+        role=str(raw.get("role", "") or ""),
+        voice=str(raw.get("voice", "") or ""),
+        moves=str(raw.get("moves", "") or ""),
+        vocabulary=str(raw.get("vocabulary", "") or ""),
+        pacing=str(raw.get("pacing", "") or ""),
+        avoid=str(raw.get("avoid", "") or ""),
+    )
 
 
 def config_path(project_dir: Path) -> Path:

@@ -49,10 +49,16 @@ export async function createVideo(
    *  `recap_overrides.default_skills` so the agent prompt can
    *  surface them as auto-invoke recommendations. */
   defaultSkills?: string[],
+  /** `false` writes `recap_overrides.persona_enabled = false` so this
+   *  one video opts out of the project persona. Omitted / `true`
+   *  writes nothing — absence means enabled, so the default stays on
+   *  and existing videos are untouched. */
+  personaEnabled?: boolean,
 ): Promise<Video> {
   return invoke<Video>("create_video_cmd", {
     projectDir,
     videoId,
+    personaEnabled,
     title,
     defaultSkills: defaultSkills ?? [],
   });
@@ -530,7 +536,30 @@ export interface RecapConfig {
    *  describes the voice actor rather than the writer. Empty string =
    *  no persona section in the agent prompt. */
   persona: string;
+  /** Builder state behind `persona` — the four fields the persona
+   *  builder composed the prose from. UI-only: the agent prompt reads
+   *  `persona`, never this. Persisted so reopening settings resumes
+   *  the build instead of stranding you in free-text mode. */
+  persona_draft: PersonaDraft;
   outro: OutroSpec;
+}
+
+export interface PersonaDraft {
+  /** Identity + expertise. Completes "You are…". */
+  role: string;
+  /** Tone and register — how the prose sounds. */
+  voice: string;
+  /** Structural rules: what they do to a script, in order. */
+  moves: string;
+  /** Words to prefer and words to ban. The cheapest block to get right
+   *  and the most visible in the output — models drift to
+   *  "furthermore" and "in a world where" unless told not to. */
+  vocabulary: string;
+  /** Sentence length, and how to spend runtime across a long input.
+   *  Without it, long inputs get flattened evenly. */
+  pacing: string;
+  /** The failure mode to forbid outright. */
+  avoid: string;
 }
 
 /** New-project defaults — must mirror the Python side
@@ -543,6 +572,14 @@ export const DEFAULT_RECAP_CONFIG: RecapConfig = {
   narration_style: "",
   additional_notes: "",
   persona: "",
+  persona_draft: {
+    role: "",
+    voice: "",
+    moves: "",
+    vocabulary: "",
+    pacing: "",
+    avoid: "",
+  },
   outro: { description: "", duration_seconds: 3.0 },
 };
 

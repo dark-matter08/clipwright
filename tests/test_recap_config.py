@@ -326,3 +326,46 @@ def test_prompt_persona_blank_override_falls_back_to_project(tmp_path: Path) -> 
     out = build_project_prompt(tmp_path)
     assert "> the project writer" in out
     assert "per-video override" not in out
+
+
+def test_prompt_persona_can_be_disabled_per_video(tmp_path: Path) -> None:
+    """A video opts out with `persona_enabled: false` — the section
+    disappears even though the project has a persona set."""
+    _seed_v2(tmp_path)
+    save_recap_config(tmp_path, RecapConfig(persona="the project writer"))
+    (tmp_path / "videos" / "main.json").write_text(json.dumps({
+        "schema_version": 2, "video_id": "main", "title": "Main",
+        "chat_session_id": "", "segments": [],
+        "recap_overrides": {"persona_enabled": False},
+    }))
+    assert "## Persona" not in build_project_prompt(tmp_path)
+
+
+def test_prompt_persona_disabled_beats_per_video_override(tmp_path: Path) -> None:
+    """Opting out wins over a video-level persona string — otherwise
+    un-checking the box would silently leave a stale override in play."""
+    _seed_v2(tmp_path)
+    save_recap_config(tmp_path, RecapConfig(persona="the project writer"))
+    (tmp_path / "videos" / "main.json").write_text(json.dumps({
+        "schema_version": 2, "video_id": "main", "title": "Main",
+        "chat_session_id": "", "segments": [],
+        "recap_overrides": {
+            "persona_enabled": False,
+            "persona": "the one-off writer",
+        },
+    }))
+    assert "## Persona" not in build_project_prompt(tmp_path)
+
+
+def test_prompt_persona_enabled_by_default_and_when_explicitly_true(tmp_path: Path) -> None:
+    """Absent key means enabled (so existing videos are unaffected),
+    and an explicit `true` behaves the same."""
+    _seed_v2(tmp_path)
+    save_recap_config(tmp_path, RecapConfig(persona="the project writer"))
+    for overrides in ({}, {"persona_enabled": True}):
+        (tmp_path / "videos" / "main.json").write_text(json.dumps({
+            "schema_version": 2, "video_id": "main", "title": "Main",
+            "chat_session_id": "", "segments": [],
+            "recap_overrides": overrides,
+        }))
+        assert "## Persona" in build_project_prompt(tmp_path), overrides

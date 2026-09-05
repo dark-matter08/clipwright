@@ -42,6 +42,11 @@ interface Props {
 
 type SettingsScope = "project" | "video";
 
+/** `videos/<id>.json#recap_overrides`. Values are heterogeneous by
+ *  design — strings (persona, narration), numbers (durations),
+ *  booleans (persona_enabled), and a string[] (default_skills). */
+type OverrideMap = Record<string, string | number | boolean | string[]>;
+
 export function ProjectSettingsDialog({ onClose }: Props) {
   const project = useApp((s) => s.project);
   const loadProject = useApp((s) => s.loadProject);
@@ -59,16 +64,10 @@ export function ProjectSettingsDialog({ onClose }: Props) {
   // shape but treat empty values as "fall back to project default" —
   // the agent prompt does the same resolution. Initialized from the
   // currently-loaded video's `recap_overrides` map.
-  const initialOverrides = (project?.video?.recap_overrides ?? {}) as Record<
-    string,
-    string | number
-  >;
-  const [overrides, setOverrides] = useState<Record<string, string | number>>(
-    initialOverrides,
-  );
-  const [overridesPristine, setOverridesPristine] = useState<
-    Record<string, string | number>
-  >(initialOverrides);
+  const initialOverrides = (project?.video?.recap_overrides ?? {}) as OverrideMap;
+  const [overrides, setOverrides] = useState<OverrideMap>(initialOverrides);
+  const [overridesPristine, setOverridesPristine] =
+    useState<OverrideMap>(initialOverrides);
 
   useEffect(() => {
     if (!project?.project_dir) return;
@@ -98,10 +97,14 @@ export function ProjectSettingsDialog({ onClose }: Props) {
         // Per-video save: strip empty values so the manifest stays
         // clean and the agent prompt's "use project default" fallback
         // kicks in for unset fields.
-        const cleaned: Record<string, string | number> = {};
+        const cleaned: OverrideMap = {};
         for (const [k, v] of Object.entries(overrides)) {
           if (typeof v === "string" && v.trim() === "") continue;
           if (typeof v === "number" && v === 0) continue;
+          // `persona_enabled: true` is the default — persisting it
+          // would bake today's default into the manifest, so only the
+          // explicit opt-out is written.
+          if (k === "persona_enabled" && v === true) continue;
           cleaned[k] = v;
         }
         const nextVideo = { ...project.video, recap_overrides: cleaned };
@@ -178,7 +181,6 @@ export function ProjectSettingsDialog({ onClose }: Props) {
             </div>
           ) : scope === "project" ? (
             <div className="flex flex-col gap-6">
-              <PersonaPanel config={config} onChange={setConfig} />
               <ScriptPanel config={config} onChange={setConfig} />
               <OutroPanel
                 config={config}
@@ -240,111 +242,6 @@ export function ProjectSettingsDialog({ onClose }: Props) {
 }
 
 // ---------------------------------------------------------------------------
-// Persona panel — who Claude IS when writing for this project
-// ---------------------------------------------------------------------------
-//
-// Distinct from "Narration style" in the Script panel below:
-//   persona  → the WRITER (expertise, editorial instincts, what they
-//              reach for). Shapes structure, hooks, word choice.
-//   narration → the VOICE ACTOR (timbre, delivery, accent). Shapes
-//              how the finished line is spoken.
-// The prompt renders the persona as its own `## Persona` section that
-// outranks the template on tone.
-
-/** One-click starting points. The user is expected to edit these —
- *  they exist so the box is never a blank page, and so the phrasing
- *  ("you open on the sharpest moment…") teaches what a *useful*
- *  persona looks like versus a two-word label. */
-const PERSONA_PRESETS: { label: string; text: string }[] = [
-  {
-    label: "Manhwa scriptwriter",
-    text:
-      "an expert manhwa scriptwriter who specializes in high-retention hooks " +
-      "and dramatic pacing. You open on the sharpest image in the chapter, " +
-      "keep every beat in present tense, name one concrete event per beat, " +
-      "and never resolve the climax — the unread chapter is the product.",
-  },
-  {
-    label: "Sardonic narrator",
-    text:
-      "a sardonic present-tense narrator. You play the plot straight and earn " +
-      "one dry aside every three beats. No solemn \"in a world where\" framing, " +
-      "no melodrama the story hasn't paid for.",
-  },
-  {
-    label: "Product demo host",
-    text:
-      "a product demo host who shows rather than tells. You lead with the " +
-      "outcome the viewer wants, narrate each step in plain language, and cut " +
-      "every sentence that doesn't move the demo forward.",
-  },
-  {
-    label: "Documentary explainer",
-    text:
-      "a documentary explainer with a calm, authoritative voice. You build one " +
-      "idea at a time, define a term the moment you use it, and let the visuals " +
-      "carry the weight the words don't need to.",
-  },
-];
-
-function PersonaPanel({
-  config,
-  onChange,
-}: {
-  config: RecapConfig;
-  onChange: (next: RecapConfig) => void;
-}) {
-  return (
-    <section className="flex flex-col gap-3">
-      <header className="flex flex-col">
-        <h3 className="text-sm font-medium text-fg">Persona</h3>
-        <span className="text-[11px] text-fg-muted">
-          Who Claude <em>is</em> when it writes for this project. Applies to
-          every video here and outranks the template on tone. This is the
-          writer, not the voice — set the speaking voice under Narration style
-          below.
-        </span>
-      </header>
-      <Field
-        label="Persona"
-        hint='Finish the sentence "You are…". Leave blank to let the template set the voice on its own.'
-      >
-        <textarea
-          value={config.persona}
-          onChange={(e) => onChange({ ...config, persona: e.target.value })}
-          rows={4}
-          placeholder={PERSONA_PRESETS[0].text}
-          className="w-full resize-y rounded border border-border-subtle bg-bg-inset px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:focus-ring"
-        />
-      </Field>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] text-fg-muted">Start from:</span>
-        {PERSONA_PRESETS.map((p) => (
-          <button
-            key={p.label}
-            type="button"
-            onClick={() => onChange({ ...config, persona: p.text })}
-            title={p.text}
-            className="rounded border border-border-subtle px-2 py-0.5 text-[11px] text-fg-subtle transition-colors hover:border-accent/50 hover:bg-accent/10 hover:text-fg focus:focus-ring"
-          >
-            {p.label}
-          </button>
-        ))}
-        {config.persona.trim() && (
-          <button
-            type="button"
-            onClick={() => onChange({ ...config, persona: "" })}
-            className="ml-auto text-[11px] text-fg-muted transition-colors hover:text-fg"
-          >
-            Clear
-          </button>
-        )}
-      </div>
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Script panel — target duration + narration + free-form notes
 // ---------------------------------------------------------------------------
 
@@ -393,7 +290,7 @@ function ScriptPanel({
       </Field>
       <Field
         label="Narration style"
-        hint="How the finished line is spoken — one-line description of the voiceover voice + tone. e.g. 'deep male narrator, conversational, slight rasp'. For who's doing the writing, use Persona above."
+        hint="How the finished line is spoken — one-line description of the voiceover voice + tone. e.g. 'deep male narrator, conversational, slight rasp'. For who's doing the writing, use the Persona panel in the top bar."
       >
         <input
           type="text"
@@ -510,7 +407,9 @@ function PreviewBanner({
   projectTitle: string;
 }) {
   const lines: string[] = [];
-  if (config.persona.trim()) {
+  // Read-only here — the persona is edited in its own panel, but it's
+  // part of what the next turn sees, so the banner would lie by omission.
+  if (config.persona?.trim()) {
     lines.push(`persona: ${truncate(config.persona.trim(), 90)}`);
   }
   if (config.target_duration_seconds > 0) {
@@ -622,14 +521,16 @@ function VideoOverridesPanel({
   projectVoice,
   videoId,
 }: {
-  overrides: Record<string, string | number>;
-  onChange: (next: Record<string, string | number>) => void;
+  overrides: OverrideMap;
+  onChange: (next: OverrideMap) => void;
   projectConfig: RecapConfig;
   projectVoice: { provider: string; voice_id: string };
   videoId: string;
 }) {
-  function set(key: string, value: string | number) {
-    if (value === "" || value === 0) {
+  function set(key: string, value: string | number | boolean) {
+    // Booleans are meaningful at `false`, so they bypass the
+    // empty-means-inherit clearing that string/number fields use.
+    if (typeof value !== "boolean" && (value === "" || value === 0)) {
       const { [key]: _drop, ...rest } = overrides;
       onChange(rest);
     } else {
@@ -651,23 +552,6 @@ function VideoOverridesPanel({
           Leave a field blank to inherit the project value.
         </span>
       </header>
-
-      <Field
-        label="Persona"
-        hint={
-          projectConfig.persona
-            ? `Project default: ${truncate(projectConfig.persona, 80)}`
-            : "No project-level persona set — write one here to give just this video a voice."
-        }
-      >
-        <textarea
-          value={(overrides.persona as string) || ""}
-          onChange={(e) => set("persona", e.target.value)}
-          rows={3}
-          placeholder="(use project default)"
-          className="w-full resize-y rounded border border-border-subtle bg-bg-inset px-2 py-1.5 text-sm text-fg focus:focus-ring"
-        />
-      </Field>
 
       <Field
         label="Target duration"
