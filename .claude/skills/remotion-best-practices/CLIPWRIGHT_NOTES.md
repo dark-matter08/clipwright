@@ -96,6 +96,29 @@ Compositions are defined in `Root.tsx` with explicit `width`, `height`,
 `remotion-create` only when the user is explicitly starting a brand-new
 Remotion project outside the Clipwright pipeline.
 
+## Studio — Clipwright Studio IS the preview surface
+
+The `remotion-studio` skill tells you to run `npx remotion studio` and
+open the printed URL in a browser. **Don't.** The user is already
+looking at Clipwright Studio — the Tauri app whose rail you're being
+typed into — and a browser tab they can't see from there is worse than
+useless: it's a second, divergent view of the same project that they
+have to alt-tab to and that you can't screenshot back to them.
+
+Remotion Studio is a tool for editing composition *code*. Clipwright's
+compositions are generated from the JSON timeline, which the user edits
+in the app. When you want to show the user something:
+
+1. Render it — `clipwright render-segment <seg> --video <id>` for one
+   beat, `clipwright render-final --video <id>` for the whole cut.
+2. Say so. The app's Preview pane plays `out/final/<video_id>.mp4` and
+   picks up a new render on its own; the Timeline reflects manifest
+   edits as soon as you write the JSON.
+
+Reach for `remotion-studio` only if the user explicitly asks to open
+Remotion's own Studio, or when debugging the composition code itself
+(`remotion/src/`) rather than a project's content.
+
 ## Rendering — go through Clipwright, not `npx remotion render`
 
 The `remotion-render` skill documents `npx remotion render` and Lambda
