@@ -37,9 +37,15 @@ DEFAULT_VOICE = "alloy"
 
 # The voices the API accepts. Kept here so a typo fails locally with a
 # useful message instead of a 400 from the server mid-render.
+#
+# `marin` and `cedar` are the newest generation and are only served by
+# `gpt-4o-mini-tts` — the legacy `tts-1` / `tts-1-hd` models reject them
+# with an enum error. That's fine at the default model, but if you pass
+# `model="tts-1"` you're limited to the eleven below them.
 VOICES = (
     "alloy", "ash", "ballad", "coral", "echo",
     "fable", "onyx", "nova", "sage", "shimmer", "verse",
+    "marin", "cedar",
 )
 
 

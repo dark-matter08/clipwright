@@ -85,6 +85,12 @@ export const VOICES_BY_PROVIDER: Record<VoiceProvider, VoiceOption[]> = {
     { value: "sage", label: "sage", hint: "Female, calm, measured." },
     { value: "shimmer", label: "shimmer", hint: "Female, warm." },
     { value: "verse", label: "verse", hint: "Male, versatile, narration." },
+    // Newest generation — noticeably more natural than the rest, and
+    // only available on the `gpt-4o-mini-tts` model (which is the
+    // default). Hints stay non-committal because these two are best
+    // judged with the Preview button rather than from a label.
+    { value: "marin", label: "marin", hint: "Newest generation — most natural. Preview it." },
+    { value: "cedar", label: "cedar", hint: "Newest generation — most natural. Preview it." },
   ],
   elevenlabs: [
     // ElevenLabs voice IDs vary across accounts — these are the
