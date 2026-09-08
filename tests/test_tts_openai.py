@@ -203,3 +203,26 @@ def test_failed_sample_is_not_cached(tmp_path: Path, monkeypatch) -> None:
     with pytest.raises(ClipwrightError, match="could not synthesize"):
         tts_sample.synthesize_sample("openai", "onyx")
     assert not tts_sample.sample_path("openai", "onyx", tts_sample.DEFAULT_SAMPLE_TEXT).exists()
+
+
+def test_ui_voice_catalog_matches_the_backend() -> None:
+    """The desktop's voice list and the backend's must agree.
+
+    They didn't: the catalog shipped the original six voices while the
+    API (and `VOICES`) had eleven, so ash/ballad/coral/sage/verse were
+    unreachable from the app. The reverse drift is worse — a voice
+    offered in the picker that `_resolve_voice` rejects fails at
+    synthesis, after the user has committed it to a project.
+    """
+    import re
+
+    catalog = Path(__file__).resolve().parent.parent / "src" / "lib" / "voiceCatalog.ts"
+    assert catalog.exists(), f"voice catalog not found at {catalog}"
+
+    block = catalog.read_text().split("openai: [", 1)[1].split("],", 1)[0]
+    ui_voices = set(re.findall(r'value:\s*"([^"]+)"', block))
+    assert ui_voices == set(openai_tts.VOICES), (
+        "desktop voice catalog is out of step with clipwright.tts.openai.VOICES.\n"
+        f"  only in UI:      {sorted(ui_voices - set(openai_tts.VOICES))}\n"
+        f"  only in backend: {sorted(set(openai_tts.VOICES) - ui_voices)}"
+    )
