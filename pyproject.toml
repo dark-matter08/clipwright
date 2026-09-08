@@ -47,7 +47,7 @@ all-tts = [
 ]
 
 [project.scripts]
-clipwright = "clipwright.cli:app"
+clipwright = "clipwright.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/dark-matter08/clipwright"

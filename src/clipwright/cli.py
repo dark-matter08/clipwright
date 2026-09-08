@@ -888,16 +888,54 @@ def _is_blank(value: object) -> bool:
 def status(
     project: Path = typer.Option(None, "--project"),
 ) -> None:
-    """Show which pipeline artifacts exist for the current project."""
+    """Show per-video artifact state for the current project.
+
+    A v2 project is a collection of videos, so "status" is per video:
+    for each one, how many segments have voiceover, captions, and a
+    cached render, and whether the final concat exists. Reuses the
+    same diagnosis `clipwright video doctor` runs, minus the issue
+    reporting — this answers "what's built?", doctor answers "what's
+    wrong?".
+    """
+    from .schema import list_videos, load_project
+    from .video_doctor import diagnose_video
+
     root = _root(project)
-    pipeline = Pipeline.from_dir(root)
-    state = pipeline.status()
-    rprint(f"[bold]Project:[/bold] {root}")
-    for a in state.artifacts:
-        if a.exists:
-            rprint(f"  [green]✓[/green] {a.name:<12} {a.path}")
+    try:
+        proj = load_project(root)
+    except Exception as e:  # noqa: BLE001 - surfaced as a CLI error below
+        raise ClipwrightError(
+            f"not a clipwright project: {root}",
+            # NOT `init` — that scaffolds a browse-plan, and only
+            # `import` / `record-project` write the project.json that
+            # makes a directory a v2 project.
+            fix="Run `clipwright import <video.mp4>` or `record-project`, or pass --project.",
+        ) from e
+
+    rprint(f"[bold]Project:[/bold] {proj.title or root.name} [dim]{root}[/dim]")
+    video_ids = list_videos(root)
+    if not video_ids:
+        rprint("  [dim]no videos yet — `clipwright video new <id>`[/dim]")
+        return
+
+    for vid in video_ids:
+        report = diagnose_video(root, vid)
+        n = len(report.segments)
+        vo = sum(1 for s in report.segments if s.has_voiceover_mp3)
+        caps = sum(1 for s in report.segments if s.has_captions)
+        rendered = sum(1 for s in report.segments if s.has_segment_render)
+        if report.has_final_render:
+            final = (
+                "[yellow]final (stale)[/yellow]"
+                if report.final_is_stale
+                else "[green]final[/green]"
+            )
         else:
-            rprint(f"  [dim]–[/dim] [dim]{a.name:<12} (missing)[/dim]")
+            final = "[dim]no final[/dim]"
+        rprint(
+            f"  [bold]{vid}[/bold]  {n} segments · "
+            f"vo {vo}/{n} · captions {caps}/{n} · rendered {rendered}/{n} · {final}"
+        )
 
 
 @app.command()
@@ -1057,5 +1095,20 @@ def _skill_md_unknown_commands(skill_path: Path) -> list[str]:
     return missing
 
 
+def main() -> None:
+    """Console-script entry point.
+
+    Wraps the Typer app so a `ClipwrightError` prints its "Error / Fix"
+    form rather than a rich traceback. Commands raise it for problems
+    the *user* can fix — a missing project, an unknown segment id — and
+    a traceback both buries the fix hint and reads like a crash.
+    """
+    try:
+        app()
+    except ClipwrightError as e:
+        rprint(e.rich_message())
+        raise SystemExit(1) from e
+
+
 if __name__ == "__main__":
-    app()
+    main()
