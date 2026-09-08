@@ -54,7 +54,7 @@ Homepage = "https://github.com/dark-matter08/clipwright"
 Issues = "https://github.com/dark-matter08/clipwright/issues"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["engine"]
 
 [tool.setuptools.package-data]
 clipwright = ["py.typed", "templates/data/*.json"]

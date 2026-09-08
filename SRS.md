@@ -101,7 +101,7 @@ Three layers, three clean interfaces. Each layer is independently usable.
 └─────────────────────────────▲────────────────────────────────┘
                               │ stdin/stdout, file I/O
 ┌─────────────────────────────┴────────────────────────────────┐
-│  L2  Python Compute Layer  (existing `src/clipwright/`)      │
+│  L2  Python Compute Layer  (existing `engine/clipwright/`)      │
 │      • Pipeline stages as library functions + CLI            │
 │      • TTS, captions, render, generate, inspire              │
 │      • Emits typed events on a JSON-line stdout protocol     │
@@ -444,7 +444,7 @@ Empty states are first-class screens, not afterthoughts. Each tells the user exa
 | NFR-5 | Platform support v1 | macOS arm64 + Intel. Windows v1.1. Linux v2. |
 | NFR-6 | All data local. No outbound network calls except: TTS providers (when chosen by user), generative providers (BYOK only), Claude Code (the user's own credentials). | Pen-testable; documented in README |
 | NFR-7 | App size on disk | < 200 MB bundle. Models lazy-downloaded on first use. |
-| NFR-8 | Project format stability | `schema_version` field in every JSON; migrations live in `src/clipwright/schema/v{N}/migrate.py`. |
+| NFR-8 | Project format stability | `schema_version` field in every JSON; migrations live in `engine/clipwright/schema/v{N}/migrate.py`. |
 | NFR-9 | Accessibility | All interactive elements keyboard-reachable; WCAG AA color contrast in both themes; screen-reader labels on icon-only buttons. No formal certification claim. |
 | NFR-10 | Localization | English-only v1. Strings extracted into one `i18n/en.json` so future locales are mechanical. |
 | NFR-11 | Offline behavior | Fully usable offline once first-run model downloads are complete. UI hides any "online" affordances (cloud provider buttons disabled with tooltip "needs network") when `navigator.onLine === false`. |
@@ -688,7 +688,7 @@ Spawned fresh, exits when done. Output streamed into the chat panel as a transie
 
 ### 9.2 The system prompt build
 
-A small library in `src/clipwright/agent/` constructs the system prompt at invocation time:
+A small library in `engine/clipwright/agent/` constructs the system prompt at invocation time:
 
 - Project root path
 - Current timeline summary (segments, durations, labels)
@@ -725,20 +725,20 @@ The pivot doesn't require throwing away the codebase. Here's what stays, what ch
 
 | Component | Path | Disposition | Notes |
 |---|---|---|---|
-| TTS providers (Kokoro, ElevenLabs, Piper) | `src/clipwright/tts/` | **Keep as-is** | Provider ABC + char-timestamp shape are perfect for the editor. Add VibeVoice in P2. |
-| Caption chunker | `src/clipwright/captions/` | **Keep as-is** | 2-word UPPERCASE rules become defaults; UI exposes overrides. |
-| Render composer (ffmpeg) | `src/clipwright/render/composer.py` | **Keep, refactor to per-segment entry point** | Today renders whole timeline; need `render_segment(seg_id)` entry. |
+| TTS providers (Kokoro, ElevenLabs, Piper) | `engine/clipwright/tts/` | **Keep as-is** | Provider ABC + char-timestamp shape are perfect for the editor. Add VibeVoice in P2. |
+| Caption chunker | `engine/clipwright/captions/` | **Keep as-is** | 2-word UPPERCASE rules become defaults; UI exposes overrides. |
+| Render composer (ffmpeg) | `engine/clipwright/render/composer.py` | **Keep, refactor to per-segment entry point** | Today renders whole timeline; need `render_segment(seg_id)` entry. |
 | Remotion backend | `remotion/` + `render/remotion_backend.py` | **Keep** | Already per-segment; ideal for the editor. Scene components (TitleCard, BrandedOutro) extend cleanly. |
-| Pipeline + event stream | `src/clipwright/pipeline.py` | **Keep, generalize** | Convert from "linear build" model to "operation graph"; events already typed. |
-| Caching pattern | `src/clipwright/generate/cache.py` + TTS cache | **Keep, extend to all stages** | SHA-256 sidecar pattern is the right one. Cover caption + camera + render. |
-| Generative providers (Veo, Runway, DALL·E) | `src/clipwright/generate/` | **Keep, demote to P2** | BYOK pattern is correct. Reattach when scene-slot UI exists. |
-| `inspire` brand extraction | `src/clipwright/inspire/` | **Keep, demote to P1** | Reattach via "Import brand from URL" in title-card editor. |
-| Playwright recorder | `src/clipwright/record/` | **Keep as a first-class project creation mode** | "Record with Claude" is one of two equal entry points (see §6.1.a). Exposed as a Tauri command; the existing Python recorder is unchanged. |
-| `browse-plan.json` schema | `src/clipwright/plan/schema.py` | **Keep as the authoring format for Record mode** | Lives at project root for Record projects; edited inline in the UI or by Claude. Headless CI/CLI flow is unchanged. |
-| Chapter → segment logic | `src/clipwright/edit/segments.py` | **Keep, hot path for Record mode** | Drives the seeding of `timeline.json` from `moments.json`. |
-| CLI `build` orchestrator | `src/clipwright/cli.py` (build command) | **Retire from desktop path; keep for CLI users** | Editor is not linear; it's event-driven. CLI users still benefit. |
-| `clipwright doctor` / `status` | `src/clipwright/cli.py` | **Surface in UI** | Settings → System tab consumes these. |
-| Outro PIL renderer | `src/clipwright/outro/` | **Keep as fallback** | Remotion BrandedOutro is the primary; PIL outro when no brand. |
+| Pipeline + event stream | `engine/clipwright/pipeline.py` | **Keep, generalize** | Convert from "linear build" model to "operation graph"; events already typed. |
+| Caching pattern | `engine/clipwright/generate/cache.py` + TTS cache | **Keep, extend to all stages** | SHA-256 sidecar pattern is the right one. Cover caption + camera + render. |
+| Generative providers (Veo, Runway, DALL·E) | `engine/clipwright/generate/` | **Keep, demote to P2** | BYOK pattern is correct. Reattach when scene-slot UI exists. |
+| `inspire` brand extraction | `engine/clipwright/inspire/` | **Keep, demote to P1** | Reattach via "Import brand from URL" in title-card editor. |
+| Playwright recorder | `engine/clipwright/record/` | **Keep as a first-class project creation mode** | "Record with Claude" is one of two equal entry points (see §6.1.a). Exposed as a Tauri command; the existing Python recorder is unchanged. |
+| `browse-plan.json` schema | `engine/clipwright/plan/schema.py` | **Keep as the authoring format for Record mode** | Lives at project root for Record projects; edited inline in the UI or by Claude. Headless CI/CLI flow is unchanged. |
+| Chapter → segment logic | `engine/clipwright/edit/segments.py` | **Keep, hot path for Record mode** | Drives the seeding of `timeline.json` from `moments.json`. |
+| CLI `build` orchestrator | `engine/clipwright/cli.py` (build command) | **Retire from desktop path; keep for CLI users** | Editor is not linear; it's event-driven. CLI users still benefit. |
+| `clipwright doctor` / `status` | `engine/clipwright/cli.py` | **Surface in UI** | Settings → System tab consumes these. |
+| Outro PIL renderer | `engine/clipwright/outro/` | **Keep as fallback** | Remotion BrandedOutro is the primary; PIL outro when no brand. |
 | `desktop/` Tauri scaffold | `desktop/` | **Throw away and restart properly** | It's an empty default scaffold; no source. Start clean with the data model from §5 in mind. |
 | Skill (`SKILL.md`) | repo root | **Keep, retarget** | Rewrite around the new project layout in §5. The clipwright skill remains how Claude understands the project. |
 
@@ -752,7 +752,7 @@ The pivot doesn't require throwing away the codebase. Here's what stays, what ch
 
 Make the existing code editor-ready without building UI yet.
 
-- **0.1** Define `project.json` + `timeline.json` schemas in `src/clipwright/schema/v1/`. Pydantic models. Migration scaffolding for `schema_version`.
+- **0.1** Define `project.json` + `timeline.json` schemas in `engine/clipwright/schema/v1/`. Pydantic models. Migration scaffolding for `schema_version`.
 - **0.2a** Write `import_video.py`: takes an MP4, runs silence + scene detection, emits a seeded `timeline.json`. New CLI: `clipwright import <video>`.
 - **0.2b** Refactor existing recorder so `clipwright record --plan browse-plan.json` writes directly into the new project layout (`sources/main.mp4`, seeds `timeline.json` from chapters). No new UI work — this stays headless-friendly.
 - **0.3** Refactor `composer.py` to expose `render_segment(project, seg_id) -> Path` as the primary entry. The current end-to-end render becomes a thin wrapper.
@@ -1010,15 +1010,15 @@ The threat model is small because the architecture is small: a local app editing
 
 For implementers planning Phase 0 refactors. Paths relative to repo root.
 
-- TTS provider ABC: [src/clipwright/tts/base.py](src/clipwright/tts/base.py)
-- Pipeline + events: [src/clipwright/pipeline.py](src/clipwright/pipeline.py)
-- Generate cache pattern: [src/clipwright/generate/cache.py](src/clipwright/generate/cache.py)
-- Caption chunker: [src/clipwright/captions/chunker.py](src/clipwright/captions/chunker.py)
-- Composer (per-segment refactor target): [src/clipwright/render/composer.py](src/clipwright/render/composer.py)
+- TTS provider ABC: [engine/clipwright/tts/base.py](engine/clipwright/tts/base.py)
+- Pipeline + events: [engine/clipwright/pipeline.py](engine/clipwright/pipeline.py)
+- Generate cache pattern: [engine/clipwright/generate/cache.py](engine/clipwright/generate/cache.py)
+- Caption chunker: [engine/clipwright/captions/chunker.py](engine/clipwright/captions/chunker.py)
+- Composer (per-segment refactor target): [engine/clipwright/render/composer.py](engine/clipwright/render/composer.py)
 - Remotion entry: [remotion/src/Video.tsx](remotion/src/Video.tsx)
-- Playwright recorder: [src/clipwright/record/playwright_recorder.py](src/clipwright/record/playwright_recorder.py)
-- Brand extraction: [src/clipwright/inspire/extractor.py](src/clipwright/inspire/extractor.py)
-- Current CLI: [src/clipwright/cli.py](src/clipwright/cli.py)
+- Playwright recorder: [engine/clipwright/record/playwright_recorder.py](engine/clipwright/record/playwright_recorder.py)
+- Brand extraction: [engine/clipwright/inspire/extractor.py](engine/clipwright/inspire/extractor.py)
+- Current CLI: [engine/clipwright/cli.py](engine/clipwright/cli.py)
 - Current skill: [SKILL.md](SKILL.md)
 
 ---

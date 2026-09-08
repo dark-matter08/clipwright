@@ -59,6 +59,18 @@ htmlcov/
 !.claude/skills/remotion-studio/
 !.claude/skills/remotion-upgrade/
 
+# Desktop app (Tauri + Vite) — these lived in desktop/.gitignore before
+# the app moved to the repo root.
+.vite/
+*.tsbuildinfo
+src-tauri/target/
+src-tauri/gen/
+.vscode/.tauri/
+# tsc emits these for vite.config.ts even though noEmit is set; ignore
+# so they don't poison the next commit.
+vite.config.d.ts
+vite.config.js
+
 # Fonts fetched by install.sh (OFL-licensed DejaVu)
 templates/fonts/*.ttf
 vertex-reader-demo/*

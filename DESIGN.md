@@ -30,7 +30,7 @@
 ## Theming
 
 Two themes — **light** and **dark** — implemented as twin CSS
-variable sets in `desktop/src/styles/tokens.css`. Tailwind's
+variable sets in `src/styles/tokens.css`. Tailwind's
 `darkMode: ["class", '[data-theme="dark"]']` toggles every
 `dark:` utility off the same attribute, and the token variables
 swap values when the attribute changes. **One source of truth.**
@@ -64,7 +64,7 @@ the settings cog.
 ## Color Tokens
 
 All values are HSL space-separated triplets in
-`desktop/src/styles/tokens.css` and exposed through Tailwind as
+`src/styles/tokens.css` and exposed through Tailwind as
 `hsl(var(--name) / <alpha-value>)` so opacity modifiers
 (`bg-accent/15`, `border-warn/40`) compose for free.
 

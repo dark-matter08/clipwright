@@ -43,20 +43,21 @@ installs the engine in editable mode, runs `playwright install chromium`,
 fetches the DejaVu fonts used for caption rendering, and installs the Remotion
 dependencies.
 
-Then start the app:
+Then start the app — from the repo root, no subdirectory:
 
 ```bash
-cd desktop
 bun install          # first time only
-bun run tauri:dev
+bun run dev
 ```
+
+`bun run build` produces a bundled application.
 
 ## Using it
 
 **New project.** Import a video (copied into `sources/`, transcribed with
 Whisper, segmented at transcript breaks) or record a browser session from a
 declarative `browse-plan.json` of Playwright actions. Pick one or more
-[templates](src/clipwright/templates/data) — they carry the editorial
+[templates](engine/clipwright/templates/data) — they carry the editorial
 guidance Claude follows for that kind of video.
 
 **Persona.** The `Persona` button opens a panel where you describe who Claude
