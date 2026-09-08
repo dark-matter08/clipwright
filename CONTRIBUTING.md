@@ -17,7 +17,7 @@ Pull requests with unsigned commits will fail CI.
 ## Dev setup
 
 The repo holds three pieces: the desktop app (`desktop/`), the Python engine
-it drives (`src/clipwright/`), and the Remotion compositions used for
+it drives (`engine/clipwright/`), and the Remotion compositions used for
 panel/recap renders (`remotion/`).
 
 ```
@@ -27,13 +27,12 @@ cd clipwright
 source .venv/bin/activate
 ```
 
-For the desktop app you also need [Bun](https://bun.sh) and a Rust toolchain
-(Tauri):
+For the desktop app you also need [pnpm](https://pnpm.io) and a Rust
+toolchain (Tauri):
 
 ```
-cd desktop
-bun install
-bun run tauri:dev
+pnpm install
+pnpm dev
 ```
 
 ## Checks
@@ -42,10 +41,10 @@ CI runs the first two; run them before pushing. The desktop and Remotion
 checks aren't in CI yet, so run them when you touch those trees.
 
 ```
-ruff check src tests         # lint the engine
+ruff check engine tests      # lint the engine
 pytest                       # engine tests
-cd desktop && npx tsc -b     # typecheck the app (frontend)
-cd desktop/src-tauri && cargo check
+pnpm typecheck               # typecheck the app (frontend)
+cd src-tauri && cargo check  # typecheck the app (Rust)
 cd remotion && npx tsc --noEmit
 ```
 

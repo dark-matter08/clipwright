@@ -1,0 +1,10 @@
+# pnpm settings. Not a monorepo — pnpm 11 moved its config here out of
+# package.json's "pnpm" field, which it no longer reads.
+
+# pnpm blocks dependency postinstall scripts until they're allowed.
+# esbuild's postinstall fetches its native binary; Vite also resolves a
+# prebuilt `@esbuild/<platform>` package, so builds work either way, but
+# allowing it keeps `pnpm install` from erroring and covers platforms
+# where the prebuilt package isn't published.
+allowBuilds:
+  esbuild: true

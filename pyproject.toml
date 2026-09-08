@@ -54,7 +54,7 @@ Homepage = "https://github.com/dark-matter08/clipwright"
 Issues = "https://github.com/dark-matter08/clipwright/issues"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["engine"]
 
 [tool.setuptools.package-data]
 clipwright = ["py.typed", "templates/data/*.json"]
@@ -62,6 +62,10 @@ clipwright = ["py.typed", "templates/data/*.json"]
 [tool.ruff]
 line-length = 120
 target-version = "py310"
+# Ruff infers the first-party root from `src/` by default. The package
+# lives in `engine/` now, so without this every `import clipwright` in
+# tests/ gets sorted as third-party and I001 fires across the suite.
+src = ["engine", "."]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

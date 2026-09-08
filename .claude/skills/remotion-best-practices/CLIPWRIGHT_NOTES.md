@@ -36,8 +36,8 @@ writing fresh ElevenLabs HTTP calls.
 
 `remotion-markup/ffmpeg.md` recommends `npx remotion ffmpeg ...`, which
 uses the bundled Remotion ffmpeg. Clipwright's Python pipeline
-(`src/clipwright/import_video.py`, `src/clipwright/render_segment.py`,
-`src/clipwright/render_final.py`) shells out to the system `ffmpeg` /
+(`engine/clipwright/import_video.py`, `engine/clipwright/render_segment.py`,
+`engine/clipwright/render_final.py`) shells out to the system `ffmpeg` /
 `ffprobe` directly via `subprocess`. Keep using
 `subprocess.run(["ffmpeg", ...])` for backend code. The `npx remotion
 ffmpeg` form is fine for one-off frontend / Studio commands but not for

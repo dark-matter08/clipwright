@@ -29,7 +29,31 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Lint
-        run: ruff check src tests
+        run: ruff check engine tests
 
       - name: Test
         run: pytest -v
+
+  # The desktop app is the product, so a green build shouldn't mean
+  # "the Python engine is fine" alone. Typecheck only for now: it's
+  # seconds, and catches the class of break that a directory move or a
+  # renamed store field actually causes. A `cargo check` job would add
+  # several minutes for the Tauri dependency tree — worth adding when
+  # the Rust surface starts changing often.
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
