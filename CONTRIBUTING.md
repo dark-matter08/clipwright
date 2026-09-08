@@ -16,23 +16,41 @@ Pull requests with unsigned commits will fail CI.
 
 ## Dev setup
 
+The repo holds three pieces: the desktop app (`desktop/`), the Python engine
+it drives (`src/clipwright/`), and the Remotion compositions used for
+panel/recap renders (`remotion/`).
+
 ```
 git clone https://github.com/dark-matter08/clipwright
 cd clipwright
-./install.sh
+./install.sh                 # engine + Playwright + fonts + remotion deps
 source .venv/bin/activate
-pip install -e ".[dev]"
+```
+
+For the desktop app you also need [Bun](https://bun.sh) and a Rust toolchain
+(Tauri):
+
+```
+cd desktop
+bun install
+bun run tauri:dev
+```
+
+## Checks
+
+CI runs the first two; run them before pushing. The desktop and Remotion
+checks aren't in CI yet, so run them when you touch those trees.
+
+```
+ruff check src tests         # lint the engine
+pytest                       # engine tests
+cd desktop && npx tsc -b     # typecheck the app (frontend)
+cd desktop/src-tauri && cargo check
+cd remotion && npx tsc --noEmit
 ```
 
 `ffmpeg` / `ffprobe` must be on PATH. Playwright's browser is only needed for
-the `record` subcommand; unit tests don't require it.
-
-## Tests
-
-```
-pytest
-ruff check src tests
-```
+`record-project`; unit tests don't require it.
 
 ## Pull requests
 

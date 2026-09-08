@@ -9,9 +9,10 @@ a v2 project's video manifest + per-video artifacts:
   - per-segment camera keyframes at `camera/<seg>.json`
   - captions parsed from voiceover timestamps if present
 
-Distinct from `remotion_backend.py` (the legacy single-recording flow)
-because every segment is its own image with its own Ken Burns motion —
-there's no shared `source_video` or `gradient`.
+Every segment is its own image with its own Ken Burns motion, so there
+is no shared source video — unlike the recording path, which extracts
+ranges from one long capture and concats them with ffmpeg
+(`render_final.py` picks between the two on the project's template).
 
 Asset staging: every absolute path on disk gets copied into
 `remotion/public/_manhwa/<video_id>/` and the inputs JSON references
