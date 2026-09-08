@@ -9,6 +9,7 @@ import {
   Plus,
   Settings,
   SlidersHorizontal,
+  Drama,
   Sparkles,
 } from "lucide-react";
 import { useApp } from "../lib/store";
@@ -25,6 +26,8 @@ export function TopBar() {
   const project = useApp((s) => s.project);
   const closeProject = useApp((s) => s.closeProject);
   const toggleClaudeRail = useApp((s) => s.toggleClaudeRail);
+  const personaOpen = useApp((s) => s.personaRailOpen);
+  const togglePersonaRail = useApp((s) => s.togglePersonaRail);
   const railOpen = useApp((s) => s.claudeRailOpen);
   const inspectorOpen = useApp((s) => s.inspectorOpen);
   const toggleInspector = useApp((s) => s.toggleInspector);
@@ -131,6 +134,13 @@ export function TopBar() {
           active={inspectorOpen}
           onClick={toggleInspector}
           title="Toggle segment inspector drawer"
+        />
+        <TopBarButton
+          icon={<Drama size={12} strokeWidth={2} />}
+          label="Persona"
+          active={personaOpen}
+          onClick={togglePersonaRail}
+          title="Persona — who Claude is when it writes for this project"
         />
         <TopBarButton
           icon={<MessageSquare size={12} strokeWidth={2} />}

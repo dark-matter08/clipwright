@@ -56,8 +56,6 @@ Silent failures when violated. Memorize them.
 │   └── <video_id>/<seg_id>/              PNG frames + index json
 ├── camera.json                           per-segment zoom/pan keyframes
 ├── annotations.json                      click ripples, highlights, callouts
-├── brand/                                optional, from `clipwright inspire <url>`
-│   ├── primary_color, logo.png, hero.png
 ├── scenes/<slot>/                        non-recording scenes (intro, broll, outro)
 ├── chat/sessions/                        Claude Code transcripts
 └── out/
@@ -89,16 +87,6 @@ Defaults: every video-scoped command takes `--video <id>` (default `main`) and `
 - `clipwright render-segment <seg_id> --video <id> [--force]` — render one segment MP4.
 - `clipwright render-final --video <id>` — concat all segments → `out/final/<video_id>.mp4`.
 
-### Helpers (mostly v1 — still useful when working from a single browse-plan)
-- `clipwright segments` — derive `segments.json` from `moments.json`.
-- `clipwright keyframes` — derive `camera.json`.
-- `clipwright annotations` — derive `annotations.json` from bbox-bearing moments.
-- `clipwright review` — print segments + keyframes + total duration for human confirmation. (Replaces the old `edit-plan`.)
-- `clipwright script init [--draft]` — write `voiceover/script.json` skeleton. With `--draft`, fills `text` heuristically from hints; segments with no hint stay empty so a human fills them.
-- `clipwright inspire <url>` — extract brand color, logo, hero, copy from a URL into `brand/`.
-- `clipwright outro [--preset cyberpunk|minimal]` — render branded outro card.
-- `clipwright assets --gradient dark|light|<path>` — set Remotion gradient.
-
 ### Doctor / sanity
 - `clipwright doctor` — preflight: Python, ffmpeg, Node, API keys, schema sync.
 - `clipwright status` — list project artifacts (what exists, what's missing).
@@ -115,8 +103,8 @@ Defaults: every video-scoped command takes `--video <id>` (default `main`) and `
    - `fields`: action payload (`url`, `selector`, `text`, etc.)
    Aim for each chapter's summed wait + action time ≈ 10–16s in source footage.
 3. **Record.** `clipwright record-project . --plan browse-plan.json`. Verify `videos/main.json` has one segment per chapter; if you see more, a chapter label is missing on some action.
-4. **Review.** `clipwright review` — show user total duration + per-segment breakdown. **Get confirmation before TTS.**
-5. **Script.** `clipwright script init` writes `voiceover/script.json` with `target_seconds` and `hint` per clip. **You fill the `text` fields next.** Rules:
+4. **Review.** Read `videos/<id>.json` and show the user total duration + per-segment breakdown. **Get confirmation before TTS.**
+5. **Script.** Write `voiceover/scripts/<video_id>.json` with one clip per segment — `id` matching the segment id, plus `target_seconds` and `text`. Rules:
    - Target ~2.5 words/sec. A 12s clip ≈ 30 words.
    - **Short declarative sentences, periods for pacing.** Good: *"Your library. Unified. Fifty titles, one clean grid."* Bad: *"Your library is unified and has fifty titles in a clean grid."*
    - Fragments and imperatives are strong ("Tap. Done."). Drop filler connectives.
@@ -124,10 +112,9 @@ Defaults: every video-scoped command takes `--video <id>` (default `main`) and `
    - Confirm the filled script with the user before TTS.
 6. **TTS per segment.** `clipwright tts-segment <seg_id>` for each clip, or loop. Audio longer than `target_duration` by >3% is time-stretched via `atempo` (pitch preserved).
 7. **Captions per segment.** `clipwright caption-segment <seg_id>`.
-8. **(Optional) Brand.** `clipwright inspire <url>` to pull brand color/logo/hero — activates the Remotion TitleCard + BrandedOutro scenes.
-9. **(Optional) Outro.** `clipwright outro --preset <name>`.
-10. **Render segments.** `clipwright render-segment <seg_id>` to validate one, then `clipwright render-final` to concat.
-11. **Self-eval.** `ffprobe out/final/main.mp4` — duration ≈ sum of `target_duration` + outro ± 0.3s. Spot-check first caption frame aligns with first spoken word.
+8. **Outro.** Append a final segment matching the project's outro spec (Project settings → Outro). It's an ordinary segment — no special command.
+9. **Render segments.** `clipwright render-segment <seg_id>` to validate one, then `clipwright render-final` to concat.
+10. **Self-eval.** `ffprobe out/final/main.mp4` — duration ≈ sum of `target_duration` + outro ± 0.3s. Spot-check first caption frame aligns with first spoken word.
 
 ### Mode B — Edit an uploaded video
 1. `clipwright init <dir>` (or open existing).

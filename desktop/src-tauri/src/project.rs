@@ -275,6 +275,12 @@ pub async fn create_video_cmd(
     // → no skills pre-selected (the user can still type `/<skill>`
     // in the rail at any time).
     default_skills: Option<Vec<String>>,
+    // Whether this video uses the project's persona. `None` / `Some(true)`
+    // writes NOTHING — absence is what the agent prompt reads as
+    // "enabled", so the default stays on and every video created before
+    // this flag existed keeps its persona. Only an explicit opt-out is
+    // persisted, as `recap_overrides.persona_enabled = false`.
+    persona_enabled: Option<bool>,
 ) -> Result<Value, ProjectError> {
     let dir = PathBuf::from(&project_dir);
     if !dir.exists() {
@@ -294,11 +300,14 @@ pub async fn create_video_cmd(
         .into_iter()
         .filter(|s| !s.trim().is_empty())
         .collect();
-    let recap_overrides = if skills.is_empty() {
-        serde_json::json!({})
-    } else {
-        serde_json::json!({ "default_skills": skills })
-    };
+    let mut recap_overrides = serde_json::Map::new();
+    if !skills.is_empty() {
+        recap_overrides.insert("default_skills".into(), serde_json::json!(skills));
+    }
+    if persona_enabled == Some(false) {
+        recap_overrides.insert("persona_enabled".into(), serde_json::json!(false));
+    }
+    let recap_overrides = Value::Object(recap_overrides);
     let payload = serde_json::json!({
         "schema_version": 2,
         "video_id": video_id,

@@ -105,9 +105,15 @@ export interface Video {
   target_duration_seconds_override?: number;
   /** Free-form override map for the other recap-config fields:
    *  `narration_style`, `additional_notes`, `outro_description`,
-   *  `outro_duration_seconds`, `voice_provider`, `voice_id`.
-   *  Empty / missing = use the project-level default for that field. */
-  recap_overrides?: Record<string, string | number>;
+   *  `outro_duration_seconds`, `voice_provider`, `voice_id`, `persona`.
+   *  Empty / missing = use the project-level default for that field.
+   *
+   *  Values are heterogeneous by design and the map is intentionally
+   *  untyped per-key: adding an override is a prompt-side change with
+   *  no schema migration (see `Video.recap_overrides` in
+   *  `schema/v2/video.py`). Booleans carry opt-outs
+   *  (`persona_enabled`), `string[]` carries `default_skills`. */
+  recap_overrides?: Record<string, string | number | boolean | string[]>;
 }
 
 export interface VideoMeta {

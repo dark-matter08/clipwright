@@ -11,7 +11,7 @@
 // History is persisted to `<project>/chat/sessions/<date>.jsonl` by Rust
 // so the UI can repopulate on app restart.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
   MessageSquare,
@@ -59,6 +59,17 @@ import { TranscriptViewMenu } from "./TranscriptViewMenu";
 interface ClaudeRailProps {
   collapsed: boolean;
 }
+
+// Composer auto-grow bounds. The box used to be a fixed `rows={2}`,
+// which turned any prompt longer than two lines into a porthole —
+// you could not see or edit what you had written. It now grows with
+// the content up to a ceiling, then scrolls internally so the
+// transcript above never gets squeezed off screen.
+const COMPOSER_MIN_PX = 52; // ≈ 2 rows + padding — the old rows={2} height
+const COMPOSER_MAX_PX = 320; // ≈ 13 rows — plenty for a pasted brief
+// …but never let the composer eat more than this share of the rail,
+// otherwise on a short window the input swallows the conversation.
+const COMPOSER_MAX_RAIL_FRACTION = 0.45;
 
 export function ClaudeRail({ collapsed }: ClaudeRailProps) {
   const project = useApp((s) => s.project);
@@ -123,6 +134,44 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
   const [model, setModelState] = useState<string>("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const topRef = useRef<HTMLDivElement>(null);
+  // Composer auto-grow. `railRef` is only read to derive the height
+  // ceiling — the input is allowed at most COMPOSER_MAX_RAIL_FRACTION
+  // of the rail so a tall draft can't push the transcript out.
+  const railRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const resizeComposer = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    // Collapse first — `scrollHeight` never reports smaller than the
+    // element's current height, so without this the box would grow
+    // but never shrink back when the user deletes text.
+    el.style.height = "auto";
+    const railHeight = railRef.current?.clientHeight ?? 0;
+    const ceiling =
+      railHeight > 0
+        ? Math.max(
+            COMPOSER_MIN_PX,
+            Math.min(COMPOSER_MAX_PX, railHeight * COMPOSER_MAX_RAIL_FRACTION),
+          )
+        : COMPOSER_MAX_PX;
+    const next = Math.min(Math.max(el.scrollHeight, COMPOSER_MIN_PX), ceiling);
+    el.style.height = `${next}px`;
+    // Only show the scrollbar once we're actually clamped; below the
+    // ceiling the box is exactly as tall as its content.
+    el.style.overflowY = el.scrollHeight > next ? "auto" : "hidden";
+  }, []);
+  // Re-measure on every keystroke/paste (draft) and whenever the rail
+  // reappears. `useLayoutEffect` so the resize lands in the same frame
+  // as the text — a `useEffect` here shows one frame of the old height.
+  useLayoutEffect(() => {
+    resizeComposer();
+  }, [draft, collapsed, askSegId, resizeComposer]);
+  // The ceiling is derived from the rail height, so a window resize (or
+  // dragging the rail's splitter) has to trigger a re-clamp.
+  useEffect(() => {
+    window.addEventListener("resize", resizeComposer);
+    return () => window.removeEventListener("resize", resizeComposer);
+  }, [resizeComposer]);
   // Subscribe to view-mode + font-size. The transcript body picks its
   // layout from `transcriptView`; the wrapper div applies a font-size
   // class derived from `transcriptFontSize` so every text element
@@ -491,7 +540,7 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
   }
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div ref={railRef} className="flex h-full w-full flex-col">
       <header className="flex h-9 shrink-0 items-center justify-between border-b border-border-subtle px-3">
         <span className="text-xs font-medium uppercase tracking-wider text-fg-muted">
           Claude
@@ -604,6 +653,7 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
             />
           )}
         <textarea
+          ref={inputRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -651,7 +701,10 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
               void send();
             }
           }}
-          rows={2}
+          // One row + the min-height clamp in `resizeComposer`: the
+          // effect owns the height, `rows` only sets the pre-measure
+          // fallback for the very first paint.
+          rows={1}
           placeholder={
             installed === false
               ? "Install Claude Code to enable chat"
@@ -660,6 +713,7 @@ export function ClaudeRail({ collapsed }: ClaudeRailProps) {
                 : "Ask Claude about this video…  (Enter to send · Shift+Enter for newline)"
           }
           disabled={installed === false || busy}
+          style={{ minHeight: COMPOSER_MIN_PX }}
           className="w-full resize-none rounded border border-border-subtle bg-bg-inset px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:focus-ring disabled:cursor-not-allowed"
         />
         </div>

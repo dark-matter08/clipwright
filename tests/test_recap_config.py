@@ -222,3 +222,150 @@ def test_prompt_tolerates_string_outro_legacy_shape(tmp_path: Path) -> None:
     cfg = load_recap_config(tmp_path)
     assert cfg.outro.description == "subscribe and like"
     assert cfg.outro.duration_seconds == 3.0  # new default
+
+
+# ---------------------------------------------------------------------------
+# Persona — who Claude IS when writing for the project
+# ---------------------------------------------------------------------------
+
+
+def test_persona_roundtrips_through_config(tmp_path: Path) -> None:
+    _seed_v2(tmp_path)
+    save_recap_config(
+        tmp_path,
+        RecapConfig(persona="an expert manhwa scriptwriter"),
+    )
+    assert load_recap_config(tmp_path).persona == "an expert manhwa scriptwriter"
+    # Persisted under its own key so the desktop's Rust loader (which
+    # mirrors this schema field-for-field) can read it back.
+    assert "persona" in json.loads(config_path(tmp_path).read_text())
+
+
+def test_persona_absent_from_legacy_config_defaults_empty(tmp_path: Path) -> None:
+    """A recap-config.json written before persona existed must still
+    load — the field defaults to empty, not KeyError."""
+    _seed_v2(tmp_path)
+    path = config_path(tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"target_duration_seconds": 120}))
+    assert load_recap_config(tmp_path).persona == ""
+
+
+def test_persona_not_counted_in_has_overrides() -> None:
+    """Persona renders as its own section with its own gate, so it must
+    not resurrect an otherwise-empty 'Project preferences' block."""
+    empty = RecapConfig(
+        target_duration_seconds=0,
+        persona="an expert manhwa scriptwriter",
+        outro=OutroSpec(description="", duration_seconds=0.0),
+    )
+    assert empty.has_overrides() is False
+
+
+def test_prompt_omits_persona_section_by_default(tmp_path: Path) -> None:
+    """Untouched projects get the prompt they always got."""
+    _seed_v2(tmp_path)
+    assert "## Persona" not in build_project_prompt(tmp_path)
+
+
+def test_prompt_includes_persona_when_set(tmp_path: Path) -> None:
+    _seed_v2(tmp_path)
+    save_recap_config(
+        tmp_path,
+        RecapConfig(
+            persona="an expert manhwa scriptwriter who specializes in hooks",
+        ),
+    )
+    out = build_project_prompt(tmp_path)
+    assert "## Persona" in out
+    # Quoted verbatim rather than spliced into a sentence — users write
+    # it both with and without a leading "You are".
+    assert "> an expert manhwa scriptwriter who specializes in hooks" in out
+    # The persona outranks the template on tone; that has to be stated
+    # or Claude defers to the template's voice guidance.
+    assert "the persona wins" in out
+    # Single-video project → no per-video scope caveat.
+    assert "per-video override" not in out
+
+
+def test_prompt_persona_survives_multiline(tmp_path: Path) -> None:
+    """Each line gets its own blockquote marker so a multi-paragraph
+    persona doesn't break out of the quote in the rendered prompt."""
+    _seed_v2(tmp_path)
+    save_recap_config(tmp_path, RecapConfig(persona="line one\nline two"))
+    out = build_project_prompt(tmp_path)
+    assert "> line one\n> line two" in out
+
+
+def test_prompt_persona_per_video_override_wins(tmp_path: Path) -> None:
+    _seed_v2(tmp_path)
+    save_recap_config(tmp_path, RecapConfig(persona="the project writer"))
+    (tmp_path / "videos" / "main.json").write_text(json.dumps({
+        "schema_version": 2, "video_id": "main", "title": "Main",
+        "chat_session_id": "", "segments": [],
+        "recap_overrides": {"persona": "the one-off writer"},
+    }))
+    out = build_project_prompt(tmp_path)
+    assert "> the one-off writer" in out
+    assert "> the project writer" not in out
+    # Claude is told the override is video-scoped and what it displaced.
+    assert "per-video override" in out
+    assert '"the project writer"' in out
+
+
+def test_prompt_persona_blank_override_falls_back_to_project(tmp_path: Path) -> None:
+    """An override key present but whitespace-only means 'inherit',
+    matching how every other recap override resolves."""
+    _seed_v2(tmp_path)
+    save_recap_config(tmp_path, RecapConfig(persona="the project writer"))
+    (tmp_path / "videos" / "main.json").write_text(json.dumps({
+        "schema_version": 2, "video_id": "main", "title": "Main",
+        "chat_session_id": "", "segments": [],
+        "recap_overrides": {"persona": "   "},
+    }))
+    out = build_project_prompt(tmp_path)
+    assert "> the project writer" in out
+    assert "per-video override" not in out
+
+
+def test_prompt_persona_can_be_disabled_per_video(tmp_path: Path) -> None:
+    """A video opts out with `persona_enabled: false` — the section
+    disappears even though the project has a persona set."""
+    _seed_v2(tmp_path)
+    save_recap_config(tmp_path, RecapConfig(persona="the project writer"))
+    (tmp_path / "videos" / "main.json").write_text(json.dumps({
+        "schema_version": 2, "video_id": "main", "title": "Main",
+        "chat_session_id": "", "segments": [],
+        "recap_overrides": {"persona_enabled": False},
+    }))
+    assert "## Persona" not in build_project_prompt(tmp_path)
+
+
+def test_prompt_persona_disabled_beats_per_video_override(tmp_path: Path) -> None:
+    """Opting out wins over a video-level persona string — otherwise
+    un-checking the box would silently leave a stale override in play."""
+    _seed_v2(tmp_path)
+    save_recap_config(tmp_path, RecapConfig(persona="the project writer"))
+    (tmp_path / "videos" / "main.json").write_text(json.dumps({
+        "schema_version": 2, "video_id": "main", "title": "Main",
+        "chat_session_id": "", "segments": [],
+        "recap_overrides": {
+            "persona_enabled": False,
+            "persona": "the one-off writer",
+        },
+    }))
+    assert "## Persona" not in build_project_prompt(tmp_path)
+
+
+def test_prompt_persona_enabled_by_default_and_when_explicitly_true(tmp_path: Path) -> None:
+    """Absent key means enabled (so existing videos are unaffected),
+    and an explicit `true` behaves the same."""
+    _seed_v2(tmp_path)
+    save_recap_config(tmp_path, RecapConfig(persona="the project writer"))
+    for overrides in ({}, {"persona_enabled": True}):
+        (tmp_path / "videos" / "main.json").write_text(json.dumps({
+            "schema_version": 2, "video_id": "main", "title": "Main",
+            "chat_session_id": "", "segments": [],
+            "recap_overrides": overrides,
+        }))
+        assert "## Persona" in build_project_prompt(tmp_path), overrides

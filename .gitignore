@@ -34,15 +34,30 @@ htmlcov/
 .vscode/
 # Most of `.claude/` is per-user state (settings.local.json,
 # ad-hoc skill installs, project memory). We DO want the vendored
-# Remotion best-practices skill committed though, so every
-# contributor's Claude rail picks it up. Git can't re-include a
-# child if its parent directory is excluded, so we exclude
-# `.claude/*` (one level) and re-include the skill path piece by
-# piece.
+# Remotion skill set committed though, so every contributor's Claude
+# rail picks it up. Git can't re-include a child if its parent
+# directory is excluded, so we exclude `.claude/*` (one level) and
+# re-include the skill paths piece by piece.
+#
+# One line per vendored skill — a blanket `!.claude/skills/remotion-*`
+# would silently swallow an ad-hoc local install that happens to start
+# with `remotion-`, and the point of this list is that what's tracked
+# is exactly what `ATTRIBUTION.md` claims is tracked.
 .claude/*
 !.claude/skills/
 .claude/skills/*
 !.claude/skills/remotion-best-practices/
+!.claude/skills/remotion-captions/
+!.claude/skills/remotion-create/
+!.claude/skills/remotion-docs/
+!.claude/skills/remotion-interactivity/
+!.claude/skills/remotion-maps/
+!.claude/skills/remotion-markup/
+!.claude/skills/remotion-multimedia/
+!.claude/skills/remotion-render/
+!.claude/skills/remotion-saas/
+!.claude/skills/remotion-studio/
+!.claude/skills/remotion-upgrade/
 
 # Fonts fetched by install.sh (OFL-licensed DejaVu)
 templates/fonts/*.ttf

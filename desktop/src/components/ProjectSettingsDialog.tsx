@@ -42,6 +42,11 @@ interface Props {
 
 type SettingsScope = "project" | "video";
 
+/** `videos/<id>.json#recap_overrides`. Values are heterogeneous by
+ *  design — strings (persona, narration), numbers (durations),
+ *  booleans (persona_enabled), and a string[] (default_skills). */
+type OverrideMap = Record<string, string | number | boolean | string[]>;
+
 export function ProjectSettingsDialog({ onClose }: Props) {
   const project = useApp((s) => s.project);
   const loadProject = useApp((s) => s.loadProject);
@@ -59,16 +64,10 @@ export function ProjectSettingsDialog({ onClose }: Props) {
   // shape but treat empty values as "fall back to project default" —
   // the agent prompt does the same resolution. Initialized from the
   // currently-loaded video's `recap_overrides` map.
-  const initialOverrides = (project?.video?.recap_overrides ?? {}) as Record<
-    string,
-    string | number
-  >;
-  const [overrides, setOverrides] = useState<Record<string, string | number>>(
-    initialOverrides,
-  );
-  const [overridesPristine, setOverridesPristine] = useState<
-    Record<string, string | number>
-  >(initialOverrides);
+  const initialOverrides = (project?.video?.recap_overrides ?? {}) as OverrideMap;
+  const [overrides, setOverrides] = useState<OverrideMap>(initialOverrides);
+  const [overridesPristine, setOverridesPristine] =
+    useState<OverrideMap>(initialOverrides);
 
   useEffect(() => {
     if (!project?.project_dir) return;
@@ -98,10 +97,14 @@ export function ProjectSettingsDialog({ onClose }: Props) {
         // Per-video save: strip empty values so the manifest stays
         // clean and the agent prompt's "use project default" fallback
         // kicks in for unset fields.
-        const cleaned: Record<string, string | number> = {};
+        const cleaned: OverrideMap = {};
         for (const [k, v] of Object.entries(overrides)) {
           if (typeof v === "string" && v.trim() === "") continue;
           if (typeof v === "number" && v === 0) continue;
+          // `persona_enabled: true` is the default — persisting it
+          // would bake today's default into the manifest, so only the
+          // explicit opt-out is written.
+          if (k === "persona_enabled" && v === true) continue;
           cleaned[k] = v;
         }
         const nextVideo = { ...project.video, recap_overrides: cleaned };
@@ -287,7 +290,7 @@ function ScriptPanel({
       </Field>
       <Field
         label="Narration style"
-        hint="One-line description of the voiceover voice + tone. e.g. 'deep male narrator, conversational, slight rasp'."
+        hint="How the finished line is spoken — one-line description of the voiceover voice + tone. e.g. 'deep male narrator, conversational, slight rasp'. For who's doing the writing, use the Persona panel in the top bar."
       >
         <input
           type="text"
@@ -404,6 +407,11 @@ function PreviewBanner({
   projectTitle: string;
 }) {
   const lines: string[] = [];
+  // Read-only here — the persona is edited in its own panel, but it's
+  // part of what the next turn sees, so the banner would lie by omission.
+  if (config.persona?.trim()) {
+    lines.push(`persona: ${truncate(config.persona.trim(), 90)}`);
+  }
   if (config.target_duration_seconds > 0) {
     lines.push(
       `target duration: ${config.target_duration_seconds}s (≈ ${formatDuration(config.target_duration_seconds)})`,
@@ -513,14 +521,16 @@ function VideoOverridesPanel({
   projectVoice,
   videoId,
 }: {
-  overrides: Record<string, string | number>;
-  onChange: (next: Record<string, string | number>) => void;
+  overrides: OverrideMap;
+  onChange: (next: OverrideMap) => void;
   projectConfig: RecapConfig;
   projectVoice: { provider: string; voice_id: string };
   videoId: string;
 }) {
-  function set(key: string, value: string | number) {
-    if (value === "" || value === 0) {
+  function set(key: string, value: string | number | boolean) {
+    // Booleans are meaningful at `false`, so they bypass the
+    // empty-means-inherit clearing that string/number fields use.
+    if (typeof value !== "boolean" && (value === "" || value === 0)) {
       const { [key]: _drop, ...rest } = overrides;
       onChange(rest);
     } else {

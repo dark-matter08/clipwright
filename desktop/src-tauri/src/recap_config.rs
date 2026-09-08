@@ -72,8 +72,37 @@ pub struct RecapConfig {
     pub narration_style: String,
     #[serde(default)]
     pub additional_notes: String,
+    /// Who Claude should BE when writing for this project ("an expert
+    /// manhwa scriptwriter who specializes in high-retention hooks…").
+    /// Empty = no persona section in the agent prompt. Mirrors
+    /// `RecapConfig.persona` in `src/clipwright/recap_config.py`.
+    #[serde(default)]
+    pub persona: String,
+    /// Builder state behind `persona` — the four fields the desktop's
+    /// persona builder composed the prose from. UI-only; nothing on
+    /// the Python side reads it. Persisted so reopening the settings
+    /// dialog resumes the build instead of stranding the user in
+    /// free-text mode.
+    #[serde(default)]
+    pub persona_draft: PersonaDraft,
     #[serde(default)]
     pub outro: OutroSpec,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct PersonaDraft {
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub voice: String,
+    #[serde(default)]
+    pub moves: String,
+    #[serde(default)]
+    pub vocabulary: String,
+    #[serde(default)]
+    pub pacing: String,
+    #[serde(default)]
+    pub avoid: String,
 }
 
 impl Default for RecapConfig {
@@ -82,6 +111,8 @@ impl Default for RecapConfig {
             target_duration_seconds: default_target_duration(),
             narration_style: String::new(),
             additional_notes: String::new(),
+            persona: String::new(),
+            persona_draft: PersonaDraft::default(),
             outro: OutroSpec::default(),
         }
     }

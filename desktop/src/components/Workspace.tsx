@@ -8,6 +8,7 @@ import { listen } from "@tauri-apps/api/event";
 import { X } from "lucide-react";
 import { useApp } from "../lib/store";
 import { applyStreamEvent, ClaudeRail } from "./ClaudeRail";
+import { PersonaRail } from "./PersonaRail";
 import type { ClaudeStreamEvent, StreamToolUse } from "./ClaudeRail";
 import { Inspector } from "./Inspector";
 import { Preview } from "./Preview";
@@ -25,6 +26,11 @@ const RAIL_MIN_WIDTH = 280;
 const RAIL_MAX_WIDTH = 720;
 const RAIL_WIDTH_KEY = "clipwright.claudeRailWidth";
 
+// Collapsed timeline keeps its header strip visible — the collapse
+// toggle and the render-target readout live there, so hiding it
+// entirely would strand the control that brings it back.
+const TIMELINE_COLLAPSED_H = 36;
+
 function loadRailWidth(): number {
   try {
     const raw = window.localStorage.getItem(RAIL_WIDTH_KEY);
@@ -40,6 +46,8 @@ function loadRailWidth(): number {
 export function Workspace() {
   const project = useApp((s) => s.project);
   const railOpen = useApp((s) => s.claudeRailOpen);
+  const personaOpen = useApp((s) => s.personaRailOpen);
+  const timelineCollapsed = useApp((s) => s.timelineCollapsed);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [railWidth, setRailWidth] = useState<number>(() => loadRailWidth());
   const [dragging, setDragging] = useState(false);
@@ -187,15 +195,23 @@ export function Workspace() {
          *  The transition is suppressed while dragging so the rail
          *  tracks the pointer 1:1 instead of easing behind it. */}
         <aside
-          style={{ width: railOpen ? railWidth : 36 }}
+          style={{ width: railOpen || personaOpen ? railWidth : 36 }}
           className={`relative shrink-0 border-l border-border-subtle bg-bg-subtle ${
             dragging ? "" : "transition-[width] duration-slow"
           }`}
         >
-          {railOpen && (
+          {(railOpen || personaOpen) && (
             <ResizeHandle dragging={dragging} onPointerDown={onHandleDown} />
           )}
-          <ClaudeRail collapsed={!railOpen} />
+          {/* One slot, two tenants. Persona wins when open because the
+           *  store guarantees they're mutually exclusive; the collapsed
+           *  strip stays Claude's, since that's the rail users toggle
+           *  constantly and expect to find on the edge. */}
+          {personaOpen ? (
+            <PersonaRail collapsed={false} />
+          ) : (
+            <ClaudeRail collapsed={!railOpen} />
+          )}
         </aside>
       </div>
 
@@ -203,7 +219,10 @@ export function Workspace() {
        *  track lanes (video 52 + audio 32 + captions 28) plus the
        *  ruler, header, and padding — see Timeline.tsx for the
        *  per-track height map. */}
-      <div className="h-[220px] shrink-0 border-t border-border-subtle bg-bg-subtle">
+      <div
+        style={{ height: timelineCollapsed ? TIMELINE_COLLAPSED_H : 220 }}
+        className="shrink-0 overflow-hidden border-t border-border-subtle bg-bg-subtle transition-[height] duration-slow"
+      >
         <Timeline />
       </div>
 
