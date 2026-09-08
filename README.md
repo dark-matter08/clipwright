@@ -113,6 +113,7 @@ command takes `--video <id>`.
 | `clipwright video doctor <id>` | What's wrong — missing sources, stale renders |
 | `clipwright doctor` | Preflight: tools, Python version, API keys, config |
 | `clipwright templates list` | Show available project templates |
+| `clipwright tts-sample --provider <p> --voice <v>` | Audition a voice — prints a playable mp3 path |
 | `clipwright agent prompt` | Print the system prompt Claude receives |
 
 ### TTS providers
@@ -124,11 +125,20 @@ clip.
 |---|---|---|---|---|
 | `kokoro` *(default)* | Apache-2.0 | Free | Near-human | `pip install 'clipwright[kokoro]'` (~2 GB, includes PyTorch) |
 | `piper` | MIT | Free, offline | Natural | `pip install 'clipwright[piper]'` (~200 MB, includes faster-whisper) |
+| `openai` | Proprietary API | Paid | High | `pip install 'clipwright[openai]'`, needs an OpenAI key |
 | `elevenlabs` | Proprietary API | Free tier + paid | Highest | Needs `ELEVENLABS_API_KEY` |
 
-Piper has no native word timestamps, so its output is force-aligned with a
-small `faster-whisper` model (tiny.en, ~39 MB). Kokoro emits token timings
-natively. All providers write the same alignment shape downstream.
+Captions need character-level timings, and only ElevenLabs returns them.
+Kokoro emits token timings natively; Piper and OpenAI return audio alone, so
+their output is force-aligned with a small `faster-whisper` model (tiny.en,
+~39 MB) — that's what the extra installs. All providers write the same
+alignment shape downstream.
+
+**Auditioning voices.** A voice name tells you nothing about how it sounds, so
+every voice picker has a Preview button that synthesizes one line and plays it
+inline. Samples are cached per provider+voice, so re-auditioning is free and
+doesn't re-bill a paid API. From the CLI: `clipwright tts-sample --provider
+openai --voice onyx` prints a playable mp3 path.
 
 ## Claude Code integration
 

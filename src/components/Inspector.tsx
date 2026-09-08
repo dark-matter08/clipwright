@@ -25,6 +25,7 @@ import {
 import { getCredentialsStatus, type CredentialsStatus } from "../lib/tauri";
 import { AlertTriangle } from "lucide-react";
 import { Dropdown } from "./Dropdown";
+import { VoicePreview } from "./VoicePreview";
 
 export function Inspector() {
   const project = useApp((s) => s.project);
@@ -252,6 +253,9 @@ function VoiceoverGroup({
             }
             disabled={!provider}
           />
+        </div>
+        <div className="flex justify-end">
+          <VoicePreview provider={provider} voice={voiceId} />
         </div>
         <ProviderKeyWarning provider={provider} status={credStatus} />
         <div className="flex items-center justify-between gap-2 pt-1">

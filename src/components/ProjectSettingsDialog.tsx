@@ -35,6 +35,7 @@ import { useApp } from "../lib/store";
 import { cn } from "../lib/cn";
 import { ApiKeysSection } from "./ApiKeysSection";
 import { Dropdown } from "./Dropdown";
+import { VoicePreview } from "./VoicePreview";
 
 interface Props {
   onClose: () => void;
@@ -649,6 +650,14 @@ function VideoOverridesPanel({
             placeholder="(use project default)"
             disabled={!overrideProvider}
             menuMinWidth={220}
+          />
+        </div>
+        {/* Falls back to the project's provider/voice so you can audition
+         *  what this video will actually use, override set or not. */}
+        <div className="flex justify-end">
+          <VoicePreview
+            provider={overrideProvider || projectVoice.provider}
+            voice={overrideVoice || projectVoice.voice_id}
           />
         </div>
       </section>

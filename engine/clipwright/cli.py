@@ -904,6 +904,31 @@ def _is_blank(value: object) -> bool:
 
 
 
+@app.command("tts-sample")
+def tts_sample_cmd(
+    provider: str = typer.Option(..., "--provider", help="kokoro | piper | openai | elevenlabs."),
+    voice: str = typer.Option("", "--voice", help="Provider-specific voice id."),
+    text: str = typer.Option("", "--text", help="Override the sample line."),
+    force: bool = typer.Option(False, "--force", help="Re-synthesize even if cached."),
+) -> None:
+    """Synthesize a short sample of one voice and print the mp3 path.
+
+    Used by the desktop's voice picker to audition a voice before it's
+    committed to a project. Cached per (provider, voice, text), so
+    re-auditioning doesn't re-bill a paid API.
+    """
+    from .tts_sample import DEFAULT_SAMPLE_TEXT, synthesize_sample
+
+    path = synthesize_sample(
+        provider,
+        voice,
+        text=text or DEFAULT_SAMPLE_TEXT,
+        force=force,
+    )
+    # Bare path on stdout so the desktop can read it without parsing.
+    print(path)
+
+
 @app.command()
 def status(
     project: Path = typer.Option(None, "--project"),

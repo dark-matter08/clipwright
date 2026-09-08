@@ -40,6 +40,7 @@ pub fn run() {
             new_project::import_video_cmd,
             new_project::record_project_cmd,
             new_project::clipwright_doctor,
+            clipwright::tts_sample,
             new_project::add_source_cmd,
             sources::list_sources,
             templates::list_templates_cmd,

@@ -38,7 +38,8 @@
           "**/out/segments/**/*.mp4",
           "**/out/final/*.mp4",
           "**/out/final.mp4",
-          "**/captions/**/*.png"
+          "**/captions/**/*.png",
+          "**/clipwright-voice-samples/*.mp3"
         ]
       }
     }
