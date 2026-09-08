@@ -14,6 +14,7 @@ import {
   Video as VideoIcon,
 } from "lucide-react";
 import { createVideo, listSkills, type Skill } from "../lib/tauri";
+import type { VideoMeta } from "../lib/types";
 import { sanitizeVideoId } from "../lib/timeline";
 import { useApp } from "../lib/store";
 import { cn } from "../lib/cn";
@@ -22,6 +23,11 @@ import { RecordVideoDialog } from "./RecordVideoDialog";
 
 export function VideoSidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const project = useApp((s) => s.project);
+  // A video is "running" when it has an in-flight Claude turn. Turns are
+  // per-video and survive switching away, so at two dozen videos the
+  // ones actually working on something have to be findable without
+  // scrolling the whole list.
+  const chatRuntime = useApp((s) => s.chatRuntime);
   const switchVideo = useApp((s) => s.switchVideo);
   const deleteVideo = useApp((s) => s.deleteVideo);
   const setError = useApp((s) => s.setError);
@@ -41,6 +47,9 @@ export function VideoSidebar({ collapsed, onToggle }: { collapsed: boolean; onTo
   if (!project) return null;
   const current = project.current_video_id;
   const onlyVideo = project.videos.length <= 1;
+
+  const running = project.videos.filter((v) => chatRuntime[v.video_id]?.busy);
+  const idle = project.videos.filter((v) => !chatRuntime[v.video_id]?.busy);
 
   async function runDelete() {
     if (!deleteTarget) return;
@@ -79,11 +88,28 @@ export function VideoSidebar({ collapsed, onToggle }: { collapsed: boolean; onTo
       <button
         type="button"
         onClick={onToggle}
-        title={`${project.videos.length} video${project.videos.length === 1 ? "" : "s"} — click to expand`}
+        title={
+          `${project.videos.length} video${project.videos.length === 1 ? "" : "s"}` +
+          (running.length > 0 ? ` · ${running.length} running` : "") +
+          " — click to expand"
+        }
         className="flex h-full w-full flex-col items-center justify-start gap-2 border-r border-border-subtle bg-bg-subtle py-3 text-fg-muted transition-colors hover:text-fg"
       >
-        <Film size={18} strokeWidth={1.75} />
+        <span className="relative">
+          <Film size={18} strokeWidth={1.75} />
+          {/* Collapsing the sidebar shouldn't hide the fact that Claude
+           *  is mid-turn somewhere — that's exactly when you'd wonder
+           *  whether to wait. */}
+          {running.length > 0 && (
+            <span className="absolute -right-1 -top-1 h-2 w-2 animate-pulse rounded-full bg-accent" />
+          )}
+        </span>
         <span className="font-mono text-[10px]">{project.videos.length}</span>
+        {running.length > 0 && (
+          <span className="font-mono text-[9px] text-accent">
+            {running.length}▶
+          </span>
+        )}
       </button>
     );
   }
@@ -111,76 +137,52 @@ export function VideoSidebar({ collapsed, onToggle }: { collapsed: boolean; onTo
             No videos yet. Click "+ New" or import a video.
           </p>
         )}
-        <ul className="flex flex-col gap-0.5">
-          {project.videos.map((v) => {
-            const isCurrent = v.video_id === current;
-            return (
-              <li key={v.video_id} className="group relative">
-                {/* Native `title` attribute on the button drives the
-                 *  OS hover tooltip — long titles (e.g. "DemoRecap
-                 *  — Pig Slaughtering") get truncated with ellipsis
-                 *  in the row but are fully readable on hover. We
-                 *  show both the title and the video_id in the
-                 *  tooltip so the user always knows the on-disk
-                 *  slug.
-                 *
-                 *  CSS gotcha: `truncate` on a flex child only kicks
-                 *  in when the child has `min-w-0` so it can shrink
-                 *  below its content width. Without it, the span
-                 *  grows to fit "DemoRecap - Pig Slaughtering" on
-                 *  one line and overflows or wraps. We add `min-w-0`
-                 *  to the button (the flex parent of the title) AND
-                 *  `w-full truncate` to each text span. */}
-                <button
-                  type="button"
-                  onClick={() => void switchVideo(v.video_id)}
-                  title={`${v.title || v.video_id}\n${v.video_id} · ${v.n_segments} segment${v.n_segments === 1 ? "" : "s"}`}
-                  className={cn(
-                    "flex w-full min-w-0 flex-col items-start gap-0.5 rounded py-1.5 pl-2 pr-7 text-left transition-colors",
-                    isCurrent
-                      ? "bg-accent/15 text-fg"
-                      : "text-fg-subtle hover:bg-bg-raised hover:text-fg",
-                  )}
-                >
-                  <span className="block w-full truncate text-sm font-medium">
-                    {v.title || v.video_id}
-                  </span>
-                  <span className="block w-full truncate font-mono text-[10px] text-fg-muted">
-                    {v.video_id} · {v.n_segments} segment{v.n_segments === 1 ? "" : "s"}
-                  </span>
-                </button>
-                {/* Trash icon — hover-revealed on the row; click stages the
-                 *  delete in `deleteTarget`, which opens the confirm dialog.
-                 *  Disabled (with tooltip) when this is the last video. */}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (onlyVideo) return;
-                    setDeleteTarget({
-                      id: v.video_id,
-                      title: v.title || v.video_id,
-                    });
-                  }}
-                  disabled={onlyVideo}
-                  title={
-                    onlyVideo
-                      ? "Can't delete the project's only video. Create another first."
-                      : "Delete this video"
+        {/* Grouped when anything is running, flat otherwise — a lone
+         *  "Idle · 24" header over the only group is pure noise. */}
+        {running.length > 0 && (
+          <section className="mb-2">
+            <h3 className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-accent">
+              Running · {running.length}
+            </h3>
+            <ul className="flex flex-col gap-0.5">
+              {running.map((v) => (
+                <VideoRow
+                  key={v.video_id}
+                  video={v}
+                  isCurrent={v.video_id === current}
+                  onlyVideo={onlyVideo}
+                  startedAt={chatRuntime[v.video_id]?.busyStartedAt ?? null}
+                  onSelect={() => void switchVideo(v.video_id)}
+                  onDelete={() =>
+                    setDeleteTarget({ id: v.video_id, title: v.title || v.video_id })
                   }
-                  className={cn(
-                    "absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 transition-opacity",
-                    "text-fg-muted opacity-0 hover:bg-bg-raised hover:text-warn group-hover:opacity-100 focus:opacity-100",
-                    onlyVideo && "cursor-not-allowed hover:bg-transparent hover:text-fg-muted",
-                  )}
-                  aria-label={`Delete video ${v.video_id}`}
-                >
-                  <Trash2 size={14} strokeWidth={1.75} />
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+                />
+              ))}
+            </ul>
+          </section>
+        )}
+        <section>
+          {running.length > 0 && (
+            <h3 className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-fg-muted">
+              Idle · {idle.length}
+            </h3>
+          )}
+          <ul className="flex flex-col gap-0.5">
+            {idle.map((v) => (
+              <VideoRow
+                key={v.video_id}
+                video={v}
+                isCurrent={v.video_id === current}
+                onlyVideo={onlyVideo}
+                startedAt={null}
+                onSelect={() => void switchVideo(v.video_id)}
+                onDelete={() =>
+                  setDeleteTarget({ id: v.video_id, title: v.title || v.video_id })
+                }
+              />
+            ))}
+          </ul>
+        </section>
       </div>
 
       <div className="shrink-0 border-t border-border-subtle p-2">
@@ -250,6 +252,116 @@ export function VideoSidebar({ collapsed, onToggle }: { collapsed: boolean; onTo
         onCancel={() => setDeleteTarget(null)}
       />
     </aside>
+  );
+}
+
+/** One video in the list.
+ *
+ *  Extracted when the list grew groups — the row markup was inline in a
+ *  `.map()` and would have had to be duplicated across Running and Idle.
+ *
+ *  CSS gotcha preserved from the inline version: `truncate` on a flex
+ *  child only kicks in when the child can shrink below its content
+ *  width, so the button needs `min-w-0` and each text span needs
+ *  `w-full truncate`. Without it a long manhwa title overflows the rail
+ *  instead of ellipsing. */
+function VideoRow({
+  video: v,
+  isCurrent,
+  onlyVideo,
+  startedAt,
+  onSelect,
+  onDelete,
+}: {
+  video: VideoMeta;
+  isCurrent: boolean;
+  onlyVideo: boolean;
+  /** Non-null while a Claude turn is in flight — drives the badge. */
+  startedAt: number | null;
+  onSelect: () => void;
+  onDelete: () => void;
+}) {
+  const running = startedAt !== null;
+  return (
+    <li className="group relative">
+      <button
+        type="button"
+        onClick={onSelect}
+        title={`${v.title || v.video_id}\n${v.video_id} · ${v.n_segments} segment${v.n_segments === 1 ? "" : "s"}${running ? "\nClaude is working on this video" : ""}`}
+        className={cn(
+          "flex w-full min-w-0 flex-col items-start gap-0.5 rounded py-1.5 pl-2 pr-7 text-left transition-colors",
+          isCurrent
+            ? "bg-accent/15 text-fg"
+            : "text-fg-subtle hover:bg-bg-raised hover:text-fg",
+        )}
+      >
+        <span className="flex w-full min-w-0 items-center gap-1.5">
+          {running && <RunningBadge startedAt={startedAt} />}
+          <span className="block min-w-0 flex-1 truncate text-sm font-medium">
+            {v.title || v.video_id}
+          </span>
+        </span>
+        <span className="block w-full truncate font-mono text-[10px] text-fg-muted">
+          {v.video_id} · {v.n_segments} segment{v.n_segments === 1 ? "" : "s"}
+        </span>
+      </button>
+      {/* Trash icon — hover-revealed on the row; click stages the delete
+       *  in `deleteTarget`, which opens the confirm dialog. Disabled
+       *  (with tooltip) when this is the last video. */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onlyVideo) return;
+          onDelete();
+        }}
+        disabled={onlyVideo}
+        title={
+          onlyVideo
+            ? "Can't delete the project's only video. Create another first."
+            : "Delete this video"
+        }
+        className={cn(
+          "absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 transition-opacity",
+          "text-fg-muted opacity-0 hover:bg-bg-raised hover:text-warn group-hover:opacity-100 focus:opacity-100",
+          onlyVideo && "cursor-not-allowed hover:bg-transparent hover:text-fg-muted",
+        )}
+        aria-label={`Delete video ${v.video_id}`}
+      >
+        <Trash2 size={14} strokeWidth={1.75} />
+      </button>
+    </li>
+  );
+}
+
+/** Pulsing dot + elapsed seconds for a video with a turn in flight.
+ *
+ *  The elapsed count is the point: a dot alone tells you something is
+ *  happening, but not whether it's been thinking for four seconds or
+ *  four minutes — which is the difference between waiting and going to
+ *  look at what's stuck. */
+function RunningBadge({ startedAt }: { startedAt: number }) {
+  const [elapsed, setElapsed] = useState(() =>
+    Math.max(0, Math.floor((Date.now() - startedAt) / 1000)),
+  );
+  useEffect(() => {
+    setElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    const id = window.setInterval(
+      () => setElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000))),
+      1000,
+    );
+    return () => window.clearInterval(id);
+  }, [startedAt]);
+
+  const label = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m` : `${elapsed}s`;
+  return (
+    <span
+      title={`Claude has been working for ${elapsed}s`}
+      className="flex shrink-0 items-center gap-1 rounded bg-accent/15 px-1 py-px font-mono text-[9px] text-accent"
+    >
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+      {label}
+    </span>
   );
 }
 

@@ -26,20 +26,29 @@ const RAIL_MIN_WIDTH = 280;
 const RAIL_MAX_WIDTH = 720;
 const RAIL_WIDTH_KEY = "clipwright.claudeRailWidth";
 
+// Videos sidebar bookends. 160px still fits a truncated title plus the
+// id line; past ~420px it stops being a list and starts eating the
+// preview. A project with two dozen videos and long manhwa titles is
+// exactly why this is draggable at all.
+const SIDEBAR_DEFAULT_WIDTH = 200;
+const SIDEBAR_MIN_WIDTH = 160;
+const SIDEBAR_MAX_WIDTH = 420;
+const SIDEBAR_WIDTH_KEY = "clipwright.videoSidebarWidth";
+
 // Collapsed timeline keeps its header strip visible — the collapse
 // toggle and the render-target readout live there, so hiding it
 // entirely would strand the control that brings it back.
 const TIMELINE_COLLAPSED_H = 36;
 
-function loadRailWidth(): number {
+function loadWidth(key: string, fallback: number, min: number, max: number): number {
   try {
-    const raw = window.localStorage.getItem(RAIL_WIDTH_KEY);
-    if (!raw) return RAIL_DEFAULT_WIDTH;
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
     const n = parseInt(raw, 10);
-    if (!Number.isFinite(n)) return RAIL_DEFAULT_WIDTH;
-    return Math.max(RAIL_MIN_WIDTH, Math.min(RAIL_MAX_WIDTH, n));
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, n));
   } catch {
-    return RAIL_DEFAULT_WIDTH;
+    return fallback;
   }
 }
 
@@ -49,12 +58,28 @@ export function Workspace() {
   const personaOpen = useApp((s) => s.personaRailOpen);
   const timelineCollapsed = useApp((s) => s.timelineCollapsed);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [railWidth, setRailWidth] = useState<number>(() => loadRailWidth());
-  const [dragging, setDragging] = useState(false);
+  const [railWidth, setRailWidth] = useState<number>(() =>
+    loadWidth(RAIL_WIDTH_KEY, RAIL_DEFAULT_WIDTH, RAIL_MIN_WIDTH, RAIL_MAX_WIDTH),
+  );
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() =>
+    loadWidth(
+      SIDEBAR_WIDTH_KEY,
+      SIDEBAR_DEFAULT_WIDTH,
+      SIDEBAR_MIN_WIDTH,
+      SIDEBAR_MAX_WIDTH,
+    ),
+  );
+  // Which panel is being dragged, or null. Two resizable edges now, and
+  // they must not both track the pointer at once.
+  const [dragging, setDragging] = useState<"rail" | "sidebar" | null>(null);
   // Track drag origin so we resize relative to the click point — this
-  // avoids the rail "jumping" on first move when the pointer isn't
+  // avoids the panel "jumping" on first move when the pointer isn't
   // exactly on the handle edge.
-  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const dragRef = useRef<{
+    which: "rail" | "sidebar";
+    startX: number;
+    startWidth: number;
+  } | null>(null);
 
   // Persist width changes. Debounced via the setTimeout trick — we don't
   // need to write on every pointermove tick.
@@ -62,24 +87,38 @@ export function Workspace() {
     const id = window.setTimeout(() => {
       try {
         window.localStorage.setItem(RAIL_WIDTH_KEY, String(railWidth));
+        window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
       } catch {
         /* ignore quota / SSR */
       }
     }, 150);
     return () => window.clearTimeout(id);
-  }, [railWidth]);
+  }, [railWidth, sidebarWidth]);
 
   // Pointer-capture-style drag: while the handle is held we listen on
   // window for move/up so dragging continues even if the cursor strays
   // off the 4px-wide handle.
-  const onHandleDown = useCallback(
+  const onRailHandleDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!railOpen) return;
       e.preventDefault();
-      dragRef.current = { startX: e.clientX, startWidth: railWidth };
-      setDragging(true);
+      dragRef.current = { which: "rail", startX: e.clientX, startWidth: railWidth };
+      setDragging("rail");
     },
-    [railOpen, railWidth],
+    [railWidth],
+  );
+
+  const onSidebarHandleDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (sidebarCollapsed) return;
+      e.preventDefault();
+      dragRef.current = {
+        which: "sidebar",
+        startX: e.clientX,
+        startWidth: sidebarWidth,
+      };
+      setDragging("sidebar");
+    },
+    [sidebarCollapsed, sidebarWidth],
   );
 
   useEffect(() => {
@@ -87,18 +126,29 @@ export function Workspace() {
     function onMove(e: PointerEvent) {
       const drag = dragRef.current;
       if (!drag) return;
-      // Pulling the handle LEFT widens the rail (it's anchored to the
-      // right edge of the window), so subtract the delta.
       const delta = e.clientX - drag.startX;
-      const next = Math.max(
-        RAIL_MIN_WIDTH,
-        Math.min(RAIL_MAX_WIDTH, drag.startWidth - delta),
-      );
-      setRailWidth(next);
+      if (drag.which === "rail") {
+        // The rail is anchored to the RIGHT edge, so pulling the handle
+        // left widens it — subtract the delta.
+        setRailWidth(
+          Math.max(
+            RAIL_MIN_WIDTH,
+            Math.min(RAIL_MAX_WIDTH, drag.startWidth - delta),
+          ),
+        );
+      } else {
+        // The sidebar is anchored LEFT, so the sign flips.
+        setSidebarWidth(
+          Math.max(
+            SIDEBAR_MIN_WIDTH,
+            Math.min(SIDEBAR_MAX_WIDTH, drag.startWidth + delta),
+          ),
+        );
+      }
     }
     function onUp() {
       dragRef.current = null;
-      setDragging(false);
+      setDragging(null);
     }
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -163,18 +213,27 @@ export function Workspace() {
     <div className={`flex h-full w-full flex-col ${dragging ? "select-none" : ""}`}>
       <TopBar />
       <div className="flex min-h-0 flex-1">
-        {/* Far-left: Videos rail */}
+        {/* Far-left: Videos rail. Resizable from its right edge, since a
+         *  project with two dozen videos and long titles needs more than
+         *  the default 200px to stay readable. */}
         <div
-          className={
-            sidebarCollapsed
-              ? "w-[44px] shrink-0 transition-[width] duration-slow"
-              : "w-[200px] shrink-0 transition-[width] duration-slow"
-          }
+          style={{ width: sidebarCollapsed ? 44 : sidebarWidth }}
+          className={`relative shrink-0 ${
+            dragging ? "" : "transition-[width] duration-slow"
+          }`}
         >
           <VideoSidebar
             collapsed={sidebarCollapsed}
             onToggle={() => setSidebarCollapsed((v) => !v)}
           />
+          {!sidebarCollapsed && (
+            <ResizeHandle
+              side="right"
+              label="Resize videos sidebar"
+              dragging={dragging === "sidebar"}
+              onPointerDown={onSidebarHandleDown}
+            />
+          )}
         </div>
 
         {/* Middle: Preview on the left, Inspector pushes in from the
@@ -201,7 +260,12 @@ export function Workspace() {
           }`}
         >
           {(railOpen || personaOpen) && (
-            <ResizeHandle dragging={dragging} onPointerDown={onHandleDown} />
+            <ResizeHandle
+              side="left"
+              label="Resize Claude rail"
+              dragging={dragging === "rail"}
+              onPointerDown={onRailHandleDown}
+            />
           )}
           {/* One slot, two tenants. Persona wins when open because the
            *  store guarantees they're mutually exclusive; the collapsed
@@ -311,9 +375,15 @@ function InspectorDrawer() {
 // with a 1px visible line that brightens on hover/drag. Anchored
 // absolute inside the rail's `relative` aside so it doesn't push content.
 function ResizeHandle({
+  side,
+  label,
   dragging,
   onPointerDown,
 }: {
+  /** Which edge of the parent the handle sits on. The rail is anchored
+   *  right so its handle is on the left, and vice versa. */
+  side: "left" | "right";
+  label: string;
   dragging: boolean;
   onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void;
 }) {
@@ -321,10 +391,12 @@ function ResizeHandle({
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize Claude rail"
+      aria-label={label}
       title="Drag to resize"
       onPointerDown={onPointerDown}
-      className={`absolute left-0 top-0 z-10 h-full w-1.5 cursor-ew-resize ${
+      className={`absolute top-0 z-10 h-full w-1.5 cursor-ew-resize ${
+        side === "left" ? "left-0" : "right-0"
+      } ${
         dragging ? "bg-accent/60" : "bg-transparent hover:bg-accent/30"
       } transition-colors`}
     />
