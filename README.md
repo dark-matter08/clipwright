@@ -28,7 +28,7 @@ Requires:
 - Python 3.10–3.12 (the ML TTS backends have no wheels for 3.13+)
 - `ffmpeg` / `ffprobe` on PATH
 - Node.js ≥ 18
-- [Bun](https://bun.sh) (for the desktop app)
+- [pnpm](https://pnpm.io) (for the desktop app)
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) on PATH, for the rail
 
 ```bash
@@ -46,11 +46,11 @@ dependencies.
 Then start the app — from the repo root, no subdirectory:
 
 ```bash
-bun install          # first time only
-bun run dev
+pnpm install         # first time only
+pnpm dev
 ```
 
-`bun run build` produces a bundled application.
+`pnpm build` produces a bundled application.
 
 ## Using it
 

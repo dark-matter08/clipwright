@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "site.clipwright.studio",
   "build": {
-    "beforeDevCommand": "bun run vite:dev",
+    "beforeDevCommand": "pnpm run vite:dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bun run vite:build",
+    "beforeBuildCommand": "pnpm run vite:build",
     "frontendDist": "../dist"
   },
   "app": {

@@ -107,5 +107,5 @@ fi
 
 echo
 echo "Clipwright installed. Activate with: source .venv/bin/activate"
-echo "Then start Clipwright Studio:         bun install && bun run dev"
+echo "Then start Clipwright Studio:         pnpm install && pnpm dev"
 echo "Or drive the engine directly:         clipwright --help"

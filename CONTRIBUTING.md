@@ -27,12 +27,12 @@ cd clipwright
 source .venv/bin/activate
 ```
 
-For the desktop app you also need [Bun](https://bun.sh) and a Rust toolchain
-(Tauri):
+For the desktop app you also need [pnpm](https://pnpm.io) and a Rust
+toolchain (Tauri):
 
 ```
-bun install
-bun run dev
+pnpm install
+pnpm dev
 ```
 
 ## Checks
@@ -43,7 +43,7 @@ checks aren't in CI yet, so run them when you touch those trees.
 ```
 ruff check engine tests      # lint the engine
 pytest                       # engine tests
-bun run typecheck            # typecheck the app (frontend)
+pnpm typecheck               # typecheck the app (frontend)
 cd src-tauri && cargo check  # typecheck the app (Rust)
 cd remotion && npx tsc --noEmit
 ```
