@@ -9,6 +9,7 @@ import type { RecentProject } from "../lib/types";
 import { useApp } from "../lib/store";
 import { cn } from "../lib/cn";
 import { HubBackground } from "./HubBackground";
+import { Logo } from "./Logo";
 import { NewProjectDialog } from "./NewProjectDialog";
 
 export function Hub() {
@@ -54,8 +55,9 @@ export function Hub() {
        *  the design-system tokens. */}
       <HubBackground />
       <div className="relative z-10 flex w-full max-w-2xl flex-col gap-8 px-8 pb-16 pt-16">
-        <header className="flex items-baseline justify-between">
-          <h1 className="text-lg font-medium tracking-tight">
+        <header className="flex items-center justify-between">
+          <h1 className="flex items-center gap-2.5 text-lg font-medium tracking-tight">
+            <Logo size={24} className="text-fg" />
             Clipwright Studio
           </h1>
           <span className="font-mono text-xs text-fg-muted">v0.1.0</span>
