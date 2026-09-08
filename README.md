@@ -1,243 +1,157 @@
-# Clipwright
+# Clipwright Studio
 
-Clipwright turns a scripted browser session into a short-form how-to video:
-record, trim dead time, add voiceover with character-accurate captions, brand
-it with an outro, and render a vertical (or 16:9 / 1:1) MP4.
+A desktop editor for short-form video, with Claude Code living in the rail
+next to your timeline.
 
-It exists as three things in one repository:
+You import a video or record a browser session, and Clipwright gives you a
+segment-based timeline, per-segment voiceover with character-accurate
+captions, and a render pipeline that only rebuilds what changed. Claude sits
+beside all of it with full context on the project — the timeline, the script,
+the transcript — so you can say "tighten the third beat" instead of hunting
+for the right JSON field.
 
-- A standalone Python CLI (`clipwright ...`)
-- A [Claude Code](https://docs.claude.com/en/docs/claude-code) skill (see
-  [`SKILL.md`](./SKILL.md)) so an agent can drive the whole pipeline
-- **Clipwright Studio** (alpha, see [`desktop/`](./desktop/)) — a Tauri
-  desktop app that wraps the CLI in a real editor and pairs every segment
-  with a Claude Code agent. See [`SRS.md`](./SRS.md) for the product spec.
+The project is a directory of JSON and media on disk. You can `git commit` a
+video and regenerate it when the product changes.
 
-### Try the desktop alpha
-
-```bash
-cd desktop
-bun install              # first time
-bun run tauri:dev
 ```
-
-Click **Open Existing** and point at any directory containing a v1
-`project.json` (produced by `clipwright import <video>` or
-`clipwright record-project <dir>`). The per-segment loop — VO synthesis,
-captions, render, Claude chat — works end-to-end.
-
-Clipwright was extracted from a real production pipeline built for
-[Vertex Reader](https://vertexreader.site) and then generalized. The browser
-recorder is Playwright-based; captions are PIL-generated transparent PNG
-overlays composited with ffmpeg (no libass required); voiceover runs through
-a pluggable TTS backend — **Kokoro** (Apache-2.0, near-human, default),
-**Piper** (MIT, tiny, offline forever), or **ElevenLabs** (paid, highest
-quality) — all emitting the same character-level alignment format.
-
-## Features
-
-- Browser recorder (Playwright Chromium) producing `video.mp4` + an
-  action-annotated `moments.json`
-- Dead-time trimming driven by the action log (pre-roll, post-roll, gap merge,
-  gap split)
-- Per-segment extract -> lossless concat -> subtitle overlay LAST render pipeline
-- Pluggable TTS: Kokoro (default, free, Apache-2.0), Piper (free, MIT, offline), or ElevenLabs (paid)
-- 2-word UPPERCASE caption chunking with word-boundary snapping
-- Transparent PNG subtitle overlays (works on any ffmpeg build)
-- PIL-rendered branded outro card with cyberpunk / minimal presets
-- Vertical 1080x1920 by default; `--aspect 16:9` and `--aspect 1:1` supported
+Clipwright Studio (Tauri + React)  ← the app you use
+        │
+        ├── clipwright (Python)    ← the engine: TTS, captions, render, cache
+        ├── Remotion                ← React compositions for panel/recap renders
+        └── Claude Code             ← the agent in the rail, driving both
+```
 
 ## Install
 
 Requires:
 
-- Python 3.10-3.12 (ML-based TTS backends lack wheels for 3.13+)
+- Python 3.10–3.12 (the ML TTS backends have no wheels for 3.13+)
 - `ffmpeg` / `ffprobe` on PATH
-- Node.js ≥ 18 with `npm` (for the Remotion render backend)
-- A POSIX shell
+- Node.js ≥ 18
+- [Bun](https://bun.sh) (for the desktop app)
+- [Claude Code](https://docs.claude.com/en/docs/claude-code) on PATH, for the rail
 
-```
+```bash
 git clone https://github.com/dark-matter08/clipwright
 cd clipwright
 ./install.sh
 ```
 
-`install.sh` auto-discovers a usable Python (tries `python3.12`, `3.11`, `3.10`
-on `PATH`, plus common Homebrew paths) — you don't need to set `PYTHON=` unless
-you want to pin a specific one. It also:
+`install.sh` finds a usable Python (tries `python3.12`, `3.11`, `3.10` plus the
+common Homebrew paths — set `PYTHON=` only to pin one), creates `.venv`,
+installs the engine in editable mode, runs `playwright install chromium`,
+fetches the DejaVu fonts used for caption rendering, and installs the Remotion
+dependencies.
 
-- Creates `.venv` and installs the package in editable mode
-- Runs `playwright install chromium`
-- Fetches DejaVu fonts for caption rendering
-- Installs Remotion backend deps (`remotion/node_modules`) — fails loudly if
-  `npm install` errors; missing Node ≥ 18 fails upfront before anything else
-  runs
-- Generates default gradient backgrounds for the Remotion backend
+Then start the app:
 
-### Making `clipwright` available in new terminals
-
-After install, the `clipwright` binary lives in `./.venv/bin/clipwright`. Either:
-
-**Activate the venv** (simple, per-shell):
-
-```
-source .venv/bin/activate
+```bash
+cd desktop
+bun install          # first time only
+bun run tauri:dev
 ```
 
-**Or symlink it onto your PATH** (works in any new terminal):
+## Using it
+
+**New project.** Import a video (copied into `sources/`, transcribed with
+Whisper, segmented at transcript breaks) or record a browser session from a
+declarative `browse-plan.json` of Playwright actions. Pick one or more
+[templates](src/clipwright/templates/data) — they carry the editorial
+guidance Claude follows for that kind of video.
+
+**Persona.** The `Persona` button opens a panel where you describe who Claude
+*is* when it writes for this project — identity, voice, structural rules,
+vocabulary to prefer and ban, pacing, and the failure mode to avoid. Every
+video in the project inherits it; individual videos can opt out. This is the
+single biggest lever on how the output reads.
+
+**Timeline + Inspector.** Segments carry a source range, a target duration, a
+voiceover clip, captions, and camera keyframes. Edit them directly, or
+right-click a segment to ask Claude about just that one.
+
+**Claude rail.** A persistent chat scoped to the current video, with the
+project's state in its system prompt. It edits the JSON on disk; the app
+reloads from disk, so you both work on the same files.
+
+**Render.** Per-segment renders are content-hashed and cached, so changing
+segment three rebuilds segment three. The final concat lands at
+`out/final/<video_id>.mp4` and the Preview pane picks it up.
+
+## What a project looks like on disk
 
 ```
-ln -sfn "$PWD/.venv/bin/clipwright" /opt/homebrew/bin/clipwright
-# or ~/.local/bin/clipwright if that's on your PATH
+my-project/
+├── project.json                  title, aspect, fps, TTS provider, templates
+├── videos/<id>.json              the timeline: segments, per-video overrides
+├── sources/                      source media (recordings, panels, imports)
+├── voiceover/
+│   ├── scripts/<id>.json         one clip per segment — the words
+│   └── audio/<id>/               synthesized mp3 + character-level timings
+├── captions/<id>/                per-segment caption PNGs + index
+├── camera/<seg_id>.json          zoom/pan keyframes
+├── out/
+│   ├── segments/<id>/            per-segment cached renders
+│   └── final/<id>.mp4            the deliverable
+└── .clipwright/                  recap config, persona, Claude session state
 ```
 
-## Quickstart
+## The engine (CLI)
 
-The pipeline is declarative: you describe a browser flow in `browse-plan.json`,
-Clipwright records it with annotated action moments, then builds segments,
-camera keyframes, a script skeleton (copy filled in separately),
-TTS with timing-aware stretch, captions, optional outro, and renders.
+The app shells out to these; you can also run them directly. Every per-video
+command takes `--video <id>`.
 
-### One-command build
-
-```
-clipwright init my-demo
-cd my-demo
-# edit browse-plan.json, fill script.json text fields, then:
-clipwright build
-```
-
-`clipwright build` runs every stage in order, skips stages whose outputs are
-already current, and asks for confirmation before spending TTS tokens.
-
-### Step-by-step
-
-```
-clipwright init my-demo
-cd my-demo
-# edit browse-plan.json — see example below
-
-clipwright record --plan browse-plan.json
-clipwright segments
-clipwright keyframes
-clipwright review              # inspect segments + total duration
-clipwright script init         # writes script.json skeleton (empty text)
-# fill in script.json "text" fields (Claude Code skill does this)
-# or: clipwright script init --draft  fills copy from action hints automatically
-
-clipwright tts script.json
-clipwright caption
-clipwright outro --preset cyberpunk
-clipwright render --backend remotion   # or --backend ffmpeg
-```
-
-Output: `out/final.mp4`.
-
-### browse-plan.json format
-
-Describe your demo as a list of browser actions, grouped into **chapters**.
-Each chapter becomes one narrated segment in the final video.
-
-```json
-{
-  "viewport": {"width": 540, "height": 960, "mobile": true},
-  "base_url": "https://yourapp.com",
-  "actions": [
-    {
-      "type": "navigate",
-      "label": "Open the app",
-      "chapter": "intro",
-      "fields": {"url": "/"},
-      "wait": 3.0
-    },
-    {
-      "type": "click",
-      "label": "Tap the Add button",
-      "chapter": "create",
-      "fields": {"selector": "[data-testid='add-btn']"},
-      "wait": 2.5
-    },
-    {
-      "type": "type",
-      "label": "Enter a title",
-      "chapter": "create",
-      "fields": {"selector": "input[name='title']", "text": "My first item"},
-      "wait": 2.5
-    },
-    {
-      "type": "scroll",
-      "label": "Browse the result",
-      "chapter": "result",
-      "fields": {"by_y": 600},
-      "wait": 3.0
-    }
-  ]
-}
-```
-
-**Action types:** `navigate`, `click`, `type`, `hover`, `scroll`, `wait`, `key`
-
-**Key fields:**
-- `chapter` — groups contiguous same-chapter actions into one segment. Define 3–6 chapters per video.
-- `wait` — seconds to dwell after the action. Default 2.5s. Use 3–5s for moments the viewer needs to read; 1–1.5s only for rapid-fire inputs.
-- `fields` — action-specific payload (url, selector, text, by_y, …)
-
-### Render backends
-
-- `--backend ffmpeg` — classic PNG-overlay compositor, no Node required
-- `--backend remotion` — React-based renderer with animated camera zoom/focus,
-  gradient backgrounds, and re-rendered captions. Requires `./install.sh` to
-  have set up `remotion/node_modules`.
-
-Pick a gradient background for the Remotion backend:
-
-```
-clipwright assets --gradient dark       # default
-clipwright assets --gradient light
-clipwright assets --gradient ./my.jpg
-```
-
-## Configuration
-
-Each project has a `.clipwright.json` at its root. See
-[`examples/hello-world/.clipwright.json`](./examples/hello-world/.clipwright.json).
+| Command | Does |
+|---|---|
+| `clipwright import <video.mp4>` | Import a video as a new project or video |
+| `clipwright record-project <dir> --plan browse-plan.json` | Record a Playwright session into segments |
+| `clipwright tts-segment <seg_id>` | Synthesize voiceover for one segment |
+| `clipwright caption-segment <seg_id>` | Render caption PNGs for one segment |
+| `clipwright render-segment <seg_id>` | Render one segment mp4 |
+| `clipwright render-final` | Concat every segment into the final mp4 |
+| `clipwright status` | Per-video artifact state — what's built |
+| `clipwright video doctor <id>` | What's wrong — missing sources, stale renders |
+| `clipwright doctor` | Preflight: tools, Python version, API keys, config |
+| `clipwright templates list` | Show available project templates |
+| `clipwright agent prompt` | Print the system prompt Claude receives |
 
 ### TTS providers
 
-Select the voice engine via `tts_provider` in `.clipwright.json` or
-`clipwright tts --provider <name>`:
+Set per project in `project.json#tts_provider`, overridable per video and per
+clip.
 
 | Provider | License | Cost | Quality | Install |
 |---|---|---|---|---|
-| `kokoro` *(default)* | Apache-2.0 | Free | Near-human | `pip install 'clipwright[kokoro]'` (~2 GB incl. PyTorch) |
-| `piper` | MIT | Free, offline | Natural | `pip install 'clipwright[piper]'` (~200 MB incl. faster-whisper) |
-| `elevenlabs` | Proprietary API | Free tier + paid | Highest | Requires `ELEVENLABS_API_KEY` |
+| `kokoro` *(default)* | Apache-2.0 | Free | Near-human | `pip install 'clipwright[kokoro]'` (~2 GB, includes PyTorch) |
+| `piper` | MIT | Free, offline | Natural | `pip install 'clipwright[piper]'` (~200 MB, includes faster-whisper) |
+| `elevenlabs` | Proprietary API | Free tier + paid | Highest | Needs `ELEVENLABS_API_KEY` |
 
-Piper has no native word timestamps, so the backend forced-aligns its own
-output with a small `faster-whisper` model (tiny.en, ~39 MB). Kokoro emits
-token timings natively. All three providers write the same alignment shape
-downstream.
+Piper has no native word timestamps, so its output is force-aligned with a
+small `faster-whisper` model (tiny.en, ~39 MB). Kokoro emits token timings
+natively. All providers write the same alignment shape downstream.
 
-### Environment
+## Claude Code integration
 
-- `ELEVENLABS_API_KEY` — required only when `tts_provider = "elevenlabs"`
+The rail invokes `claude --print` under the project directory with a system
+prompt built from live project state (`clipwright agent prompt`). Two vendored
+skill sets ship with the repo so any contributor's rail picks them up:
 
-## Using Clipwright with Claude Code
+- [`SKILL.md`](./SKILL.md) — the Clipwright pipeline, its file formats, and the
+  production-correctness rules (subtitles last, per-segment extract, 30 ms
+  fades, word-boundary cuts).
+- [`.claude/skills/remotion-*`](./.claude/skills) — the Remotion team's twelve
+  agent skills, pinned at a known revision, with Clipwright's overrides in
+  `remotion-best-practices/CLIPWRIGHT_NOTES.md`.
 
-Clipwright ships with a [`SKILL.md`](./SKILL.md) that teaches the agent the
-full pipeline, the production-correctness rules, and the CLI surface. The
-script copy (the `text` fields in `script.json`) is written by the Claude
-Code runtime — the CLI only emits a skeleton.
+## Docs
 
-Register it as a user-level skill so it's available in any project:
+- [`SRS.md`](./SRS.md) — the product spec: architecture, data model, UI, and
+  the Claude integration contract
+- [`DESIGN.md`](./DESIGN.md) — the design system Clipwright Studio is built on
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — dev setup and the DCO sign-off
+- [`CHANGELOG.md`](./CHANGELOG.md)
 
-```
-mkdir -p ~/.claude/skills
-ln -sfn "$PWD" ~/.claude/skills/clipwright
-```
-
-Then in Claude Code, invoke `/clipwright` (or ask the agent to turn a flow
-into a how-to video) from any working directory.
+Clipwright was extracted from a production pipeline built for
+[Vertex Reader](https://vertexreader.site) and then generalized.
 
 ## License
 

@@ -97,18 +97,15 @@ if [ -f "$REMOTION_DIR/package.json" ]; then
             echo >&2
             echo "########################################################################" >&2
             echo "# ERROR: Remotion backend install FAILED." >&2
-            echo "# The ffmpeg backend will still work, but --backend remotion will not." >&2
+            echo "# Recording renders still work (ffmpeg), but panel/recap renders will not." >&2
             echo "# Fix the npm error above, then run:  cd $REMOTION_DIR && npm install" >&2
             echo "########################################################################" >&2
             exit 1
         fi
     fi
-    if [ ! -f "$REMOTION_DIR/public/gradient.jpg" ]; then
-        echo "Generating default gradients..."
-        python scripts/make_gradients.py
-    fi
 fi
 
 echo
 echo "Clipwright installed. Activate with: source .venv/bin/activate"
-echo "Try:                                 clipwright --help"
+echo "Then start Clipwright Studio:         cd desktop && bun install && bun run tauri:dev"
+echo "Or drive the engine directly:         clipwright --help"
