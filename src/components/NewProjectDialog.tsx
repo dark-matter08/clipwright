@@ -34,6 +34,7 @@ import { useApp } from "../lib/store";
 import { cn } from "../lib/cn";
 import { sanitizeVideoId } from "../lib/timeline";
 import { Dropdown } from "./Dropdown";
+import { VoicePreview } from "./VoicePreview";
 import { TemplatePicker } from "./TemplatePicker";
 
 // Four-stage wizard. Was a two-stage chooser-then-form before; we
@@ -922,18 +923,22 @@ function VoiceFieldRow({
             triggerClassName="w-full justify-between bg-bg-inset px-2 py-1.5 text-sm text-fg"
             menuMinWidth={240}
           />
-          <Dropdown<string>
-            value={voice}
-            onChange={(v) => onChange(provider, v)}
-            options={VOICES_BY_PROVIDER[provider]}
-            wrapperClassName="block w-full"
-            triggerClassName="w-full justify-between bg-bg-inset px-2 py-1.5 text-sm text-fg"
-            menuMinWidth={240}
-            placeholder="(provider default)"
-          />
+          <div className="flex items-center gap-1.5">
+            <Dropdown<string>
+              value={voice}
+              onChange={(v) => onChange(provider, v)}
+              options={VOICES_BY_PROVIDER[provider]}
+              wrapperClassName="block min-w-0 flex-1"
+              triggerClassName="w-full justify-between bg-bg-inset px-2 py-1.5 text-sm text-fg"
+              menuMinWidth={240}
+              placeholder="(provider default)"
+            />
+            <VoicePreview provider={provider} voice={voice} />
+          </div>
         </div>
         <span className="text-[10px] text-fg-muted">
           Project-wide default. Each video can override via Settings → "This video".
+          Preview synthesizes one line so you can hear a voice before picking it.
         </span>
       </div>
     </FieldRow>

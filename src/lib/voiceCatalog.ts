@@ -68,13 +68,29 @@ export const VOICES_BY_PROVIDER: Record<VoiceProvider, VoiceOption[]> = {
     { value: "bm_lewis", label: "bm_lewis", hint: "British male, conversational." },
   ],
   openai: [
-    // The six OpenAI TTS API voices — names map 1:1 to the API.
+    // All eleven OpenAI TTS voices — names map 1:1 to the API, and this
+    // list must stay in step with `VOICES` in
+    // `engine/clipwright/tts/openai.py`, which rejects anything outside
+    // it before the request goes out. The catalog used to carry only
+    // the original six; the five newer ones (ash, ballad, coral, sage,
+    // verse) were unreachable from the app.
     { value: "alloy", label: "alloy", hint: "Neutral, balanced." },
+    { value: "ash", label: "ash", hint: "Male, expressive, conversational." },
+    { value: "ballad", label: "ballad", hint: "Male, British, emotive." },
+    { value: "coral", label: "coral", hint: "Female, warm, upbeat." },
     { value: "echo", label: "echo", hint: "Male, deep, narration." },
     { value: "fable", label: "fable", hint: "Male, British, storyteller." },
     { value: "onyx", label: "onyx", hint: "Male, deep, dramatic." },
     { value: "nova", label: "nova", hint: "Female, bright, energetic." },
+    { value: "sage", label: "sage", hint: "Female, calm, measured." },
     { value: "shimmer", label: "shimmer", hint: "Female, warm." },
+    { value: "verse", label: "verse", hint: "Male, versatile, narration." },
+    // Newest generation — noticeably more natural than the rest, and
+    // only available on the `gpt-4o-mini-tts` model (which is the
+    // default). Hints stay non-committal because these two are best
+    // judged with the Preview button rather than from a label.
+    { value: "marin", label: "marin", hint: "Newest generation — most natural. Preview it." },
+    { value: "cedar", label: "cedar", hint: "Newest generation — most natural. Preview it." },
   ],
   elevenlabs: [
     // ElevenLabs voice IDs vary across accounts — these are the

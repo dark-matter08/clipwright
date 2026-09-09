@@ -42,8 +42,14 @@ piper = [
     "piper-tts>=1.2",
     "faster-whisper>=1.0",
 ]
+# OpenAI's speech endpoint returns audio with no timings, so captioned
+# clips need the same forced aligner Piper uses. Voice *previews* don't
+# — they skip alignment — so a bare install can still audition voices.
+openai = [
+    "faster-whisper>=1.0",
+]
 all-tts = [
-    "clipwright[kokoro,piper]",
+    "clipwright[kokoro,piper,openai]",
 ]
 
 [project.scripts]

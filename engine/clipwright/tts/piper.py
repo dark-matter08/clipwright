@@ -13,7 +13,8 @@ import urllib.request
 from pathlib import Path
 
 from ..ffmpeg import run
-from .base import Word, words_to_alignment, write_alignment
+from .align import align_with_whisper
+from .base import words_to_alignment, write_alignment
 
 DEFAULT_VOICE = "en_US-lessac-medium"
 # Voice cache lives alongside other clipwright caches.
@@ -44,34 +45,6 @@ def _ensure_voice(voice: str) -> Path:
         with urllib.request.urlopen(url) as resp, open(dest, "wb") as fh:
             fh.write(resp.read())
     return onnx
-
-
-def _align_with_whisper(wav_path: Path, text: str) -> list[Word]:
-    """Forced-alignment via faster-whisper word_timestamps."""
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError as e:
-        raise RuntimeError(
-            "piper backend requires faster-whisper for alignment: "
-            "pip install 'clipwright[piper]'"
-        ) from e
-
-    # tiny.en is ~39MB and plenty for forced alignment against known text.
-    model = WhisperModel("tiny.en", device="cpu", compute_type="int8")
-    segments, _ = model.transcribe(
-        str(wav_path),
-        word_timestamps=True,
-        language="en",
-        initial_prompt=text,  # Bias decoder toward the known script.
-    )
-    words: list[Word] = []
-    for seg in segments:
-        for w in seg.words or []:
-            token = (w.word or "").strip()
-            if not token:
-                continue
-            words.append(Word(token, float(w.start), float(w.end)))
-    return words
 
 
 def synthesize(
@@ -113,7 +86,7 @@ def synthesize(
 
         run(["ffmpeg", "-y", "-i", str(wav_path), "-b:a", "192k", str(out_mp3)])
 
-        words = _align_with_whisper(wav_path, text)
+        words = align_with_whisper(wav_path, text)
     finally:
         wav_path.unlink(missing_ok=True)
 

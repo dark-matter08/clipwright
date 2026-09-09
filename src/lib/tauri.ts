@@ -190,6 +190,29 @@ export async function listSources(projectDir: string): Promise<SourceEntry[]> {
   return invoke<SourceEntry[]>("list_sources", { projectDir });
 }
 
+// ---------------------------------------------------------------------------
+// Voice sampling
+// ---------------------------------------------------------------------------
+
+export interface VoiceSample {
+  /** Absolute path to the sample mp3. Run it through `convertFileSrc`
+   *  before handing it to an `<audio>` element — the asset protocol
+   *  scope in `tauri.conf.json` allows this directory specifically. */
+  path: string;
+}
+
+/** Synthesize a short line in one voice so it can be auditioned before
+ *  being committed to a project. Cached on the Python side per
+ *  (provider, voice, text), so re-auditioning is a file read and does
+ *  not re-bill a paid API. Pass `force` to re-synthesize anyway. */
+export async function ttsSample(
+  provider: string,
+  voice: string,
+  force = false,
+): Promise<VoiceSample> {
+  return invoke<VoiceSample>("tts_sample", { provider, voice, force });
+}
+
 export interface ClipwrightDoctorReport {
   installed: boolean;
   path: string | null;

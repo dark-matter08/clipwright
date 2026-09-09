@@ -35,6 +35,7 @@ import { useApp } from "../lib/store";
 import { cn } from "../lib/cn";
 import { ApiKeysSection } from "./ApiKeysSection";
 import { Dropdown } from "./Dropdown";
+import { VoicePreview } from "./VoicePreview";
 
 interface Props {
   onClose: () => void;
@@ -527,15 +528,32 @@ function VideoOverridesPanel({
   projectVoice: { provider: string; voice_id: string };
   videoId: string;
 }) {
-  function set(key: string, value: string | number | boolean) {
-    // Booleans are meaningful at `false`, so they bypass the
-    // empty-means-inherit clearing that string/number fields use.
-    if (typeof value !== "boolean" && (value === "" || value === 0)) {
-      const { [key]: _drop, ...rest } = overrides;
-      onChange(rest);
-    } else {
-      onChange({ ...overrides, [key]: value });
+  /** Apply a patch of override keys in ONE update.
+   *
+   *  Takes a patch rather than a single key on purpose. The previous
+   *  signature was `set(key, value)`, and the provider dropdown called
+   *  it twice in a row — once for `voice_provider`, once to snap
+   *  `voice_id` to the new provider's default. Both calls spread the
+   *  same captured `overrides`, React batched them, and the second
+   *  clobbered the first: the provider you picked silently reverted.
+   *  It only misbehaved when the second call fired (i.e. when the old
+   *  voice wasn't in the new provider's catalog), which is why it read
+   *  as "sometimes it doesn't stick".
+   *
+   *  Empty string / 0 means "inherit the project value", so those keys
+   *  are deleted rather than stored. Booleans are meaningful at
+   *  `false` and bypass that clearing.
+   */
+  function set(patch: Record<string, string | number | boolean>) {
+    const next: OverrideMap = { ...overrides };
+    for (const [key, value] of Object.entries(patch)) {
+      if (typeof value !== "boolean" && (value === "" || value === 0)) {
+        delete next[key];
+      } else {
+        next[key] = value;
+      }
     }
+    onChange(next);
   }
 
   const overrideProvider = (overrides.voice_provider as string) ?? "";
@@ -565,7 +583,7 @@ function VideoOverridesPanel({
             value={(overrides.target_duration_seconds as number) || ""}
             placeholder="0 (use project default)"
             onChange={(e) =>
-              set("target_duration_seconds", parseInt(e.target.value || "0", 10) || 0)
+              set({ target_duration_seconds: parseInt(e.target.value || "0", 10) || 0 })
             }
             className="w-40 rounded border border-border-subtle bg-bg-inset px-2 py-1 font-mono text-sm text-fg focus:focus-ring"
           />
@@ -581,7 +599,7 @@ function VideoOverridesPanel({
           type="text"
           value={(overrides.narration_style as string) || ""}
           placeholder="(use project default)"
-          onChange={(e) => set("narration_style", e.target.value)}
+          onChange={(e) => set({ narration_style: e.target.value })}
           className="w-full rounded border border-border-subtle bg-bg-inset px-2 py-1.5 text-sm text-fg focus:focus-ring"
         />
       </Field>
@@ -596,7 +614,7 @@ function VideoOverridesPanel({
       >
         <textarea
           value={(overrides.additional_notes as string) || ""}
-          onChange={(e) => set("additional_notes", e.target.value)}
+          onChange={(e) => set({ additional_notes: e.target.value })}
           rows={3}
           placeholder="(use project default)"
           className="w-full resize-y rounded border border-border-subtle bg-bg-inset px-2 py-1.5 text-sm text-fg focus:focus-ring"
@@ -615,14 +633,15 @@ function VideoOverridesPanel({
           <Dropdown<string>
             value={overrideProvider}
             onChange={(next) => {
+              // Provider and voice move together: switching provider
+              // has to snap the voice to something that provider knows,
+              // or the pair is inconsistent. One patch, one update.
               const p = next as VoiceProvider;
-              // Swap to that provider's default voice on change so
-              // the per-video override pair stays internally
-              // consistent.
-              set("voice_provider", next);
-              if (next && !voiceInCatalog(p, overrideVoice)) {
-                set("voice_id", defaultVoiceFor(p));
-              }
+              const keepVoice = !next || voiceInCatalog(p, overrideVoice);
+              set({
+                voice_provider: next,
+                voice_id: keepVoice ? overrideVoice : defaultVoiceFor(p),
+              });
             }}
             options={[
               { value: "", label: "(use project default)", hint: "Inherit" },
@@ -635,7 +654,7 @@ function VideoOverridesPanel({
           />
           <Dropdown<string>
             value={overrideVoice}
-            onChange={(v) => set("voice_id", v)}
+            onChange={(v) => set({ voice_id: v })}
             options={
               overrideProvider && overrideProvider in VOICES_BY_PROVIDER
                 ? [
@@ -651,6 +670,14 @@ function VideoOverridesPanel({
             menuMinWidth={220}
           />
         </div>
+        {/* Falls back to the project's provider/voice so you can audition
+         *  what this video will actually use, override set or not. */}
+        <div className="flex justify-end">
+          <VoicePreview
+            provider={overrideProvider || projectVoice.provider}
+            voice={overrideVoice || projectVoice.voice_id}
+          />
+        </div>
       </section>
 
       <Field
@@ -663,7 +690,7 @@ function VideoOverridesPanel({
       >
         <textarea
           value={(overrides.outro_description as string) || ""}
-          onChange={(e) => set("outro_description", e.target.value)}
+          onChange={(e) => set({ outro_description: e.target.value })}
           rows={3}
           placeholder="(use project default)"
           className="w-full resize-y rounded border border-border-subtle bg-bg-inset px-2 py-1.5 text-sm text-fg focus:focus-ring"
@@ -683,7 +710,7 @@ function VideoOverridesPanel({
             value={(overrides.outro_duration_seconds as number) || ""}
             placeholder="0 (use project default)"
             onChange={(e) =>
-              set("outro_duration_seconds", parseFloat(e.target.value || "0") || 0)
+              set({ outro_duration_seconds: parseFloat(e.target.value || "0") || 0 })
             }
             className="w-40 rounded border border-border-subtle bg-bg-inset px-2 py-1 font-mono text-sm text-fg focus:focus-ring"
           />

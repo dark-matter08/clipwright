@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from .base import TTSProvider, Word, words_to_alignment, write_alignment
 
-PROVIDERS = ("kokoro", "piper", "elevenlabs")
+PROVIDERS = ("kokoro", "piper", "openai", "elevenlabs")
 
 
 def get_provider(name: str) -> TTSProvider:
@@ -14,6 +14,9 @@ def get_provider(name: str) -> TTSProvider:
     if n == "piper":
         from .piper import PiperProvider
         return PiperProvider()
+    if n == "openai":
+        from .openai import OpenAIProvider
+        return OpenAIProvider()
     if n == "elevenlabs":
         from .elevenlabs import ElevenLabsProvider
         return ElevenLabsProvider()

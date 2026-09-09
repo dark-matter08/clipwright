@@ -118,3 +118,53 @@ pub fn run_with_output(
     cmd.env("PYTHONUNBUFFERED", "1");
     Ok(cmd.output()?)
 }
+
+// ---------------------------------------------------------------------------
+// Voice sampling
+// ---------------------------------------------------------------------------
+//
+// The voice pickers list names — "onyx", "ballad", "af_heart" — which
+// tell you nothing about how a voice sounds. This synthesizes one short
+// line so the user can hear it before committing it to a project.
+//
+// The Python side owns caching (per provider+voice+text, in the OS temp
+// dir) so a re-audition is a file read and doesn't re-bill a paid API.
+// Here we just shell out and hand back the path for the webview to play.
+
+#[derive(Debug, serde::Serialize)]
+pub struct VoiceSample {
+    /// Absolute path to the mp3. The frontend runs it through
+    /// `convertFileSrc` to get an asset-protocol URL it can feed to an
+    /// `<audio>` element.
+    pub path: String,
+}
+
+#[tauri::command]
+pub async fn tts_sample(
+    provider: String,
+    voice: String,
+    force: Option<bool>,
+) -> Result<VoiceSample, ClipwrightCliError> {
+    let mut args: Vec<&str> = vec!["tts-sample", "--provider", &provider, "--voice", &voice];
+    if force.unwrap_or(false) {
+        args.push("--force");
+    }
+    let out = run(&args)?;
+    // `tts-sample` prints the mp3 path and nothing else, so the last
+    // non-empty line is the answer even if a backend logged to stdout.
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let path = stdout
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("")
+        .to_string();
+    if path.is_empty() {
+        return Err(ClipwrightCliError::NonZero {
+            code: 0,
+            stderr_tail: "tts-sample produced no output path".to_string(),
+        });
+    }
+    Ok(VoiceSample { path })
+}

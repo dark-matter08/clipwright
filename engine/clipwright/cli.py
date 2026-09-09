@@ -63,8 +63,27 @@ def init(
     aspect: str = typer.Option("9:16", help="9:16, 16:9, or 1:1."),
 ) -> None:
     """Scaffold a new Clipwright project."""
+    from .schema import Project, create_video, save_project
+
     directory = directory.resolve()
     directory.mkdir(parents=True, exist_ok=True)
+
+    # Write the v2 manifest FIRST — it's what makes the directory a
+    # project. `init` used to emit only `.clipwright.json` +
+    # `browse-plan.json`, which the v1 pipeline understood and nothing
+    # else did: `status`, `video doctor`, the agent prompt and the
+    # desktop app all key off `project.json`, so an init-ed directory
+    # couldn't be opened by any of them.
+    save_project(
+        directory,
+        Project(title=directory.name, aspect=aspect, base_url=url),
+    )
+    # One empty video so the project is immediately openable rather than
+    # being a manifest with nowhere to put segments.
+    create_video(directory, "main", title=directory.name)
+
+    # The v1 sidecar stays for now: `doctor` still reads it for the
+    # tts_provider check, and `record-project` resolves paths through it.
     cfg = config.ProjectConfig(
         name=directory.name,
         aspect=aspect,
@@ -93,8 +112,9 @@ def init(
         ],
     }
     (directory / "browse-plan.json").write_text(json.dumps(browse_plan, indent=2) + "\n")
-    rprint(f"[green]Initialized[/green] {directory}")
-    rprint("[dim]Next: edit browse-plan.json, then run `clipwright record-project .`[/dim]")
+    rprint(f"[green]Initialized[/green] {directory} [dim](project.json + videos/main.json)[/dim]")
+    rprint("[dim]Next: open it in Clipwright Studio, or edit browse-plan.json[/dim]")
+    rprint("[dim]      and run `clipwright record-project .`[/dim]")
 
 
 @app.command(name="import")
@@ -882,6 +902,31 @@ def _is_blank(value: object) -> bool:
 
 
 
+
+
+@app.command("tts-sample")
+def tts_sample_cmd(
+    provider: str = typer.Option(..., "--provider", help="kokoro | piper | openai | elevenlabs."),
+    voice: str = typer.Option("", "--voice", help="Provider-specific voice id."),
+    text: str = typer.Option("", "--text", help="Override the sample line."),
+    force: bool = typer.Option(False, "--force", help="Re-synthesize even if cached."),
+) -> None:
+    """Synthesize a short sample of one voice and print the mp3 path.
+
+    Used by the desktop's voice picker to audition a voice before it's
+    committed to a project. Cached per (provider, voice, text), so
+    re-auditioning doesn't re-bill a paid API.
+    """
+    from .tts_sample import DEFAULT_SAMPLE_TEXT, synthesize_sample
+
+    path = synthesize_sample(
+        provider,
+        voice,
+        text=text or DEFAULT_SAMPLE_TEXT,
+        force=force,
+    )
+    # Bare path on stdout so the desktop can read it without parsing.
+    print(path)
 
 
 @app.command()
