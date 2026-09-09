@@ -105,12 +105,65 @@ def render_final(
             rendered += 1
 
     _concat(per_segment_paths, final)
+    _record_persona_work(project_dir, video_id)
     return RenderFinalResult(
         out_path=final,
         n_segments=len(video.segments),
         rendered=rendered,
         cached=cached,
     )
+
+
+
+def _record_persona_work(project_dir: Path, video_id: str) -> None:
+    """Log a finished render into the bound persona's memory.
+
+    This is the "what they've worked on shapes their identity" half of
+    persona memory: provenance, not instruction. It's weighted low
+    precisely because it is — knowing a persona made a 14-segment recap
+    is context, not a rule to follow.
+
+    Deliberately best-effort. A render that succeeded must not be
+    reported as failed because a memory row wouldn't write; the video is
+    on disk either way.
+    """
+    try:
+        from .persona import add_memory, list_memory
+        from .schema import load_project, load_video
+
+        project = load_project(project_dir)
+        persona_id = str(getattr(project, "persona_id", "") or "")
+        if not persona_id:
+            return
+        video = load_video(project_dir, video_id)
+        source = f"{project_dir}#{video_id}"
+
+        # Re-rendering the same video shouldn't add a row every time —
+        # that would drown the real lessons in noise. One entry per
+        # (project, video); the body is refreshed by deleting the old.
+        for prior in list_memory(persona_id, kind="video", limit=500):
+            if prior.source == source:
+                return
+
+        total = sum(s.target_duration for s in video.segments)
+        chapters = [s.chapter for s in video.segments if s.chapter]
+        seen: list[str] = []
+        for c in chapters:
+            if c not in seen:
+                seen.append(c)
+        detail = (
+            f"{len(video.segments)} segments, ~{total:.0f}s"
+            + (f", beats: {', '.join(seen[:8])}" if seen else "")
+        )
+        add_memory(
+            persona_id,
+            "video",
+            f"Produced \"{video.title or video_id}\" for {project.title or project_dir.name}. {detail}.",
+            title=video.title or video_id,
+            source=source,
+        )
+    except Exception:
+        return
 
 
 def _should_use_manhwa_preset(template_id: str) -> bool:
@@ -153,6 +206,7 @@ def _render_via_manhwa_preset(
     # The Remotion path is monolithic — no per-segment caching today,
     # so report all segments as "rendered" rather than "cached".
     video = load_video(project_dir, video_id)
+    _record_persona_work(project_dir, video_id)
     return RenderFinalResult(
         out_path=out,
         n_segments=len(video.segments),

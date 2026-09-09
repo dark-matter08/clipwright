@@ -145,7 +145,7 @@ def _assemble(
     # when the two disagree on voice, the user's persona wins. Empty
     # unless the user filled it in, so untouched projects are
     # unaffected.
-    persona_block = _section_persona(project_dir, video=video)
+    persona_block = _section_persona(project_dir, project=project, video=video)
     if persona_block:
         parts.append(persona_block)
     # User-set preferences (target duration, narration style, outro
@@ -357,7 +357,7 @@ def _section_skill(project: Project) -> str:
         "- `WebSearch` — look up reference material.\n"
         "\n"
         "**Shell** (pre-whitelisted for clipwright invocations only):\n"
-        "- `Bash(clipwright …)` (e.g. `clipwright record`, `clipwright tts-segment`)\n"
+        "- `Bash(clipwright …)` (e.g. `clipwright tts-segment`, `clipwright persona memory search`)\n"
         "- `Bash(uv run clipwright …)` / `Bash(uvx clipwright …)`\n"
         "- `Bash(python -m clipwright …)` / `Bash(python3 -m clipwright …)`\n"
         "\n"
@@ -414,70 +414,182 @@ def _section_interactive_questions() -> str:
     )
 
 
-def _section_persona(project_dir: Path, *, video: Video | None = None) -> str:
-    """Inject the user's writing persona for this project.
+def _section_persona(
+    project_dir: Path,
+    *,
+    project: Project | None = None,
+    video: Video | None = None,
+) -> str:
+    """Inject the project's persona and the contract for its memory.
 
-    The persona answers "who are you when you write for this project?"
-    — e.g. "an expert manhwa scriptwriter who specializes in
-    high-retention hooks and dramatic pacing". It is deliberately
-    separate from `narration_style`: that describes the *voice actor*
-    (timbre, delivery, accent), this describes the *writer* (expertise,
-    editorial instincts, what they reach for).
+    Resolution, highest first:
+      1. `Video.recap_overrides["persona_id"]` — this video only.
+      2. `Project.persona_id` — a live reference into the user-level
+         library, so editing the persona changes every project using it.
+      3. Legacy inline prose in `.clipwright/recap-config.json`, from
+         before personas were their own entities.
 
-    Resolution mirrors every other recap field — a non-blank
-    `Video.recap_overrides["persona"]` beats the project-level
-    `RecapConfig.persona`. An empty persona returns "" so the section
-    vanishes entirely and projects that never touch the setting get
-    the same prompt they got before.
+    A video can opt out entirely with `persona_enabled: false`.
 
-    A video can also opt OUT entirely via
-    `recap_overrides["persona_enabled"] = false` — for the one video in
-    a project that shouldn't be in character (a plain changelog cut in
-    a channel whose house voice is a sardonic narrator, say). The key
-    is absent by default and absence means enabled, so the opt-out has
-    to be written explicitly and every existing video keeps its
-    persona.
+    The memory half is deliberately NOT "inject the top N lessons and
+    hope". A persona that has made twenty videos has more memory than
+    fits in a prompt, and which parts matter depends on what's being
+    written right now — something only the agent knows. So the prompt
+    carries proof that memory exists (counts, and the highest-trust few
+    verbatim) and a hard instruction to search it before writing.
+    Without the digest, "consult your memory" is an instruction to
+    search for something you have no reason to believe is there.
     """
     from ..recap_config import load_recap_config
 
-    cfg = load_recap_config(project_dir)
-    project_persona = cfg.persona.strip()
     overrides = (getattr(video, "recap_overrides", {}) or {}) if video is not None else {}
     if overrides.get("persona_enabled") is False:
         return ""
-    raw_override = str(overrides.get("persona") or "").strip()
-    persona = raw_override or project_persona
-    if not persona:
+
+    persona_id = str(
+        overrides.get("persona_id") or getattr(project, "persona_id", "") or ""
+    ).strip()
+
+    persona_name = ""
+    prose = ""
+    voice_line = ""
+    if persona_id:
+        try:
+            from ..persona import load_persona
+
+            p = load_persona(persona_id)
+            persona_name = p.name or p.persona_id
+            prose = p.effective_prose()
+            v = p.voice
+            bits = [f"provider `{v.provider}`", f"voice `{v.voice_id or '(default)'}`"]
+            if abs(v.speed - 1.0) > 1e-3:
+                bits.append(f"speed {v.speed:g}×")
+            if abs(v.pitch_semitones) > 1e-3:
+                bits.append(f"pitch {v.pitch_semitones:+g} semitones")
+            voice_line = " · ".join(bits)
+        except Exception:
+            # A dangling id must not break the turn. Fall through to the
+            # legacy inline persona below and say nothing about it — the
+            # desktop surfaces the broken reference far more usefully
+            # than a line buried in a system prompt would.
+            persona_id = ""
+
+    legacy_override = ""
+    legacy_project_persona = ""
+    if not prose:
+        # Legacy path: prose stored per project, no library entry.
+        cfg = load_recap_config(project_dir)
+        legacy_project_persona = cfg.persona.strip()
+        legacy_override = str(overrides.get("persona") or "").strip()
+        prose = legacy_override or legacy_project_persona
+        if legacy_override:
+            persona_name = "this video's persona"
+
+    if not prose:
         return ""
 
-    # Blockquote the persona verbatim rather than splicing it into a
-    # sentence — users write it both ways ("You are an expert…" and
-    # "an expert…") and a prefix would produce "You are You are an
-    # expert…" for half of them.
-    quoted = "\n".join(f"> {line}" for line in persona.splitlines())
-    lines = [
-        "## Persona (user-specified — write in character)",
-        "",
-        quoted,
-        "",
+    quoted = "\n".join(f"> {line}" for line in prose.splitlines())
+    header = "## Persona (user-specified — write in character)"
+    if persona_name:
+        header += f"\n\n**{persona_name}**" + (f" — {voice_line}" if voice_line else "")
+
+    lines = [header, "", quoted, ""]
+    lines.append(
         "- Adopt this persona for every piece of editorial output you produce "
         "in this project: voiceover scripts, captions, titles, segment labels, "
-        "and the way you pitch ideas back to the user.",
+        "and the way you pitch ideas back to the user."
+    )
+    lines.append(
         "- Where the persona and the template's editorial guidance disagree on "
-        "**tone or voice**, the persona wins — the user set it deliberately, "
-        "and it applies to every video in this project.",
+        "**tone or voice**, the persona wins — the user set it deliberately."
+    )
+    lines.append(
         "- The persona does NOT relax any hard constraint. Schema shape, file "
         "scope, word budgets, and the template's forbidden-source rules all "
-        "still bind. Stay in character *within* them.",
-    ]
-    if raw_override:
+        "still bind. Stay in character *within* them."
+    )
+    if overrides.get("persona_id"):
+        lines.append("- Scope: this video only (per-video override).")
+    elif legacy_override:
+        # Naming what was displaced matters: without it a per-video
+        # persona reads as the project's, and the user can't tell from
+        # the transcript which one produced a line they dislike.
         scope = (
-            f'this video only (per-video override; the project persona is "{project_persona}")'
-            if project_persona
+            f'this video only (per-video override; the project persona is '
+            f'"{legacy_project_persona}")'
+            if legacy_project_persona
             else "this video only (per-video override; no project-level persona is set)"
         )
         lines.append(f"- Scope: {scope}.")
+
+    if persona_id:
+        lines.append("")
+        lines.append(_persona_memory_block(persona_id))
+
     return "\n".join(lines)
+
+
+def _persona_memory_block(persona_id: str) -> str:
+    """The memory digest + the instruction to go and search it."""
+    try:
+        from ..persona import memory_overview
+    except Exception:
+        return ""
+
+    try:
+        ov = memory_overview(persona_id)
+    except Exception:
+        return ""
+
+    if not ov.get("total"):
+        return (
+            "### Persona memory\n"
+            f"`{persona_id}` has no memory yet. As you work, propose things worth "
+            "remembering — a rule the user corrects you on, a pattern that landed "
+            "— and save them with "
+            f"`clipwright persona memory add {persona_id} --kind note --body \"…\"`. "
+            "Ask before saving; memory is durable and shared across every project "
+            "using this persona."
+        )
+
+    counts = ov.get("counts", {})
+    shape = ", ".join(f"{n} {k}" for k, n in sorted(counts.items())) or "0"
+    out = [
+        "### Persona memory — CONSULT BEFORE WRITING",
+        "",
+        f"`{persona_id}` has **{ov['total']}** remembered entries ({shape}). This is "
+        "what it has learned from your corrections, the references you fed it, and "
+        "the videos it has made. It is not optional context.",
+        "",
+        "**Before you write or revise any script for this project**, search it for "
+        "what's relevant to the task in front of you:",
+        "",
+        "```bash",
+        f'clipwright persona memory search {persona_id} "<what you are about to write about>"',
+        "```",
+        "",
+        "Run it more than once with different angles if the first query is thin — "
+        "the terms that matter are the ones in the beat you're writing, not the "
+        "ones in the user's request. Then say in one line which lessons you're "
+        "applying, so the user can correct a bad recall before it reaches the "
+        "script.",
+        "",
+        "Highest-trust entries, verbatim:",
+    ]
+    for e in ov.get("top", []):
+        label = e.get("title") or ""
+        body = (e.get("body") or "").replace("\n", " ")
+        if len(body) > 240:
+            body = body[:239] + "…"
+        prefix = f"**{label}** — " if label else ""
+        out.append(f"- _{e.get('kind')}_ · {prefix}{body}")
+    out.append("")
+    out.append(
+        "When the user corrects you, or a beat lands especially well, offer to "
+        f"save it: `clipwright persona memory add {persona_id} --kind note "
+        '--body "…"`. Ask first — this persona is shared across projects.'
+    )
+    return "\n".join(out)
 
 
 def _section_user_preferences(
