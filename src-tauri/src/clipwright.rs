@@ -143,9 +143,24 @@ pub struct VoiceSample {
 pub async fn tts_sample(
     provider: String,
     voice: String,
+    speed: Option<f64>,
+    pitch: Option<f64>,
+    instructions: Option<String>,
     force: Option<bool>,
 ) -> Result<VoiceSample, ClipwrightCliError> {
-    let mut args: Vec<&str> = vec!["tts-sample", "--provider", &provider, "--voice", &voice];
+    // Tone is part of the answer to "what will this sound like", so the
+    // preview applies the same controls the render will.
+    let speed = format!("{}", speed.unwrap_or(1.0));
+    let pitch = format!("{}", pitch.unwrap_or(0.0));
+    let instructions = instructions.unwrap_or_default();
+    let mut args: Vec<&str> = vec![
+        "tts-sample", "--provider", &provider, "--voice", &voice,
+        "--speed", &speed, "--pitch", &pitch,
+    ];
+    if !instructions.is_empty() {
+        args.push("--instructions");
+        args.push(&instructions);
+    }
     if force.unwrap_or(false) {
         args.push("--force");
     }

@@ -208,9 +208,17 @@ export interface VoiceSample {
 export async function ttsSample(
   provider: string,
   voice: string,
+  tone: { speed?: number; pitch?: number; instructions?: string } = {},
   force = false,
 ): Promise<VoiceSample> {
-  return invoke<VoiceSample>("tts_sample", { provider, voice, force });
+  return invoke<VoiceSample>("tts_sample", {
+    provider,
+    voice,
+    speed: tone.speed ?? 1,
+    pitch: tone.pitch ?? 0,
+    instructions: tone.instructions ?? "",
+    force,
+  });
 }
 
 export interface ClipwrightDoctorReport {

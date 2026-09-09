@@ -32,6 +32,7 @@ import {
   type VoiceProvider,
 } from "../lib/voiceCatalog";
 import { useApp } from "../lib/store";
+import { usePersonaVoice } from "../lib/usePersonaVoice";
 import { cn } from "../lib/cn";
 import { ApiKeysSection } from "./ApiKeysSection";
 import { Dropdown } from "./Dropdown";
@@ -556,6 +557,9 @@ function VideoOverridesPanel({
     onChange(next);
   }
 
+  // Overriding which voice speaks doesn't override how it's delivered —
+  // that stays with the persona, so the preview uses it.
+  const personaVoice = usePersonaVoice();
   const overrideProvider = (overrides.voice_provider as string) ?? "";
   const overrideVoice = (overrides.voice_id as string) ?? "";
 
@@ -676,6 +680,9 @@ function VideoOverridesPanel({
           <VoicePreview
             provider={overrideProvider || projectVoice.provider}
             voice={overrideVoice || projectVoice.voice_id}
+            speed={personaVoice.speed}
+            pitch={personaVoice.pitch_semitones}
+            instructions={personaVoice.instructions}
           />
         </div>
       </section>

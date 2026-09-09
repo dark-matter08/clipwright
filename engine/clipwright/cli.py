@@ -914,6 +914,11 @@ def tts_sample_cmd(
     provider: str = typer.Option(..., "--provider", help="kokoro | piper | openai | elevenlabs."),
     voice: str = typer.Option("", "--voice", help="Provider-specific voice id."),
     text: str = typer.Option("", "--text", help="Override the sample line."),
+    speed: float = typer.Option(1.0, "--speed", help="Delivery rate multiplier."),
+    pitch: float = typer.Option(0.0, "--pitch", help="Pitch shift in semitones."),
+    instructions: str = typer.Option(
+        "", "--instructions", help="OpenAI-only delivery direction."
+    ),
     force: bool = typer.Option(False, "--force", help="Re-synthesize even if cached."),
 ) -> None:
     """Synthesize a short sample of one voice and print the mp3 path.
@@ -928,6 +933,9 @@ def tts_sample_cmd(
         provider,
         voice,
         text=text or DEFAULT_SAMPLE_TEXT,
+        speed=speed,
+        pitch_semitones=pitch,
+        instructions=instructions,
         force=force,
     )
     # Bare path on stdout so the desktop can read it without parsing.

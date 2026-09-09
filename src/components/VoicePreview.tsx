@@ -20,10 +20,20 @@ type State = "idle" | "loading" | "playing" | "error";
 export function VoicePreview({
   provider,
   voice,
+  speed,
+  pitch,
+  instructions,
   className,
 }: {
   provider: string;
   voice: string;
+  /** The persona's tone controls. Passing them makes the preview an
+   *  audition of what you'll actually get; leaving them off previews
+   *  the raw voice, which is right where no persona owns the settings
+   *  (the per-segment picker, say). */
+  speed?: number;
+  pitch?: number;
+  instructions?: string;
   className?: string;
 }) {
   const [state, setState] = useState<State>("idle");
@@ -37,7 +47,7 @@ export function VoicePreview({
     audioRef.current = null;
     setState("idle");
     setError(null);
-  }, [provider, voice]);
+  }, [provider, voice, speed, pitch, instructions]);
 
   // Don't leave audio playing when the dialog or panel unmounts.
   useEffect(() => {
@@ -57,7 +67,11 @@ export function VoicePreview({
     setState("loading");
     setError(null);
     try {
-      const { path } = await ttsSample(provider, voice);
+      const { path } = await ttsSample(provider, voice, {
+        speed,
+        pitch,
+        instructions,
+      });
       const audio = new Audio(convertFileSrc(path));
       audioRef.current = audio;
       audio.onended = () => setState("idle");

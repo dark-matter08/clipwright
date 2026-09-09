@@ -76,6 +76,28 @@ MAX_PITCH_SEMITONES = 6.0
 _HONEST_PITCH_SEMITONES = 2.0
 
 
+def change_speed(path: Path, factor: float) -> float:
+    """Re-time `path` in place by `factor` (>1 faster). Returns the
+    factor applied.
+
+    For providers whose API has no speed control — ElevenLabs, Piper.
+    Kokoro and OpenAI take a speed parameter natively, which sounds
+    better than re-timing after the fact, so they don't come through
+    here.
+    """
+    if abs(factor - 1.0) < 1e-3:
+        return 1.0
+    dst = path.with_suffix(".speed.mp3")
+    run([
+        "ffmpeg", "-y", "-i", str(path),
+        "-filter:a", atempo_chain(factor),
+        "-c:a", "libmp3lame", "-b:a", "160k",
+        str(dst),
+    ])
+    dst.replace(path)
+    return factor
+
+
 def shift_pitch(path: Path, semitones: float) -> float:
     """Pitch-shift `path` in place, preserving duration. Returns the
     semitones actually applied (clamped).
@@ -98,13 +120,15 @@ def shift_pitch(path: Path, semitones: float) -> float:
 
     rate = probe_sample_rate(path) or 44100
     dst = path.with_suffix(".pitched.mp3")
-    # asetrate re-labels the sample rate (pitch AND speed change),
-    # aresample normalizes back to the original rate, atempo undoes the
-    # speed change and leaves only the pitch shift.
+    # asetrate re-labels the sample rate: pitch scales by `factor` and
+    # duration by 1/factor. aresample normalizes the rate back, then
+    # atempo undoes the duration change — which needs 1/factor, NOT
+    # factor. Passing factor here compounds the stretch instead of
+    # cancelling it (a -4 semitone shift came out 1.57x long).
     chain = (
         f"asetrate={int(rate * factor)},"
         f"aresample={rate},"
-        f"{atempo_chain(factor)}"
+        f"{atempo_chain(1.0 / factor)}"
     )
     run([
         "ffmpeg", "-y", "-i", str(path),

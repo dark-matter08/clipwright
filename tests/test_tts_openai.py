@@ -32,7 +32,9 @@ def test_openai_is_registered() -> None:
 def test_synthesize_audio_writes_mp3(tmp_path: Path, monkeypatch) -> None:
     seen: dict = {}
 
-    def fake_request(text, *, voice, api_key, model, instructions, response_format="mp3"):
+    def fake_request(
+        text, *, voice, api_key, model, instructions, speed=1.0, response_format="mp3"
+    ):
         seen.update(text=text, voice=voice, api_key=api_key, model=model)
         return FAKE_MP3
 
@@ -135,7 +137,7 @@ def test_sample_is_cached_by_provider_voice_text(tmp_path: Path, monkeypatch) ->
     class FakeProvider:
         name = "openai"
 
-        def synthesize_audio(self, text, out_mp3, *, voice=None):
+        def synthesize_audio(self, text, out_mp3, *, voice=None, **_tone):
             calls["n"] += 1
             out_mp3.parent.mkdir(parents=True, exist_ok=True)
             out_mp3.write_bytes(FAKE_MP3)
@@ -194,7 +196,7 @@ def test_failed_sample_is_not_cached(tmp_path: Path, monkeypatch) -> None:
     class BrokenProvider:
         name = "openai"
 
-        def synthesize_audio(self, text, out_mp3, *, voice=None):
+        def synthesize_audio(self, text, out_mp3, *, voice=None, **_tone):
             out_mp3.parent.mkdir(parents=True, exist_ok=True)
             out_mp3.write_bytes(b"")  # partial write, then failure
             raise RuntimeError("network died")
@@ -261,3 +263,81 @@ def test_alignment_failure_names_both_causes(tmp_path: Path, monkeypatch) -> Non
     )
     with pytest.raises(RuntimeError, match="api down.*no faster-whisper"):
         openai_tts.synthesize("Hi", tmp_path / "a.mp3", tmp_path / "a.json", api_key="sk-test")
+
+
+def test_openai_speed_reaches_the_api(tmp_path: Path, monkeypatch) -> None:
+    """Verified against the live API: `speed` scales duration on
+    gpt-4o-mini-tts, so it's passed natively rather than re-timed."""
+    seen: dict = {}
+
+    def fake_request(text, *, voice, api_key, model, instructions, speed=1.0, **_k):
+        seen["speed"] = speed
+        return FAKE_MP3
+
+    monkeypatch.setattr(openai_tts, "_request_audio", fake_request)
+    openai_tts.synthesize_audio("x", tmp_path / "a.mp3", api_key="sk-test", speed=1.4)
+    assert seen["speed"] == 1.4
+
+
+def test_sample_cache_key_covers_tone(tmp_path: Path, monkeypatch) -> None:
+    """Changing pitch and pressing Preview must re-synthesize.
+
+    With tone outside the key, the previous sample replays and the
+    control looks broken while actually being cached — the worst of both
+    failure modes, because nothing errors.
+    """
+    from clipwright import tts_sample
+
+    monkeypatch.setattr(tts_sample, "sample_cache_dir", lambda: tmp_path / "cache")
+    calls = {"n": 0}
+
+    class FakeProvider:
+        name = "openai"
+
+        def synthesize_audio(self, text, out_mp3, *, voice=None, **_tone):
+            calls["n"] += 1
+            out_mp3.parent.mkdir(parents=True, exist_ok=True)
+            out_mp3.write_bytes(FAKE_MP3)
+
+    monkeypatch.setattr(tts_sample, "get_provider", lambda _n: FakeProvider())
+    # The fake audio isn't decodable, and this test is about cache keys
+    # rather than the filter chain — `test_pitch_and_speed.py` covers
+    # the real ffmpeg behaviour against real audio.
+    monkeypatch.setattr("clipwright.ffmpeg.shift_pitch", lambda *_a, **_k: 0.0)
+    monkeypatch.setattr("clipwright.ffmpeg.change_speed", lambda *_a, **_k: 1.0)
+
+    tts_sample.synthesize_sample("openai", "onyx")
+    tts_sample.synthesize_sample("openai", "onyx")
+    assert calls["n"] == 1, "same tone should hit the cache"
+
+    tts_sample.synthesize_sample("openai", "onyx", pitch_semitones=-2)
+    assert calls["n"] == 2, "different pitch is a different sample"
+
+    tts_sample.synthesize_sample("openai", "onyx", speed=1.3)
+    assert calls["n"] == 3, "different speed is a different sample"
+
+    tts_sample.synthesize_sample("openai", "onyx", instructions="gravelly")
+    assert calls["n"] == 4, "different delivery direction is a different sample"
+
+
+def test_sample_passes_native_speed_to_openai(tmp_path: Path, monkeypatch) -> None:
+    """OpenAI has a speed parameter; using it beats re-timing after."""
+    from clipwright import tts_sample
+
+    monkeypatch.setattr(tts_sample, "sample_cache_dir", lambda: tmp_path / "cache")
+    seen: dict = {}
+
+    class FakeProvider:
+        name = "openai"
+
+        def synthesize_audio(self, text, out_mp3, *, voice=None, **tone):
+            seen.update(tone)
+            out_mp3.parent.mkdir(parents=True, exist_ok=True)
+            out_mp3.write_bytes(FAKE_MP3)
+
+    monkeypatch.setattr(tts_sample, "get_provider", lambda _n: FakeProvider())
+    tts_sample.synthesize_sample(
+        "openai", "onyx", speed=1.25, instructions="unhurried"
+    )
+    assert seen["speed"] == 1.25
+    assert seen["instructions"] == "unhurried"

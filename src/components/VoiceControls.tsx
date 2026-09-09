@@ -82,7 +82,13 @@ export function VoiceControls({
             placeholder="(provider default)"
             menuMinWidth={240}
           />
-          <VoicePreview provider={provider} voice={voice.voice_id} />
+          <VoicePreview
+            provider={provider}
+            voice={voice.voice_id}
+            speed={voice.speed}
+            pitch={voice.pitch_semitones}
+            instructions={voice.instructions}
+          />
         </div>
       </div>
 
