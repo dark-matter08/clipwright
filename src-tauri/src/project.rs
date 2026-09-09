@@ -58,9 +58,45 @@ pub struct VideoMeta {
     /// on `project.persona_id`; the sidebar falls back to it when this
     /// is empty.
     pub persona_id: String,
-    /// Whether `out/final/<id>.mp4` exists — the cheap half of build
-    /// status. A stat() per video, versus running the full doctor.
+    /// Whether `out/final/<id>.mp4` exists.
     pub has_final: bool,
+    /// How many segments have synthesized voiceover, rendered captions,
+    /// and a cached segment render. Enough to say where a video
+    /// actually is without running the doctor per video — these are
+    /// directory reads, not subprocesses.
+    pub n_voiced: usize,
+    pub n_captioned: usize,
+    pub n_rendered: usize,
+    /// A segment manifest newer than the final render: the cut on disk
+    /// no longer matches what was rendered.
+    pub final_stale: bool,
+}
+
+/// Count entries in `dir` matching a predicate on the file name. Missing
+/// directory reads as zero — an un-voiced video has no audio dir.
+fn count_in(dir: &std::path::Path, pred: impl Fn(&str) -> bool) -> usize {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return 0,
+    };
+    entries
+        .flatten()
+        .filter(|e| {
+            e.file_name()
+                .to_str()
+                .map(|n| pred(n))
+                .unwrap_or(false)
+        })
+        .count()
+}
+
+fn mtime_secs(path: &std::path::Path) -> u64 {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 #[derive(Debug, Serialize)]
@@ -202,11 +238,23 @@ fn enumerate_videos(dir: &std::path::Path) -> Result<Vec<VideoMeta>, ProjectErro
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let has_final = dir
-            .join("out")
-            .join("final")
-            .join(format!("{video_id}.mp4"))
-            .exists();
+        let final_path = dir.join("out").join("final").join(format!("{video_id}.mp4"));
+        let has_final = final_path.exists();
+        let n_voiced = count_in(&dir.join("voiceover").join("audio").join(&video_id), |n| {
+            n.ends_with(".mp3")
+        });
+        let n_captioned = count_in(&dir.join("captions").join(&video_id), |n| {
+            // caption-segment writes one directory per segment.
+            !n.starts_with('.') && !n.ends_with(".json")
+        });
+        let n_rendered = count_in(&dir.join("out").join("segments").join(&video_id), |n| {
+            n.ends_with(".mp4")
+        });
+        // Stale = the timeline was edited after the last final render.
+        // Comparing against the manifest catches the case that matters
+        // (you changed the cut and forgot to re-render); comparing every
+        // segment artifact too would be more thorough and much slower.
+        let final_stale = has_final && mtime_secs(&path) > mtime_secs(&final_path);
         out.push(VideoMeta {
             video_id,
             title,
@@ -214,6 +262,10 @@ fn enumerate_videos(dir: &std::path::Path) -> Result<Vec<VideoMeta>, ProjectErro
             created_at,
             persona_id,
             has_final,
+            n_voiced,
+            n_captioned,
+            n_rendered,
+            final_stale,
         });
     }
     // main first, then alphabetical — matches the Python `list_videos` ordering.

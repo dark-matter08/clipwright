@@ -47,8 +47,8 @@ def test_synthesize_audio_writes_mp3(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_synthesize_audio_skips_alignment(tmp_path: Path, monkeypatch) -> None:
-    """The preview path must not touch faster-whisper — that's what
-    keeps auditioning a voice fast and possible on a bare install."""
+    """The preview path must not align at all — that's what keeps
+    auditioning a voice a single round-trip."""
     monkeypatch.setattr(
         openai_tts, "_request_audio", lambda *a, **k: FAKE_MP3
     )
@@ -56,7 +56,7 @@ def test_synthesize_audio_skips_alignment(tmp_path: Path, monkeypatch) -> None:
     def explode(*_a, **_k):  # pragma: no cover - must never run
         raise AssertionError("preview path must not align")
 
-    monkeypatch.setattr(openai_tts, "align_with_whisper", explode)
+    monkeypatch.setattr(openai_tts, "align_via_api", explode)
     openai_tts.synthesize_audio("Hi.", tmp_path / "a.mp3", api_key="sk-test")
 
 
@@ -64,8 +64,8 @@ def test_synthesize_writes_alignment(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(openai_tts, "_request_audio", lambda *a, **k: FAKE_MP3)
     monkeypatch.setattr(
         openai_tts,
-        "align_with_whisper",
-        lambda _p, _t: [Word("Hi", 0.0, 0.4), Word("there", 0.4, 1.0)],
+        "align_via_api",
+        lambda _p, **_k: [Word("Hi", 0.0, 0.4), Word("there", 0.4, 1.0)],
     )
     mp3 = tmp_path / "a.mp3"
     ts = tmp_path / "a.json"
@@ -226,3 +226,38 @@ def test_ui_voice_catalog_matches_the_backend() -> None:
         f"  only in UI:      {sorted(ui_voices - set(openai_tts.VOICES))}\n"
         f"  only in backend: {sorted(set(openai_tts.VOICES) - ui_voices)}"
     )
+
+
+def test_alignment_falls_back_to_local_when_the_api_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A network blip on the second call shouldn't lose a synthesis the
+    user already paid for."""
+    monkeypatch.setattr(openai_tts, "_request_audio", lambda *a, **k: FAKE_MP3)
+
+    def api_down(*_a, **_k):
+        raise RuntimeError("transcription unavailable")
+
+    monkeypatch.setattr(openai_tts, "align_via_api", api_down)
+    monkeypatch.setattr(
+        "clipwright.tts.align.align_with_whisper",
+        lambda _p, _t: [Word("Hi", 0.0, 0.5)],
+    )
+    ts = tmp_path / "a.json"
+    openai_tts.synthesize("Hi", tmp_path / "a.mp3", ts, api_key="sk-test")
+    assert "characters" in json.loads(ts.read_text())
+
+
+def test_alignment_failure_names_both_causes(tmp_path: Path, monkeypatch) -> None:
+    """When both paths are gone, say so — a bare 'alignment failed'
+    sends you looking at the wrong one."""
+    monkeypatch.setattr(openai_tts, "_request_audio", lambda *a, **k: FAKE_MP3)
+    monkeypatch.setattr(
+        openai_tts, "align_via_api", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("api down"))
+    )
+    monkeypatch.setattr(
+        "clipwright.tts.align.align_with_whisper",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("no faster-whisper")),
+    )
+    with pytest.raises(RuntimeError, match="api down.*no faster-whisper"):
+        openai_tts.synthesize("Hi", tmp_path / "a.mp3", tmp_path / "a.json", api_key="sk-test")

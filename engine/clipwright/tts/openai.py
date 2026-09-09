@@ -2,32 +2,41 @@
 
 The speech endpoint returns audio and nothing else: no character or word
 timings, unlike ElevenLabs' `/with-timestamps`. Clipwright's captions are
-built from character-level alignment, so we synthesize, then force-align
-the result with faster-whisper — the same approach `piper.py` takes, via
-the shared `align.py`.
+built from character-level alignment, so the audio has to be aligned
+after the fact.
 
-That makes captioned OpenAI clips need the alignment extra:
+We do that with OpenAI's own transcription endpoint, which returns word
+timestamps for an uploaded file. Using it costs nothing extra in
+dependencies: anyone synthesizing with this provider already has the key
+that call needs. The earlier design force-aligned locally with
+faster-whisper — correct, but it made captioned OpenAI clips require a
+~40 MB model download that the rest of the provider doesn't. Local
+alignment is still the fallback when the API call fails and
+faster-whisper happens to be installed.
 
-    pip install 'clipwright[openai]'
-
-Sampling a voice does NOT need it — `synthesize_audio` skips alignment
-entirely, which is why the desktop's voice preview stays fast and works
-on a bare install.
+Sampling a voice skips alignment entirely (`synthesize_audio`), which is
+why the desktop's voice preview is one round-trip.
 
 stdlib urllib throughout, to keep the `openai` SDK out of the base
-dependency set for one HTTP call.
+dependency set for two HTTP calls.
 """
 from __future__ import annotations
 
 import json
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 
-from .align import align_with_whisper
-from .base import words_to_alignment, write_alignment
+from .base import Word, words_to_alignment, write_alignment
 
 ENDPOINT = "https://api.openai.com/v1/audio/speech"
+TRANSCRIBE_ENDPOINT = "https://api.openai.com/v1/audio/transcriptions"
+# `whisper-1` is the model that exposes word-level
+# `timestamp_granularities`. The newer gpt-4o transcribe models are
+# better at recognition but don't return word timings, which is the only
+# thing we want here — we already know the words.
+ALIGN_MODEL = "whisper-1"
 
 # `gpt-4o-mini-tts` is the current-generation model: better prosody than
 # tts-1 at a similar price, and it accepts an `instructions` string for
@@ -140,6 +149,63 @@ def synthesize_audio(
     out_mp3.write_bytes(audio)
 
 
+def align_via_api(mp3: Path, *, api_key: str) -> list[Word]:
+    """Word timings from OpenAI's transcription endpoint.
+
+    Hand-rolled multipart because this is the only file upload in the
+    codebase and `requests` isn't a dependency. The response's `words`
+    array is exactly the shape `words_to_alignment` wants.
+    """
+    boundary = uuid.uuid4().hex
+    parts: list[bytes] = []
+
+    def field(name: str, value: str) -> None:
+        parts.append(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"'
+            f"\r\n\r\n{value}\r\n".encode()
+        )
+
+    field("model", ALIGN_MODEL)
+    field("response_format", "verbose_json")
+    # The `[]` suffix is required — the API reads this as an array.
+    field("timestamp_granularities[]", "word")
+    parts.append(
+        f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
+        f'filename="{mp3.name}"\r\nContent-Type: audio/mpeg\r\n\r\n'.encode()
+        + mp3.read_bytes()
+        + b"\r\n"
+    )
+    parts.append(f"--{boundary}--\r\n".encode())
+
+    req = urllib.request.Request(
+        TRANSCRIBE_ENDPOINT,
+        data=b"".join(parts),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = json.loads(e.read().decode("utf-8")).get("error", {}).get("message", "")
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"OpenAI alignment failed ({e.code})" + (f": {detail}" if detail else "")
+        ) from e
+
+    return [
+        Word(str(w.get("word", "")).strip(), float(w.get("start", 0.0)), float(w.get("end", 0.0)))
+        for w in payload.get("words") or []
+        if str(w.get("word", "")).strip()
+    ]
+
+
 def synthesize(
     text: str,
     out_mp3: Path,
@@ -150,18 +216,40 @@ def synthesize(
     model: str = DEFAULT_MODEL,
     instructions: str | None = None,
 ) -> None:
+    key = _resolve_key(api_key)
     synthesize_audio(
         text,
         out_mp3,
         voice=voice,
-        api_key=api_key,
+        api_key=key,
         model=model,
         instructions=instructions,
     )
 
-    # Align against the mp3 we just wrote. faster-whisper reads mp3
-    # directly, so there's no wav round-trip to do here.
-    words = align_with_whisper(out_mp3, text)
+    # Align through the same account that just synthesized — no local
+    # model, nothing extra to install.
+    try:
+        words = align_via_api(out_mp3, api_key=key)
+    except Exception as api_err:
+        # Network blip or an account without transcription access: fall
+        # back to local alignment IF it happens to be available, rather
+        # than losing a paid synthesis over a second call.
+        try:
+            from .align import align_with_whisper
+
+            words = align_with_whisper(out_mp3, text)
+        except Exception as local_err:
+            raise RuntimeError(
+                f"OpenAI alignment failed ({api_err}), and local fallback is "
+                f"unavailable ({local_err}). Captions need word timings; "
+                "either retry, or install the local aligner with "
+                "`pip install 'clipwright[openai]'`."
+            ) from api_err
+
+    if not words:
+        raise RuntimeError(
+            "OpenAI alignment returned no words for this clip",
+            )
     write_alignment(out_timestamps, words_to_alignment(text, words))
 
 
