@@ -131,6 +131,15 @@ export interface VideoMeta {
   persona_id: string;
   /** `out/final/<id>.mp4` exists. */
   has_final: boolean;
+  /** Segments with synthesized voiceover / rendered captions / a cached
+   *  segment render. Directory counts, not a doctor run — enough to say
+   *  where a video actually is without a subprocess per row. */
+  n_voiced: number;
+  n_captioned: number;
+  n_rendered: number;
+  /** The manifest is newer than the final render — the cut on disk no
+   *  longer matches what was rendered. */
+  final_stale: boolean;
 }
 
 /** Wire shape returned by the Rust `open_project` command. */

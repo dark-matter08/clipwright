@@ -125,13 +125,14 @@ clip.
 |---|---|---|---|---|
 | `kokoro` *(default)* | Apache-2.0 | Free | Near-human | `pip install 'clipwright[kokoro]'` (~2 GB, includes PyTorch) |
 | `piper` | MIT | Free, offline | Natural | `pip install 'clipwright[piper]'` (~200 MB, includes faster-whisper) |
-| `openai` | Proprietary API | Paid | High | `pip install 'clipwright[openai]'`, needs an OpenAI key |
+| `openai` | Proprietary API | Paid | High | Just an OpenAI key — no extra install |
 | `elevenlabs` | Proprietary API | Free tier + paid | Highest | Needs `ELEVENLABS_API_KEY` |
 
-Captions need character-level timings, and only ElevenLabs returns them.
-Kokoro emits token timings natively; Piper and OpenAI return audio alone, so
-their output is force-aligned with a small `faster-whisper` model (tiny.en,
-~39 MB) — that's what the extra installs. All providers write the same
+Captions need character-level timings. ElevenLabs returns them directly and
+Kokoro emits token timings natively. Piper and OpenAI return audio alone, so
+their output is aligned afterwards: OpenAI through OpenAI's own transcription
+endpoint (same key, nothing to install), Piper with a local `faster-whisper`
+model (tiny.en, ~39 MB) that its extra installs. All providers write the same
 alignment shape downstream.
 
 **Auditioning voices.** A voice name tells you nothing about how it sounds, so

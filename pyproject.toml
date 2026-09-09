@@ -42,9 +42,10 @@ piper = [
     "piper-tts>=1.2",
     "faster-whisper>=1.0",
 ]
-# OpenAI's speech endpoint returns audio with no timings, so captioned
-# clips need the same forced aligner Piper uses. Voice *previews* don't
-# — they skip alignment — so a bare install can still audition voices.
+# OpenAI needs NOTHING extra: it aligns through OpenAI's own
+# transcription endpoint, using the same key that synthesized the audio.
+# This extra installs the *local* aligner as a fallback for when that
+# call is unavailable — worth having offline, not required.
 openai = [
     "faster-whisper>=1.0",
 ]

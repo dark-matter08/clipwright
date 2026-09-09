@@ -320,15 +320,24 @@ function matchesQuery(v: VideoMeta, query: string): boolean {
   );
 }
 
-/** Build status from the cheap signals we already have. A real answer
- *  would run the doctor per video; at two dozen videos that's two dozen
- *  subprocesses to render a sidebar. Segment count and the presence of
- *  a final render separate the states that matter when you're deciding
- *  what to work on next. */
-function statusOf(v: VideoMeta): string {
+/** Where a video actually is in the build.
+ *
+ *  Ordered by what blocks you next, so the bucket names answer "what do
+ *  I do with this?" rather than describing it. Derived from directory
+ *  counts gathered during enumeration — a doctor run per video would be
+ *  more precise and would mean a subprocess per row.
+ *
+ *  Stale outranks Rendered deliberately: a rendered-but-stale video
+ *  looks finished in every other view, and that's exactly the one you
+ *  can ship by mistake. */
+export function statusOf(v: VideoMeta): string {
   if (v.n_segments === 0) return "Empty";
+  if (v.final_stale) return "Stale";
   if (v.has_final) return "Rendered";
-  return "In progress";
+  if (v.n_rendered >= v.n_segments) return "Ready to assemble";
+  if (v.n_voiced === 0) return "Needs voiceover";
+  if (v.n_voiced < v.n_segments || v.n_captioned < v.n_segments) return "Part-voiced";
+  return "Needs render";
 }
 
 function dateBucket(createdAt: number): string {
@@ -343,7 +352,16 @@ function dateBucket(createdAt: number): string {
 const ORDER: Record<Grouping, string[]> = {
   running: ["Running", "Idle"],
   created: ["Today", "This week", "This month", "Older", "Undated"],
-  status: ["In progress", "Rendered", "Empty"],
+  // Most-blocked first: the top of the list is what needs you.
+  status: [
+    "Stale",
+    "Needs voiceover",
+    "Part-voiced",
+    "Needs render",
+    "Ready to assemble",
+    "Rendered",
+    "Empty",
+  ],
   persona: [],
 };
 
@@ -438,8 +456,34 @@ function VideoRow({
             {v.title || v.video_id}
           </span>
         </span>
-        <span className="block w-full truncate font-mono text-[10px] text-fg-muted">
-          {v.video_id} · {v.n_segments} segment{v.n_segments === 1 ? "" : "s"}
+        <span className="flex w-full items-center gap-1.5 font-mono text-[10px] text-fg-muted">
+          <span className="min-w-0 flex-1 truncate">
+            {v.video_id} · {v.n_segments} segment{v.n_segments === 1 ? "" : "s"}
+          </span>
+          {/* Progress on the row itself, so you can see where a video is
+           *  without switching the grouping to Status. Stale is called
+           *  out in warn colour because a stale render looks finished
+           *  everywhere else and is the one you ship by mistake. */}
+          {v.n_segments > 0 && (
+            <span
+              className={cn(
+                "shrink-0",
+                v.final_stale
+                  ? "text-warn"
+                  : v.has_final
+                    ? "text-success"
+                    : "text-fg-muted",
+              )}
+              title={
+                `${v.n_voiced}/${v.n_segments} voiced · ` +
+                `${v.n_captioned}/${v.n_segments} captioned · ` +
+                `${v.n_rendered}/${v.n_segments} rendered` +
+                (v.final_stale ? " · final is out of date" : "")
+              }
+            >
+              {statusOf(v)}
+            </span>
+          )}
         </span>
       </button>
       {/* Trash icon — hover-revealed on the row; click stages the delete
