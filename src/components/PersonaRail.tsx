@@ -1,44 +1,66 @@
-// Persona rail — a working surface for the project's writing persona.
+// Persona rail — the library, the editor, memory, and the graph.
 //
-// Opened from the top bar, and shaped like the Claude rail rather than
-// a modal on purpose: writing a persona is iterative. You want the
-// timeline and the transcript still on screen while you tune it, and
-// you want to leave it open across several Claude turns to see whether
-// the voice actually landed. A modal forces a decision and closes.
+// Opened from the top bar and shaped like the Claude rail rather than a
+// modal: tuning a voice is iterative, so you want the timeline and
+// transcript still on screen, and you want it to stay open across turns
+// to see whether the voice landed.
 //
-// Owns two scopes at once, because they're the same decision:
-//   * Project — the persona every video inherits (recap-config.json).
-//   * This video — whether it opts in at all, and an optional
-//     video-specific persona that replaces the project one
-//     (videos/<id>.json#recap_overrides).
+// Four tabs over one selected persona:
 //
-// Saving is explicit. Auto-saving a half-typed persona would ship it
-// to the next Claude turn mid-thought, and turns are expensive.
+//   Library   every persona, with attach / clone / delete
+//   Write     the six-block builder + composed prose
+//   Voice     provider, voice, speed, pitch, provider-specific controls
+//   Memory    what it has learned, plus the knowledge graph
+//
+// Personas are user-level and referenced by id, so "attach" writes
+// `project.json#persona_id` and nothing else — editing the persona
+// later changes every project using it, which is the point of a shared
+// library.
 
-import { useEffect, useMemo, useState } from "react";
-import { Check, Drama, Loader2, Telescope, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  DEFAULT_RECAP_CONFIG,
-  getRecapConfig,
-  saveVideo,
-  setRecapConfig,
-  type RecapConfig,
+  Check,
+  Copy,
+  Drama,
+  Loader2,
+  Plus,
+  Search,
+  Telescope,
+  Trash2,
+  X,
+} from "lucide-react";
+import {
+  EMPTY_PERSONA_VOICE,
+  clonePersona,
+  deletePersona,
+  listPersonas,
+  personaMemoryAdd,
+  personaMemoryForget,
+  personaMemoryList,
+  savePersona,
+  setProjectPersona,
+  type MemoryEntry,
+  type MemoryKind,
+  type PersonaDoc,
 } from "../lib/tauri";
 import { useApp } from "../lib/store";
 import { cn } from "../lib/cn";
 import {
-  composePersona,
   EMPTY_PERSONA_DRAFT,
   PersonaBuilder,
+  composePersona,
 } from "./PersonaBuilder";
+import { PersonaGraphView } from "./PersonaGraphView";
+import { VoiceControls } from "./VoiceControls";
+
+type Tab = "library" | "write" | "voice" | "memory";
 
 /** Loaded into the Claude composer by "Derive from a reference".
  *
- *  Asks for the six builder blocks by name and in order, so the reply
- *  can be pasted field-for-field. It deliberately asks for observable
- *  detail (actual banned phrases, actual sentence lengths) rather than
- *  adjectives — "energetic and fun" changes nothing about the output,
- *  while "max 15 words per sentence, never says 'furthermore'" does. */
+ *  Asks for the six builder blocks by name and in order so the reply
+ *  pastes field-for-field, and demands observable detail rather than
+ *  adjectives — "energetic" changes nothing about the output, "max 15
+ *  words per sentence, never says 'furthermore'" does. */
 const EXTRACTION_PROMPT = `I want to build a writing persona from a reference.
 
 Below this line I'll paste a transcript from a channel whose voice I want to work in. (If I haven't pasted one yet, ask me for it and stop.)
@@ -49,7 +71,7 @@ Reverse-engineer its style and give me exactly these six blocks, each 1-3 senten
 2. **Voice & tone** — tense, register, rhythm.
 3. **Structural rules** — what they do to a script, in order: how they open, how a beat is built, how they close.
 4. **Vocabulary** — actual verbs and phrases they reach for, and actual words they never use. Quote real examples from the transcript.
-5. **Pacing** — measured, not vibes: words per sentence, how runtime is spent across the material, what gets compressed.
+5. **Pacing** — measured, not vibes: words per sentence, how runtime is spent, what gets compressed.
 6. **Never does** — the failure mode this style deliberately avoids.
 
 Rules: describe what's observably in the transcript, not what sounds flattering. No adjectives I can't act on ("engaging", "dynamic"). Don't write me a sample script — just the six blocks, so I can paste each into the persona builder.
@@ -65,80 +87,62 @@ export function PersonaRail({ collapsed }: { collapsed: boolean }) {
   const toggleClaudeRail = useApp((s) => s.toggleClaudeRail);
   const updateChatRuntime = useApp((s) => s.updateChatRuntime);
 
-  const [config, setConfig] = useState<RecapConfig>(DEFAULT_RECAP_CONFIG);
-  const [pristine, setPristine] = useState<RecapConfig>(DEFAULT_RECAP_CONFIG);
+  const [tab, setTab] = useState<Tab>("library");
+  const [personas, setPersonas] = useState<PersonaDoc[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [draftDoc, setDraftDoc] = useState<PersonaDoc | null>(null);
+  const [pristine, setPristine] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState<number | null>(null);
   const [mode, setMode] = useState<"guided" | "custom">("guided");
 
-  const video = project?.video ?? null;
-  const videoId = video?.video_id ?? "";
-  const overrides = useMemo(
-    () => (video?.recap_overrides ?? {}) as Record<string, unknown>,
-    [video],
+  const attachedId = project?.project?.persona_id ?? "";
+  const videoId = project?.video?.video_id ?? "";
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const list = await listPersonas();
+      setPersonas(list);
+      setSelectedId((cur) => cur || attachedId || list[0]?.persona_id || "");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [attachedId, setError]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  // Track the selected persona as an editable copy.
+  useEffect(() => {
+    const found = personas.find((p) => p.persona_id === selectedId) ?? null;
+    setDraftDoc(found ? structuredClone(found) : null);
+    setPristine(found ? JSON.stringify(found) : "");
+    if (found) {
+      // Resume the builder in Guided only when the stored prose is still
+      // what the fields compose to — otherwise it was hand-written and
+      // Guided would overwrite it on the first keystroke.
+      const composed = composePersona(found.draft ?? EMPTY_PERSONA_DRAFT).trim();
+      const prose = (found.prose ?? "").trim();
+      setMode(!prose || composed === prose ? "guided" : "custom");
+    }
+  }, [selectedId, personas]);
+
+  const dirty = useMemo(
+    () => !!draftDoc && JSON.stringify(draftDoc) !== pristine,
+    [draftDoc, pristine],
   );
 
-  // Per-video state, mirrored locally so Save is one atomic action.
-  const [personaEnabled, setPersonaEnabled] = useState(true);
-  const [videoPersona, setVideoPersona] = useState("");
-
-  useEffect(() => {
-    setPersonaEnabled(overrides.persona_enabled !== false);
-    setVideoPersona(String(overrides.persona ?? ""));
-  }, [overrides]);
-
-  useEffect(() => {
-    if (!project?.project_dir) return;
-    setLoading(true);
-    getRecapConfig(project.project_dir)
-      .then((loaded) => {
-        setConfig(loaded);
-        setPristine(loaded);
-        // Resume in Guided only when the saved prose is still exactly
-        // what the saved fields compose to. Otherwise it was
-        // hand-written, and opening in Guided would overwrite it on the
-        // first keystroke in any field.
-        const draft = loaded.persona_draft ?? EMPTY_PERSONA_DRAFT;
-        const persona = (loaded.persona ?? "").trim();
-        const composed = composePersona(draft).trim();
-        setMode(!persona || composed === persona ? "guided" : "custom");
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
-  }, [project?.project_dir, setError]);
-
-  const projectDirty = JSON.stringify(config) !== JSON.stringify(pristine);
-  const videoDirty =
-    personaEnabled !== (overrides.persona_enabled !== false) ||
-    videoPersona !== String(overrides.persona ?? "");
-  const dirty = projectDirty || videoDirty;
-
   async function onSave() {
-    if (!project?.project_dir || saving || !dirty) return;
+    if (!draftDoc || saving || !dirty) return;
     setSaving(true);
     try {
-      if (projectDirty) {
-        await setRecapConfig(project.project_dir, config);
-        setPristine(config);
-      }
-      if (videoDirty && video) {
-        const next: Record<string, unknown> = { ...overrides };
-        // Absence is what the prompt reads as "enabled", so only the
-        // opt-out is ever written — that keeps today's default out of
-        // the manifest and lets it change later without a migration.
-        if (personaEnabled) delete next.persona_enabled;
-        else next.persona_enabled = false;
-        if (videoPersona.trim()) next.persona = videoPersona.trim();
-        else delete next.persona;
-        const nextVideo = {
-          ...video,
-          recap_overrides: next as typeof video.recap_overrides,
-        };
-        await saveVideo(project.project_dir, video.video_id, nextVideo);
-        loadProject({ ...project, video: nextVideo });
-      }
-      setSavedAt(Date.now());
+      await savePersona(draftDoc);
+      await refresh();
+      setPristine(JSON.stringify(draftDoc));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -146,25 +150,70 @@ export function PersonaRail({ collapsed }: { collapsed: boolean }) {
     }
   }
 
-  /** Hand the reverse-engineering job to Claude.
-   *
-   *  Deriving a persona from a channel you admire beats inventing one
-   *  from scratch — you can hear the voice you want long before you can
-   *  describe it. We don't call the model from here: we load the
-   *  extraction prompt into the Claude composer and switch to that rail,
-   *  so the user reviews and sends it themselves. Firing a turn off a
-   *  button press would spend tokens the user didn't ask to spend, and
-   *  they usually want to paste a transcript in first. */
+  async function onCreate() {
+    const id = `persona-${Date.now().toString(36)}`;
+    const doc: PersonaDoc = {
+      persona_id: id,
+      name: "New persona",
+      draft: { ...EMPTY_PERSONA_DRAFT },
+      prose: "",
+      voice: { ...EMPTY_PERSONA_VOICE },
+      created_at: "",
+      updated_at: "",
+      cloned_from: "",
+    };
+    try {
+      await savePersona(doc);
+      await refresh();
+      setSelectedId(id);
+      setTab("write");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function onClone(personaId: string, name: string) {
+    try {
+      const list = await clonePersona(personaId, `${name} (copy)`);
+      setPersonas(list);
+      // The library is newest-updated first, so the clone leads it.
+      setSelectedId(list[0]?.persona_id ?? personaId);
+      setTab("write");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function onDelete(personaId: string) {
+    try {
+      await deletePersona(personaId);
+      setSelectedId("");
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  /** Bind this persona to the project. Live reference — we store the id
+   *  and nothing else, so later edits reach this project automatically. */
+  async function onAttach(personaId: string) {
+    if (!project?.project_dir) return;
+    try {
+      await setProjectPersona(project.project_dir, personaId);
+      loadProject({
+        ...project,
+        project: { ...project.project, persona_id: personaId },
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   function draftFromReference() {
     if (!videoId) return;
     updateChatRuntime(videoId, { draft: EXTRACTION_PROMPT });
     toggleClaudeRail();
   }
-
-  // Clear the "saved" tick once the user starts editing again.
-  useEffect(() => {
-    if (dirty) setSavedAt(null);
-  }, [dirty]);
 
   if (collapsed) {
     return (
@@ -175,16 +224,12 @@ export function PersonaRail({ collapsed }: { collapsed: boolean }) {
         className="flex h-full w-full flex-col items-center justify-start gap-3 pt-3 text-fg-muted transition-colors hover:text-fg"
       >
         <Drama size={16} strokeWidth={1.75} />
-        <span className="rotate-180 [writing-mode:vertical-rl] text-xs">
-          Persona
-        </span>
+        <span className="rotate-180 [writing-mode:vertical-rl] text-xs">Persona</span>
       </button>
     );
   }
 
   if (!project) return null;
-
-  const effective = videoPersona.trim() || config.persona.trim();
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -203,138 +248,111 @@ export function PersonaRail({ collapsed }: { collapsed: boolean }) {
         </button>
       </header>
 
-      {loading ? (
-        <div className="flex flex-1 items-center justify-center text-fg-muted">
-          <Loader2 size={16} strokeWidth={2} className="mr-2 animate-spin" />
-          Loading…
-        </div>
-      ) : (
-        <div className="flex-1 overflow-y-auto px-3 py-3">
+      <nav className="flex shrink-0 items-center gap-0.5 border-b border-border-subtle px-2 py-1.5">
+        {(["library", "write", "voice", "memory"] as Tab[]).map((t) => (
           <button
+            key={t}
             type="button"
-            onClick={draftFromReference}
-            disabled={!videoId}
-            title={
-              videoId
-                ? "Load a prompt into the Claude composer that reverse-engineers a persona from a reference script"
-                : "Open a video first — the extraction runs in that video's chat"
-            }
-            className="mb-3 flex w-full items-center gap-2 rounded border border-border-subtle px-2.5 py-2 text-left transition-colors hover:border-accent/50 hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={() => setTab(t)}
+            disabled={t !== "library" && !draftDoc}
+            className={cn(
+              "rounded px-2 py-0.5 text-[11px] capitalize transition-colors",
+              tab === t ? "bg-accent/15 text-fg" : "text-fg-muted hover:text-fg",
+              t !== "library" && !draftDoc && "cursor-not-allowed opacity-40",
+            )}
           >
-            <Telescope size={14} strokeWidth={2} className="shrink-0 text-accent" />
-            <span className="flex min-w-0 flex-col">
-              <span className="text-xs font-medium text-fg">
-                Derive from a reference
-              </span>
-              <span className="text-[11px] text-fg-muted">
-                Paste a transcript from a channel you like — Claude extracts
-                the voice into these fields.
-              </span>
-            </span>
+            {t}
           </button>
+        ))}
+      </nav>
 
-          <PersonaBuilder
-            value={config.persona}
-            draft={config.persona_draft ?? EMPTY_PERSONA_DRAFT}
-            onChange={({ persona, draft }) =>
-              // Functional form on top of the atomic change: the rail
-              // also writes `config` from the load effect and the video
-              // section, and a captured-spread here would race those.
-              setConfig((c) => ({ ...c, persona, persona_draft: draft }))
-            }
-            mode={mode}
-            onModeChange={setMode}
-            hint="Who Claude is when it writes for this project. Every video inherits it, and it outranks the template on tone."
+      <div className="flex-1 overflow-y-auto px-3 py-3">
+        {loading ? (
+          <div className="flex items-center justify-center py-10 text-fg-muted">
+            <Loader2 size={16} strokeWidth={2} className="mr-2 animate-spin" />
+            Loading library…
+          </div>
+        ) : tab === "library" ? (
+          <LibraryTab
+            personas={personas}
+            selectedId={selectedId}
+            attachedId={attachedId}
+            onSelect={(id) => {
+              setSelectedId(id);
+              setTab("write");
+            }}
+            onAttach={onAttach}
+            onClone={onClone}
+            onDelete={onDelete}
+            onCreate={onCreate}
           />
+        ) : !draftDoc ? null : tab === "write" ? (
+          <div className="flex flex-col gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-fg">Name</span>
+              <input
+                value={draftDoc.name}
+                onChange={(e) =>
+                  setDraftDoc({ ...draftDoc, name: e.target.value })
+                }
+                className="rounded border border-border-subtle bg-bg-inset px-2 py-1 text-sm text-fg focus:focus-ring"
+              />
+              <span className="font-mono text-[10px] text-fg-muted">
+                {draftDoc.persona_id}
+                {draftDoc.cloned_from && ` · cloned from ${draftDoc.cloned_from}`}
+              </span>
+            </label>
 
-          {video && (
-            <section className="mt-5 flex flex-col gap-2 border-t border-border-subtle pt-4">
-              <h3 className="text-sm font-medium text-fg">
-                This video ·{" "}
-                <span className="font-mono text-xs text-fg-muted">{videoId}</span>
-              </h3>
-
-              <label className="flex cursor-pointer items-start gap-2 rounded border border-border-subtle bg-bg-inset px-2.5 py-2">
-                <input
-                  type="checkbox"
-                  checked={personaEnabled}
-                  onChange={(e) => setPersonaEnabled(e.target.checked)}
-                  className="mt-[3px] accent-accent"
-                />
-                <span className="flex min-w-0 flex-col">
-                  <span className="text-xs font-medium text-fg">
-                    Use a persona for this video
-                  </span>
-                  <span className="text-[11px] text-fg-muted">
-                    {personaEnabled
-                      ? "On — this video writes in character."
-                      : "Off — Claude writes without a persona here. The template's own voice guidance applies instead."}
-                  </span>
-                </span>
-              </label>
-
-              <label
-                className={cn(
-                  "flex flex-col gap-1",
-                  !personaEnabled && "pointer-events-none opacity-40",
-                )}
-              >
+            <button
+              type="button"
+              onClick={draftFromReference}
+              disabled={!videoId}
+              title={
+                videoId
+                  ? "Load a prompt into the Claude composer that reverse-engineers a persona from a reference script"
+                  : "Open a video first — the extraction runs in that video's chat"
+              }
+              className="flex w-full items-center gap-2 rounded border border-border-subtle px-2.5 py-2 text-left transition-colors hover:border-accent/50 hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Telescope size={14} strokeWidth={2} className="shrink-0 text-accent" />
+              <span className="flex min-w-0 flex-col">
                 <span className="text-xs font-medium text-fg">
-                  Override for this video
+                  Derive from a reference
                 </span>
                 <span className="text-[11px] text-fg-muted">
-                  Replaces the project persona for this one video. Leave blank
-                  to inherit.
+                  Paste a transcript — Claude extracts the voice into these fields.
                 </span>
-                <textarea
-                  value={videoPersona}
-                  onChange={(e) => setVideoPersona(e.target.value)}
-                  rows={3}
-                  disabled={!personaEnabled}
-                  placeholder="(inherit the project persona)"
-                  className="mt-0.5 w-full resize-y rounded border border-border-subtle bg-bg-inset px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:focus-ring"
-                />
-              </label>
-            </section>
-          )}
+              </span>
+            </button>
 
-          {/* What the next turn actually gets, after both scopes resolve.
-           *  Two settings interact here, so showing the resolved result
-           *  beats making the user simulate the precedence rules. */}
-          <div className="mt-4 flex flex-col gap-1 rounded border border-accent/30 bg-accent/5 px-3 py-2">
-            <span className="font-mono text-[10px] uppercase tracking-wider text-fg-muted">
-              Next Claude turn will see
-            </span>
-            {!personaEnabled ? (
-              <span className="text-[11px] text-fg-subtle">
-                No persona section — this video opted out.
-              </span>
-            ) : effective ? (
-              <span className="text-[11px] italic text-fg-subtle">
-                “{effective}”
-                {videoPersona.trim() && (
-                  <span className="not-italic text-fg-muted">
-                    {" "}
-                    · video override
-                  </span>
-                )}
-              </span>
-            ) : (
-              <span className="text-[11px] text-fg-subtle">
-                No persona section — nothing set yet.
-              </span>
-            )}
+            <PersonaBuilder
+              value={draftDoc.prose}
+              draft={draftDoc.draft ?? EMPTY_PERSONA_DRAFT}
+              onChange={({ persona, draft }) =>
+                setDraftDoc((d) => (d ? { ...d, prose: persona, draft } : d))
+              }
+              mode={mode}
+              onModeChange={setMode}
+              hint="Who this persona is when it writes. Shared by every project that uses it."
+            />
           </div>
-        </div>
-      )}
+        ) : tab === "voice" ? (
+          <VoiceControls
+            voice={draftDoc.voice ?? EMPTY_PERSONA_VOICE}
+            onChange={(patch) =>
+              setDraftDoc((d) =>
+                d ? { ...d, voice: { ...d.voice, ...patch } } : d,
+              )
+            }
+          />
+        ) : (
+          <MemoryTab personaId={draftDoc.persona_id} projectDir={project.project_dir} />
+        )}
+      </div>
 
       <footer className="flex shrink-0 items-center justify-between border-t border-border-subtle px-3 py-2">
         <span className="text-[11px] text-fg-muted">
-          {dirty
-            ? "Unsaved changes"
-            : savedAt
-              ? "Saved · applies to the next Claude turn"
-              : "Applies to the next Claude turn"}
+          {dirty ? "Unsaved changes" : "Applies to every project using it"}
         </span>
         <button
           type="button"
@@ -345,14 +363,326 @@ export function PersonaRail({ collapsed }: { collapsed: boolean }) {
             (!dirty || saving) && "cursor-not-allowed opacity-50",
           )}
         >
-          {saving ? (
-            <Loader2 size={12} strokeWidth={2.5} className="animate-spin" />
-          ) : savedAt && !dirty ? (
-            <Check size={12} strokeWidth={2.5} />
-          ) : null}
+          {saving && <Loader2 size={12} strokeWidth={2.5} className="animate-spin" />}
           Save persona
         </button>
       </footer>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+function LibraryTab({
+  personas,
+  selectedId,
+  attachedId,
+  onSelect,
+  onAttach,
+  onClone,
+  onDelete,
+  onCreate,
+}: {
+  personas: PersonaDoc[];
+  selectedId: string;
+  attachedId: string;
+  onSelect: (id: string) => void;
+  onAttach: (id: string) => void;
+  onClone: (id: string, name: string) => void;
+  onDelete: (id: string) => void;
+  onCreate: () => void;
+}) {
+  const [filter, setFilter] = useState("");
+  const shown = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return personas;
+    return personas.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.persona_id.toLowerCase().includes(q) ||
+        (p.prose ?? "").toLowerCase().includes(q),
+    );
+  }, [personas, filter]);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-1.5">
+        <input
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Filter personas…"
+          className="min-w-0 flex-1 rounded border border-border-subtle bg-bg-inset px-2 py-1 text-xs text-fg placeholder:text-fg-muted focus:focus-ring"
+        />
+        <button
+          type="button"
+          onClick={onCreate}
+          title="New persona"
+          className="flex shrink-0 items-center gap-1 rounded border border-border-subtle px-2 py-1 text-[11px] text-fg-subtle transition-colors hover:border-accent/50 hover:text-fg"
+        >
+          <Plus size={11} strokeWidth={2} />
+          New
+        </button>
+      </div>
+
+      {shown.length === 0 && (
+        <p className="px-1 py-2 text-[11px] text-fg-muted">
+          {personas.length === 0
+            ? "No personas yet. Create one, or derive it from a reference transcript in the Write tab."
+            : `No personas match "${filter}".`}
+        </p>
+      )}
+
+      {shown.map((p) => {
+        const attached = p.persona_id === attachedId;
+        return (
+          <div
+            key={p.persona_id}
+            className={cn(
+              "flex flex-col gap-1 rounded border px-2.5 py-2 transition-colors",
+              p.persona_id === selectedId
+                ? "border-accent/50 bg-accent/10"
+                : "border-border-subtle hover:bg-bg-raised",
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => onSelect(p.persona_id)}
+              className="flex min-w-0 flex-col items-start text-left"
+            >
+              <span className="flex w-full items-center gap-1.5">
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg">
+                  {p.name}
+                </span>
+                {attached && (
+                  <span className="flex shrink-0 items-center gap-0.5 rounded bg-accent/20 px-1 py-px font-mono text-[9px] uppercase text-accent">
+                    <Check size={8} strokeWidth={3} />
+                    in use
+                  </span>
+                )}
+              </span>
+              <span className="w-full truncate font-mono text-[10px] text-fg-muted">
+                {p.voice?.provider ?? "kokoro"} · {p.voice?.voice_id || "default"}
+                {p.cloned_from && ` · from ${p.cloned_from}`}
+              </span>
+            </button>
+            <div className="flex items-center gap-1">
+              {!attached && (
+                <MiniBtn label="Use in project" onClick={() => onAttach(p.persona_id)} />
+              )}
+              <MiniBtn
+                icon={<Copy size={10} strokeWidth={2} />}
+                label="Clone"
+                title="Copy the definition and voice under a new id. Memory is not copied."
+                onClick={() => onClone(p.persona_id, p.name)}
+              />
+              <MiniBtn
+                icon={<Trash2 size={10} strokeWidth={2} />}
+                label="Delete"
+                danger
+                onClick={() => onDelete(p.persona_id)}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MiniBtn({
+  icon,
+  label,
+  onClick,
+  danger,
+  title,
+}: {
+  icon?: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title ?? label}
+      className={cn(
+        "flex items-center gap-1 rounded border border-border-subtle px-1.5 py-0.5 text-[10px] transition-colors",
+        danger
+          ? "text-fg-muted hover:border-warn/50 hover:text-warn"
+          : "text-fg-subtle hover:border-accent/50 hover:text-fg",
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+const KIND_LABEL: Record<MemoryKind, string> = {
+  note: "Note you wrote",
+  edit: "Correction to its output",
+  reference: "Style from a reference",
+  video: "Video it produced",
+};
+
+function MemoryTab({
+  personaId,
+  projectDir,
+}: {
+  personaId: string;
+  projectDir: string;
+}) {
+  const setError = useApp((s) => s.setError);
+  const [entries, setEntries] = useState<MemoryEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [note, setNote] = useState("");
+  const [query, setQuery] = useState("");
+  const [showGraph, setShowGraph] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setEntries(await personaMemoryList(personaId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [personaId, setError]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function addNote() {
+    if (!note.trim()) return;
+    try {
+      await personaMemoryAdd({
+        persona_id: personaId,
+        kind: "note",
+        body: note.trim(),
+        source: projectDir,
+      });
+      setNote("");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return entries;
+    return entries.filter(
+      (e) => e.body.toLowerCase().includes(q) || e.title.toLowerCase().includes(q),
+    );
+  }, [entries, query]);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setShowGraph((v) => !v)}
+          className={cn(
+            "rounded border px-2 py-0.5 text-[11px] transition-colors",
+            showGraph
+              ? "border-accent/50 bg-accent/10 text-fg"
+              : "border-border-subtle text-fg-subtle hover:text-fg",
+          )}
+        >
+          {showGraph ? "Show list" : "Show graph"}
+        </button>
+        <span className="text-[11px] text-fg-muted">{entries.length} entries</span>
+      </div>
+
+      {showGraph ? (
+        <div className="h-[420px]">
+          <PersonaGraphView personaId={personaId} />
+        </div>
+      ) : (
+        <>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-fg">Teach it something</span>
+            <span className="text-[11px] text-fg-muted">
+              A rule it should keep. Highest trust of anything in memory — it
+              outranks what the persona infers from its own work.
+            </span>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              placeholder="Never open a recap on a wide establishing shot."
+              className="mt-0.5 w-full resize-y rounded border border-border-subtle bg-bg-inset px-2 py-1.5 text-sm text-fg placeholder:text-fg-muted focus:focus-ring"
+            />
+            <button
+              type="button"
+              onClick={addNote}
+              disabled={!note.trim()}
+              className="self-end rounded bg-accent px-2.5 py-1 text-[11px] font-medium text-bg transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Remember
+            </button>
+          </label>
+
+          <div className="flex items-center gap-1.5 border-t border-border-subtle pt-2">
+            <Search size={12} strokeWidth={2} className="shrink-0 text-fg-muted" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter memory…"
+              className="min-w-0 flex-1 rounded border border-border-subtle bg-bg-inset px-2 py-1 text-xs text-fg placeholder:text-fg-muted focus:focus-ring"
+            />
+          </div>
+
+          {loading ? (
+            <div className="flex items-center gap-2 py-4 text-[11px] text-fg-muted">
+              <Loader2 size={12} strokeWidth={2} className="animate-spin" />
+              Loading memory…
+            </div>
+          ) : shown.length === 0 ? (
+            <p className="py-2 text-[11px] text-fg-muted">
+              {entries.length === 0
+                ? "Nothing learned yet. Write a note above, or let it learn from the videos it renders and the corrections you make."
+                : "No entries match."}
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {shown.map((e) => (
+                <li
+                  key={e.id}
+                  className="group flex flex-col gap-0.5 rounded border border-border-subtle bg-bg-inset px-2.5 py-1.5"
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-[9px] uppercase tracking-wider text-accent">
+                      {KIND_LABEL[e.kind] ?? e.kind}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await personaMemoryForget(e.id);
+                        await load();
+                      }}
+                      title="Forget this"
+                      className="rounded p-0.5 text-fg-muted opacity-0 transition-opacity hover:text-warn group-hover:opacity-100"
+                    >
+                      <Trash2 size={11} strokeWidth={2} />
+                    </button>
+                  </span>
+                  {e.title && (
+                    <span className="text-xs font-medium text-fg">{e.title}</span>
+                  )}
+                  <span className="text-[11px] text-fg-subtle">{e.body}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
     </div>
   );
 }

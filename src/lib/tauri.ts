@@ -675,3 +675,163 @@ export interface ClaudeDoctorReport {
 export async function claudeDoctor(): Promise<ClaudeDoctorReport> {
   return invoke<ClaudeDoctorReport>("claude_doctor");
 }
+
+// ---------------------------------------------------------------------------
+// Personas — the user-level library, their voices, and their memory
+// ---------------------------------------------------------------------------
+//
+// Personas live outside any project (`~/.clipwright/personas/`) and are
+// referenced by id, so editing one changes every project using it. The
+// commands below are thin pass-throughs to `clipwright persona …`, so
+// the app and the agent read the same library.
+
+export interface PersonaVoice {
+  provider: string;
+  voice_id: string;
+  /** 1.0 = the provider's natural rate. */
+  speed: number;
+  /** Semitones. No provider supports pitch, so this is applied after
+   *  synthesis by resampling in ffmpeg. Past ±2 it starts to sound
+   *  processed rather than like a different voice. */
+  pitch_semitones: number;
+  /** OpenAI only — free-text delivery steering. */
+  instructions: string;
+  /** ElevenLabs only. */
+  stability: number;
+  similarity_boost: number;
+  style: number;
+}
+
+export interface PersonaDoc {
+  persona_id: string;
+  name: string;
+  draft: PersonaDraft;
+  prose: string;
+  voice: PersonaVoice;
+  created_at: string;
+  updated_at: string;
+  /** Set when this persona was cloned from another. Provenance only —
+   *  the clone is fully independent. */
+  cloned_from: string;
+}
+
+export type MemoryKind = "note" | "edit" | "reference" | "video";
+
+export interface MemoryEntry {
+  id: number;
+  persona_id: string;
+  kind: MemoryKind;
+  title: string;
+  body: string;
+  source: string;
+  /** Trust, not relevance: a note you wrote outranks a render log. */
+  weight: number;
+  created_at: string;
+}
+
+export interface PersonaGraphNode {
+  id: string;
+  kind: string;
+  label: string;
+  body?: string;
+  source?: string;
+  weight?: number;
+  created_at?: string;
+}
+
+export interface PersonaGraphEdge {
+  source: string;
+  target: string;
+  relation: string;
+  label?: string;
+}
+
+export interface PersonaGraph {
+  persona_id: string;
+  nodes: PersonaGraphNode[];
+  edges: PersonaGraphEdge[];
+}
+
+export const EMPTY_PERSONA_VOICE: PersonaVoice = {
+  provider: "kokoro",
+  voice_id: "",
+  speed: 1.0,
+  pitch_semitones: 0,
+  instructions: "",
+  stability: 0.45,
+  similarity_boost: 0.75,
+  style: 0,
+};
+
+export async function listPersonas(): Promise<PersonaDoc[]> {
+  return invoke<PersonaDoc[]>("list_personas");
+}
+
+/** Returns the persona plus a `memory` overview block. */
+export async function loadPersona(personaId: string): Promise<PersonaDoc> {
+  return invoke<PersonaDoc>("load_persona", { personaId });
+}
+
+export async function savePersona(persona: PersonaDoc): Promise<PersonaDoc> {
+  return invoke<PersonaDoc>("save_persona", { persona });
+}
+
+/** Copies definition + voice under a new id. Memory is NOT copied — a
+ *  clone hasn't done the original's work. Returns the refreshed list. */
+export async function clonePersona(
+  personaId: string,
+  name = "",
+): Promise<PersonaDoc[]> {
+  return invoke<PersonaDoc[]>("clone_persona", { personaId, name });
+}
+
+export async function deletePersona(personaId: string): Promise<void> {
+  await invoke("delete_persona", { personaId });
+}
+
+export async function personaMemoryList(
+  personaId: string,
+  kind?: MemoryKind,
+  limit = 200,
+): Promise<MemoryEntry[]> {
+  return invoke<MemoryEntry[]>("persona_memory_list", { personaId, kind, limit });
+}
+
+export async function personaMemorySearch(
+  personaId: string,
+  query: string,
+  limit = 20,
+): Promise<MemoryEntry[]> {
+  return invoke<MemoryEntry[]>("persona_memory_search", { personaId, query, limit });
+}
+
+export async function personaMemoryAdd(entry: {
+  persona_id: string;
+  kind: MemoryKind;
+  body: string;
+  title?: string;
+  source?: string;
+}): Promise<void> {
+  await invoke("persona_memory_add", {
+    entry: { title: "", source: "", ...entry },
+  });
+}
+
+export async function personaMemoryForget(entryId: number): Promise<void> {
+  await invoke("persona_memory_forget", { entryId });
+}
+
+export async function personaGraph(personaId: string): Promise<PersonaGraph> {
+  return invoke<PersonaGraph>("persona_graph", { personaId });
+}
+
+/** Bind a persona to a project (or pass "" to unbind). Stores only the
+ *  id — a live reference, so editing the persona later reaches this
+ *  project without re-attaching. Merges into `project.json` rather than
+ *  rewriting it, so fields the desktop doesn't model survive. */
+export async function setProjectPersona(
+  projectDir: string,
+  personaId: string,
+): Promise<void> {
+  await invoke("set_project_persona", { projectDir, personaId });
+}

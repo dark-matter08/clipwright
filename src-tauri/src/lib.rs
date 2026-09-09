@@ -8,6 +8,7 @@
 
 mod claude;
 mod clipwright;
+mod persona;
 mod new_project;
 mod path_env;
 mod project;
@@ -41,6 +42,17 @@ pub fn run() {
             new_project::record_project_cmd,
             new_project::clipwright_doctor,
             clipwright::tts_sample,
+            persona::list_personas,
+            persona::load_persona,
+            persona::save_persona,
+            persona::clone_persona,
+            persona::delete_persona,
+            persona::persona_memory_list,
+            persona::persona_memory_search,
+            persona::persona_memory_add,
+            persona::persona_memory_forget,
+            persona::persona_graph,
+            persona::set_project_persona,
             new_project::add_source_cmd,
             sources::list_sources,
             templates::list_templates_cmd,

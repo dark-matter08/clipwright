@@ -22,10 +22,47 @@ import {
   voiceInCatalog,
   type VoiceProvider,
 } from "../lib/voiceCatalog";
-import { getCredentialsStatus, type CredentialsStatus } from "../lib/tauri";
+import {
+  getCredentialsStatus,
+  personaMemoryAdd,
+  type CredentialsStatus,
+} from "../lib/tauri";
 import { AlertTriangle } from "lucide-react";
 import { Dropdown } from "./Dropdown";
 import { VoicePreview } from "./VoicePreview";
+
+/** Log a user rewrite into the bound persona's memory.
+ *
+ *  Best-effort and fire-and-forget: the clip is already saved, and a
+ *  memory row that won't write must not surface as "your edit failed".
+ *  Skips no-ops and first drafts — only an actual change to existing
+ *  text is a correction. */
+async function recordScriptEdit({
+  personaId,
+  before,
+  after,
+  source,
+}: {
+  personaId: string;
+  before: string;
+  after: string;
+  source: string;
+}): Promise<void> {
+  const from = before.trim();
+  const to = after.trim();
+  if (!personaId || !from || !to || from === to) return;
+  try {
+    await personaMemoryAdd({
+      persona_id: personaId,
+      kind: "edit",
+      title: "Rewrote a line",
+      body: `Wrote: "${from}"\nUser changed it to: "${to}"\nPrefer the second phrasing's choices in this voice.`,
+      source,
+    });
+  } catch {
+    /* memory is an enhancement; never block an edit on it */
+  }
+}
 
 export function Inspector() {
   const project = useApp((s) => s.project);
@@ -107,6 +144,14 @@ function VoiceoverGroup({
 }) {
   const setError = useApp((s) => s.setError);
   const loadProject = useApp((s) => s.loadProject);
+  // Which persona owns this line — per-video override beats the
+  // project's, matching how the agent prompt resolves it.
+  const personaId = useApp(
+    (s) =>
+      (s.project?.video?.recap_overrides?.persona_id as string | undefined) ||
+      s.project?.project?.persona_id ||
+      "",
+  );
   const [clip, setClip] = useState<ScriptClip | null>(null);
   const [text, setText] = useState("");
   const [voiceId, setVoiceId] = useState("");
@@ -149,6 +194,16 @@ function VoiceoverGroup({
         patch.voice = { provider: provider || undefined, voice_id: voiceId || undefined };
       }
       await saveScriptClip(projectDir, videoId, clipId, seg.id, patch);
+      // A line you rewrote is the highest-signal thing a persona can
+      // learn: a correction on its own work, not an inference. Recorded
+      // only when there was prior text to correct — the first draft of a
+      // clip is authorship, not a correction.
+      void recordScriptEdit({
+        personaId: personaId,
+        before: clip?.text ?? "",
+        after: text,
+        source: `${projectDir}#${videoId}/${seg.id}`,
+      });
       setClip((c) => ({
         id: clipId,
         segment_id: seg.id,
