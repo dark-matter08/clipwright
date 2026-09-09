@@ -68,6 +68,73 @@ def stretch_audio(src: Path, dst: Path, target_seconds: float) -> float:
     return ratio
 
 
+# Beyond about two semitones the resampling artifacts stop reading as
+# "a different voice" and start reading as "a processed voice". Users
+# reach for pitch expecting a personality knob, so we clamp rather than
+# let them turn their narrator into a chipmunk and blame the renderer.
+MAX_PITCH_SEMITONES = 6.0
+_HONEST_PITCH_SEMITONES = 2.0
+
+
+def shift_pitch(path: Path, semitones: float) -> float:
+    """Pitch-shift `path` in place, preserving duration. Returns the
+    semitones actually applied (clamped).
+
+    No TTS provider we support exposes pitch, so this is the only way to
+    offer it. Method: resample to change pitch (which also changes
+    speed), then `atempo` back to the original speed. `rubberband` would
+    sound better but isn't in a stock ffmpeg build, and requiring a
+    custom ffmpeg to move a slider is a bad trade.
+
+    Duration is preserved deliberately — `tts_segment` time-stretches
+    against a target afterwards, and a pitch shift that also changed
+    length would fight that.
+    """
+    if abs(semitones) < 1e-3:
+        return 0.0
+    st = max(-MAX_PITCH_SEMITONES, min(MAX_PITCH_SEMITONES, float(semitones)))
+    # Equal temperament: each semitone is a factor of 2^(1/12).
+    factor = 2 ** (st / 12.0)
+
+    rate = probe_sample_rate(path) or 44100
+    dst = path.with_suffix(".pitched.mp3")
+    # asetrate re-labels the sample rate (pitch AND speed change),
+    # aresample normalizes back to the original rate, atempo undoes the
+    # speed change and leaves only the pitch shift.
+    chain = (
+        f"asetrate={int(rate * factor)},"
+        f"aresample={rate},"
+        f"{atempo_chain(factor)}"
+    )
+    run([
+        "ffmpeg", "-y", "-i", str(path),
+        "-filter:a", chain,
+        "-c:a", "libmp3lame", "-b:a", "160k",
+        str(dst),
+    ])
+    dst.replace(path)
+    return st
+
+
+def probe_sample_rate(path: Path) -> int:
+    """Sample rate in Hz, or 0 when ffprobe can't tell us."""
+    r = subprocess.run(
+        [
+            "ffprobe", "-v", "error",
+            "-select_streams", "a:0",
+            "-show_entries", "stream=sample_rate",
+            "-of", "default=nw=1:nk=1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    try:
+        return int((r.stdout or "").strip())
+    except (TypeError, ValueError):
+        return 0
+
+
 def probe_duration(path: Path) -> float:
     r = subprocess.run(
         [

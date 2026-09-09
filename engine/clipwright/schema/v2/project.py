@@ -39,6 +39,12 @@ class Project:
     render_backend: str = "remotion"
     tts_provider: str = "kokoro"
     voice_id: str = ""
+    # Persona from the user-level library (`~/.clipwright/personas/`).
+    # A live reference, not a copy: editing the persona changes what
+    # this project sounds like on the next turn, which is the point of
+    # a shared library. Empty = no persona (or a legacy inline one in
+    # `.clipwright/recap-config.json`).
+    persona_id: str = ""
     base_url: str = ""
     created_at: str = ""
     # Templates bound to this project. The FIRST entry is the
@@ -71,6 +77,7 @@ class Project:
             "render_backend": self.render_backend,
             "tts_provider": self.tts_provider,
             "voice_id": self.voice_id,
+            "persona_id": self.persona_id,
             "base_url": self.base_url,
             "created_at": self.created_at,
         }
@@ -131,6 +138,7 @@ class Project:
             render_backend=backend,
             tts_provider=tts,
             voice_id=str(d.get("voice_id", "")),
+            persona_id=str(d.get("persona_id", "") or ""),
             base_url=str(d.get("base_url", "")),
             created_at=str(d.get("created_at", "")),
             template_ids=template_ids,

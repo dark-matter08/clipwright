@@ -34,6 +34,9 @@ export interface Project {
    *  manhwa-reader product → recap visuals + product-demo
    *  framing in one video. */
   template_ids?: string[];
+  /** Persona from the user-level library. A live reference: editing the
+   *  persona changes this project on the next turn. */
+  persona_id?: string;
 }
 
 /** A template's recommended project settings — subset of `Project`. */
@@ -120,6 +123,14 @@ export interface VideoMeta {
   video_id: string;
   title: string;
   n_segments: number;
+  /** Manifest mtime, unix seconds. Videos have no `created_at` of their
+   *  own — the file's timestamp is the only creation signal that exists
+   *  for projects that already have a backlog. */
+  created_at: number;
+  /** Per-video persona override. Empty means "inherit the project's". */
+  persona_id: string;
+  /** `out/final/<id>.mp4` exists. */
+  has_final: boolean;
 }
 
 /** Wire shape returned by the Rust `open_project` command. */

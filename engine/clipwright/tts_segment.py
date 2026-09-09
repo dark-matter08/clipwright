@@ -43,7 +43,7 @@ from pathlib import Path
 from . import __version__
 from .cache import read_input_hash as _read_cache_hash
 from .cache import write_input_hash as _write_cache
-from .ffmpeg import probe_duration, require, stretch_audio
+from .ffmpeg import probe_duration, require, shift_pitch, stretch_audio
 from .schema import (
     Project,
     Segment,
@@ -135,7 +135,8 @@ def tts_segment(
             fix=f"Fill `text` for clip {clip.get('id', '?')!r} in voiceover/scripts/{video_id}.json.",
         )
 
-    provider_name, voice_id = _resolve_provider_and_voice(project, video, clip)
+    voice_cfg = resolve_voice_config(project, video, clip)
+    provider_name, voice_id = voice_cfg.provider, voice_cfg.voice_id
     if provider_name not in PROVIDERS:
         raise TTSSegmentError(
             f"unknown TTS provider {provider_name!r}",
@@ -159,13 +160,23 @@ def tts_segment(
     ts_path = schema_paths.video_audio_timestamps(project_dir, video_id, seg_id)
     cache_path = schema_paths.video_audio_cache(project_dir, video_id, seg_id)
 
-    speed = float(clip.get("speed") or 1.0)
+    # Clip speed wins over the persona's, so a single rushed beat can be
+    # slowed without editing the persona everything else shares.
+    speed = float(clip.get("speed") or voice_cfg.speed or 1.0)
+    tone = {
+        "pitch_semitones": round(voice_cfg.pitch_semitones, 3),
+        "instructions": voice_cfg.instructions,
+        "stability": round(voice_cfg.stability, 3),
+        "similarity_boost": round(voice_cfg.similarity_boost, 3),
+        "style": round(voice_cfg.style, 3),
+    }
     input_hash = _compute_input_hash(
         text=text,
         provider=provider_name,
         voice=voice_id,
         target_seconds=target_seconds,
         speed=speed,
+        tone=tone,
     )
 
     if not force and mp3_path.exists() and ts_path.exists():
@@ -187,12 +198,23 @@ def tts_segment(
 
     provider = get_provider(provider_name)
     synth_kwargs: dict = {"voice": voice_id}
-    # Kokoro supports a `speed` multiplier with correct token timestamps;
-    # faster delivery (~1.1x) reads as more energetic for recap pacing.
-    # Other providers don't accept the kwarg, so only pass it for kokoro.
+    # Each provider takes a different subset of the persona's tone
+    # controls; passing an unknown kwarg is a TypeError, so this fans out
+    # explicitly rather than splatting the whole config.
     if provider_name == "kokoro" and abs(speed - 1.0) > 1e-3:
+        # Kokoro's speed multiplier keeps token timestamps correct, so
+        # it's applied at synthesis rather than as a post-stretch.
         synth_kwargs["speed"] = speed
+    elif provider_name == "openai" and voice_cfg.instructions.strip():
+        # Free-text delivery steering — the strongest tone lever any
+        # provider exposes, and OpenAI-only.
+        synth_kwargs["instructions"] = voice_cfg.instructions.strip()
     provider.synthesize(text, out_mp3=mp3_path, out_timestamps=ts_path, **synth_kwargs)
+
+    # Pitch is nobody's native feature — shift it ourselves, before the
+    # duration probe, so the time-stretch below still lands on target.
+    if abs(voice_cfg.pitch_semitones) > 1e-3:
+        shift_pitch(mp3_path, voice_cfg.pitch_semitones)
 
     natural = probe_duration(mp3_path)
     stretched = False
@@ -288,41 +310,73 @@ def _resolve_clip(project_dir: Path, video_id: str, seg: Segment) -> dict:
     )
 
 
-def _resolve_provider_and_voice(
-    project: Project, video: Video, clip: dict
-) -> tuple[str, str]:
-    """Resolve which TTS provider + voice this segment should use.
+def resolve_voice_config(project: Project, video: Video, clip: dict):
+    """Resolve the full voice settings for one segment.
 
     Precedence (highest first):
-      1. Clip-level voice block in the script.json (per-segment override).
+      1. Clip-level voice block in the script (per-segment override).
       2. Per-video override in `video.recap_overrides` — keys
-         `voice_provider` / `voice_id`, written by the desktop
-         ProjectSettingsDialog "Per-video overrides" panel.
-      3. Project-level defaults (`project.tts_provider` / `project.voice_id`).
+         `voice_provider` / `voice_id`, written by the desktop's
+         per-video panel.
+      3. The project's **persona**, if one is bound. A persona *is* a
+         narrator, so its voice travels with it across projects; this is
+         also the only layer that carries speed, pitch and the
+         provider-specific knobs.
+      4. Project-level defaults (`project.tts_provider` / `voice_id`).
 
-    The bug being fixed: prior versions skipped layer 2 entirely, so a
-    user who set a per-video voice in the desktop saw the project
-    default speak anyway. The override was persisted to disk but
-    silently discarded at synthesis time.
+    Returns a `VoiceConfig`, so callers get the tone controls and not
+    just provider+voice. The persona supplies the baseline and the
+    narrower layers override provider/voice on top of it — a per-segment
+    voice swap shouldn't silently discard the persona's pitch and speed.
     """
+    from .persona import PersonaError, VoiceConfig, load_persona
+
     voice_block = clip.get("voice") or {}
     overrides = video.recap_overrides or {}
 
-    # Provider: clip → video.recap_overrides → project.
+    # Start from the persona's voice when there is one — it carries the
+    # tone controls no other layer has.
+    cfg = VoiceConfig()
+    persona_id = str(
+        overrides.get("persona_id") or getattr(project, "persona_id", "") or ""
+    )
+    if persona_id:
+        try:
+            cfg = load_persona(persona_id).voice
+        except PersonaError:
+            # A dangling persona reference must not stop a render. The
+            # project's own defaults below still produce audio.
+            cfg = VoiceConfig()
+
     provider = str(
         voice_block.get("provider")
         or overrides.get("voice_provider")
+        or (cfg.provider if persona_id else "")
         or project.tts_provider
     )
-    # Voice id: clip → legacy flat clip.voice_id → video.recap_overrides → project.
     voice_id = str(
         voice_block.get("voice_id")
         or clip.get("voice_id")
         or overrides.get("voice_id")
+        or (cfg.voice_id if persona_id else "")
         or project.voice_id
         or ""
     )
-    return provider, voice_id
+    cfg.provider = provider
+    cfg.voice_id = voice_id
+    return cfg
+
+
+def _resolve_provider_and_voice(
+    project: Project, video: Video, clip: dict
+) -> tuple[str, str]:
+    """Back-compat shim — provider + voice only.
+
+    Kept because tests and older callers use it; `resolve_voice_config`
+    is the full answer.
+    """
+    cfg = resolve_voice_config(project, video, clip)
+    return cfg.provider, cfg.voice_id
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +391,7 @@ def _compute_input_hash(
     voice: str,
     target_seconds: float,
     speed: float = 1.0,
+    tone: dict | None = None,
 ) -> str:
     payload = {
         "tool_version": __version__,
@@ -346,6 +401,11 @@ def _compute_input_hash(
         "speed": round(speed, 3),
         "text": text,
     }
+    # Every persona tone control that changes the audio has to be in the
+    # key. Leaving pitch out meant re-rendering after a tweak returned
+    # the cached mp3 and looked like the control did nothing.
+    if tone:
+        payload["tone"] = tone
     blob = json.dumps(payload, sort_keys=True).encode()
     return "sha256:" + hashlib.sha256(blob).hexdigest()
 

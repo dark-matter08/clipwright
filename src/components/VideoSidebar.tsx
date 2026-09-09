@@ -10,8 +10,10 @@ import {
   ChevronLeft,
   Film,
   Plus,
+  Search,
   Trash2,
   Video as VideoIcon,
+  X,
 } from "lucide-react";
 import { createVideo, listSkills, type Skill } from "../lib/tauri";
 import type { VideoMeta } from "../lib/types";
@@ -28,6 +30,8 @@ export function VideoSidebar({ collapsed, onToggle }: { collapsed: boolean; onTo
   // ones actually working on something have to be findable without
   // scrolling the whole list.
   const chatRuntime = useApp((s) => s.chatRuntime);
+  const [query, setQuery] = useState("");
+  const [grouping, setGrouping] = useState<Grouping>("running");
   const switchVideo = useApp((s) => s.switchVideo);
   const deleteVideo = useApp((s) => s.deleteVideo);
   const setError = useApp((s) => s.setError);
@@ -49,7 +53,9 @@ export function VideoSidebar({ collapsed, onToggle }: { collapsed: boolean; onTo
   const onlyVideo = project.videos.length <= 1;
 
   const running = project.videos.filter((v) => chatRuntime[v.video_id]?.busy);
-  const idle = project.videos.filter((v) => !chatRuntime[v.video_id]?.busy);
+  const projectPersona = project.project.persona_id ?? "";
+  const matching = project.videos.filter((v) => matchesQuery(v, query));
+  const groups = groupVideos(matching, grouping, chatRuntime, projectPersona);
 
   async function runDelete() {
     if (!deleteTarget) return;
@@ -137,15 +143,70 @@ export function VideoSidebar({ collapsed, onToggle }: { collapsed: boolean; onTo
             No videos yet. Click "+ New" or import a video.
           </p>
         )}
-        {/* Grouped when anything is running, flat otherwise — a lone
-         *  "Idle · 24" header over the only group is pure noise. */}
-        {running.length > 0 && (
-          <section className="mb-2">
-            <h3 className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-accent">
-              Running · {running.length}
-            </h3>
+        {project.videos.length > 0 && (
+          <div className="mb-2 flex flex-col gap-1.5">
+            <div className="flex items-center gap-1 rounded border border-border-subtle bg-bg-inset px-1.5">
+              <Search size={11} strokeWidth={2} className="shrink-0 text-fg-muted" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search videos…"
+                className="min-w-0 flex-1 bg-transparent py-1 text-xs text-fg placeholder:text-fg-muted focus:outline-none"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  aria-label="Clear search"
+                  className="shrink-0 text-fg-muted hover:text-fg"
+                >
+                  <X size={11} strokeWidth={2} />
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-0.5">
+              {GROUPINGS.map((g) => (
+                <button
+                  key={g.value}
+                  type="button"
+                  onClick={() => setGrouping(g.value)}
+                  title={g.hint}
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-[10px] transition-colors",
+                    grouping === g.value
+                      ? "bg-accent/15 text-fg"
+                      : "text-fg-muted hover:bg-bg-raised hover:text-fg",
+                  )}
+                >
+                  {g.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {matching.length === 0 && project.videos.length > 0 && (
+          <p className="px-2 py-1 text-xs text-fg-muted">
+            No videos match "{query}".
+          </p>
+        )}
+
+        {groups.map((group) => (
+          <section key={group.label} className="mb-2">
+            {/* The header is dropped when there's only one bucket — a
+             *  lone "Idle · 24" heading over the whole list is noise. */}
+            {groups.length > 1 && (
+              <h3
+                className={cn(
+                  "px-2 pb-1 text-[10px] font-medium uppercase tracking-wider",
+                  group.label === "Running" ? "text-accent" : "text-fg-muted",
+                )}
+              >
+                {group.label} · {group.items.length}
+              </h3>
+            )}
             <ul className="flex flex-col gap-0.5">
-              {running.map((v) => (
+              {group.items.map((v) => (
                 <VideoRow
                   key={v.video_id}
                   video={v}
@@ -160,29 +221,7 @@ export function VideoSidebar({ collapsed, onToggle }: { collapsed: boolean; onTo
               ))}
             </ul>
           </section>
-        )}
-        <section>
-          {running.length > 0 && (
-            <h3 className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-fg-muted">
-              Idle · {idle.length}
-            </h3>
-          )}
-          <ul className="flex flex-col gap-0.5">
-            {idle.map((v) => (
-              <VideoRow
-                key={v.video_id}
-                video={v}
-                isCurrent={v.video_id === current}
-                onlyVideo={onlyVideo}
-                startedAt={null}
-                onSelect={() => void switchVideo(v.video_id)}
-                onDelete={() =>
-                  setDeleteTarget({ id: v.video_id, title: v.title || v.video_id })
-                }
-              />
-            ))}
-          </ul>
-        </section>
+        ))}
       </div>
 
       <div className="shrink-0 border-t border-border-subtle p-2">
@@ -254,6 +293,104 @@ export function VideoSidebar({ collapsed, onToggle }: { collapsed: boolean; onTo
     </aside>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Search + grouping
+// ---------------------------------------------------------------------------
+
+/** How to bucket the list.
+ *
+ *  No "template" option: templates bind at the *project* level, so every
+ *  video in one project shares them and the grouping would always
+ *  produce a single bucket. Add it the day per-video templates exist. */
+export type Grouping = "running" | "created" | "persona" | "status";
+
+const GROUPINGS: { value: Grouping; label: string; hint: string }[] = [
+  { value: "running", label: "Activity", hint: "What Claude is working on now" },
+  { value: "created", label: "Date", hint: "When the video was created" },
+  { value: "persona", label: "Persona", hint: "Which persona writes it" },
+  { value: "status", label: "Status", hint: "How far through the build it is" },
+];
+
+function matchesQuery(v: VideoMeta, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return (
+    v.title.toLowerCase().includes(q) || v.video_id.toLowerCase().includes(q)
+  );
+}
+
+/** Build status from the cheap signals we already have. A real answer
+ *  would run the doctor per video; at two dozen videos that's two dozen
+ *  subprocesses to render a sidebar. Segment count and the presence of
+ *  a final render separate the states that matter when you're deciding
+ *  what to work on next. */
+function statusOf(v: VideoMeta): string {
+  if (v.n_segments === 0) return "Empty";
+  if (v.has_final) return "Rendered";
+  return "In progress";
+}
+
+function dateBucket(createdAt: number): string {
+  if (!createdAt) return "Undated";
+  const days = (Date.now() / 1000 - createdAt) / 86400;
+  if (days < 1) return "Today";
+  if (days < 7) return "This week";
+  if (days < 30) return "This month";
+  return "Older";
+}
+
+const ORDER: Record<Grouping, string[]> = {
+  running: ["Running", "Idle"],
+  created: ["Today", "This week", "This month", "Older", "Undated"],
+  status: ["In progress", "Rendered", "Empty"],
+  persona: [],
+};
+
+export function groupVideos(
+  videos: VideoMeta[],
+  grouping: Grouping,
+  chatRuntime: Record<string, { busy?: boolean }>,
+  projectPersona: string,
+): { label: string; items: VideoMeta[] }[] {
+  const buckets = new Map<string, VideoMeta[]>();
+  for (const v of videos) {
+    let key: string;
+    switch (grouping) {
+      case "running":
+        key = chatRuntime[v.video_id]?.busy ? "Running" : "Idle";
+        break;
+      case "created":
+        key = dateBucket(v.created_at);
+        break;
+      case "status":
+        key = statusOf(v);
+        break;
+      case "persona":
+        key = v.persona_id || projectPersona || "No persona";
+        break;
+    }
+    const list = buckets.get(key);
+    if (list) list.push(v);
+    else buckets.set(key, [v]);
+  }
+
+  const known = ORDER[grouping];
+  const keys = [...buckets.keys()].sort((a, b) => {
+    const ia = known.indexOf(a);
+    const ib = known.indexOf(b);
+    // Known buckets keep their declared order (Today before Older);
+    // anything else — persona names — sorts alphabetically, with the
+    // "no persona" catch-all last since it's the absence of a choice.
+    if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    if (a === "No persona") return 1;
+    if (b === "No persona") return -1;
+    return a.localeCompare(b);
+  });
+
+  return keys.map((label) => ({ label, items: buckets.get(label) ?? [] }));
+}
+
 
 /** One video in the list.
  *

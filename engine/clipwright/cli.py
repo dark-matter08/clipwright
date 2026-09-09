@@ -904,6 +904,11 @@ def _is_blank(value: object) -> bool:
 
 
 
+from .persona.cli import persona_app  # noqa: E402
+
+app.add_typer(persona_app, name="persona")
+
+
 @app.command("tts-sample")
 def tts_sample_cmd(
     provider: str = typer.Option(..., "--provider", help="kokoro | piper | openai | elevenlabs."),
@@ -1081,8 +1086,11 @@ def doctor(
 # attached via sub-typer (script_app, generate_app). Listed here so the doctor
 # check accepts them as valid.
 _KNOWN_SUBCOMMAND_GROUPS = {
-    "script": {"init"},
-    "generate": {"intro", "broll", "outro", "hero"},
+    # `generate` and `script init` were removed with the v1 pipeline;
+    # `video`/`templates`/`agent` predate this map and resolve as flat
+    # commands. Listed here are the groups whose *leaves* get referenced
+    # by name in SKILL.md or the agent prompt.
+    "persona": {"list", "show", "new", "clone", "delete", "memory"},
 }
 
 

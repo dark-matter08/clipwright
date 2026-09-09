@@ -49,6 +49,18 @@ pub struct VideoMeta {
     pub video_id: String,
     pub title: String,
     pub n_segments: usize,
+    /// Manifest mtime as a unix timestamp. Videos carry no `created_at`
+    /// of their own, and adding one wouldn't help the projects that
+    /// already exist — the file's own timestamp is the only creation
+    /// signal available for a 24-video backlog.
+    pub created_at: u64,
+    /// Per-video persona override, if any. The project-level persona is
+    /// on `project.persona_id`; the sidebar falls back to it when this
+    /// is empty.
+    pub persona_id: String,
+    /// Whether `out/final/<id>.mp4` exists — the cheap half of build
+    /// status. A stat() per video, versus running the full doctor.
+    pub has_final: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -177,7 +189,32 @@ fn enumerate_videos(dir: &std::path::Path) -> Result<Vec<VideoMeta>, ProjectErro
             .and_then(|v| v.as_array())
             .map(|a| a.len())
             .unwrap_or(0);
-        out.push(VideoMeta { video_id, title, n_segments });
+        let created_at = entry
+            .metadata()
+            .ok()
+            .and_then(|m| m.created().or_else(|_| m.modified()).ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let persona_id = payload
+            .get("recap_overrides")
+            .and_then(|v| v.get("persona_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let has_final = dir
+            .join("out")
+            .join("final")
+            .join(format!("{video_id}.mp4"))
+            .exists();
+        out.push(VideoMeta {
+            video_id,
+            title,
+            n_segments,
+            created_at,
+            persona_id,
+            has_final,
+        });
     }
     // main first, then alphabetical — matches the Python `list_videos` ordering.
     out.sort_by(|a, b| {
