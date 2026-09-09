@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { useApp } from "../lib/store";
+import { usePersonaVoice } from "../lib/usePersonaVoice";
 import {
   captionSegment,
   listSources,
@@ -152,6 +153,10 @@ function VoiceoverGroup({
       s.project?.project?.persona_id ||
       "",
   );
+  // Tone comes from the persona even when this picker overrides which
+  // voice speaks — otherwise the preview auditions something the render
+  // won't produce.
+  const personaVoice = usePersonaVoice();
   const [clip, setClip] = useState<ScriptClip | null>(null);
   const [text, setText] = useState("");
   const [voiceId, setVoiceId] = useState("");
@@ -310,7 +315,13 @@ function VoiceoverGroup({
           />
         </div>
         <div className="flex justify-end">
-          <VoicePreview provider={provider} voice={voiceId} />
+          <VoicePreview
+            provider={provider}
+            voice={voiceId}
+            speed={personaVoice.speed}
+            pitch={personaVoice.pitch_semitones}
+            instructions={personaVoice.instructions}
+          />
         </div>
         <ProviderKeyWarning provider={provider} status={credStatus} />
         <div className="flex items-center justify-between gap-2 pt-1">

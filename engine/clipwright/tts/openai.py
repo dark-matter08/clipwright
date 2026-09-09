@@ -65,6 +65,7 @@ def _request_audio(
     api_key: str,
     model: str,
     instructions: str | None,
+    speed: float = 1.0,
     response_format: str = "mp3",
 ) -> bytes:
     body: dict = {
@@ -73,6 +74,12 @@ def _request_audio(
         "voice": voice,
         "response_format": response_format,
     }
+    # Verified against the API: `speed` scales duration cleanly on
+    # gpt-4o-mini-tts as well as tts-1 (0.5 → ~2x length, 2.0 → ~0.55x).
+    # Native is better than re-timing afterwards, so we use it here and
+    # only fall back to ffmpeg for providers that lack it.
+    if abs(speed - 1.0) > 1e-3:
+        body["speed"] = max(0.25, min(4.0, float(speed)))
     # Only gpt-4o-mini-tts honors `instructions`; tts-1 rejects unknown
     # fields, so send it only when we have something to say.
     if instructions:
@@ -136,14 +143,16 @@ def synthesize_audio(
     api_key: str | None = None,
     model: str = DEFAULT_MODEL,
     instructions: str | None = None,
+    speed: float = 1.0,
 ) -> None:
-    """Audio only — no alignment, no faster-whisper. Used for previews."""
+    """Audio only — no alignment. Used for previews."""
     audio = _request_audio(
         text,
         voice=_resolve_voice(voice),
         api_key=_resolve_key(api_key),
         model=model,
         instructions=instructions,
+        speed=speed,
     )
     out_mp3.parent.mkdir(parents=True, exist_ok=True)
     out_mp3.write_bytes(audio)
@@ -215,6 +224,7 @@ def synthesize(
     api_key: str | None = None,
     model: str = DEFAULT_MODEL,
     instructions: str | None = None,
+    speed: float = 1.0,
 ) -> None:
     key = _resolve_key(api_key)
     synthesize_audio(
@@ -224,6 +234,7 @@ def synthesize(
         api_key=key,
         model=model,
         instructions=instructions,
+        speed=speed,
     )
 
     # Align through the same account that just synthesized — no local
@@ -272,5 +283,9 @@ class OpenAIProvider:
         out_mp3: Path,
         *,
         voice: str | None = None,
+        instructions: str | None = None,
+        speed: float = 1.0,
     ) -> None:
-        synthesize_audio(text, out_mp3, voice=voice)
+        synthesize_audio(
+            text, out_mp3, voice=voice, instructions=instructions, speed=speed
+        )

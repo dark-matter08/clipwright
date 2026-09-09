@@ -38,9 +38,29 @@ def sample_cache_dir() -> Path:
     return Path(tempfile.gettempdir()) / "clipwright-voice-samples"
 
 
-def sample_path(provider: str, voice: str, text: str) -> Path:
+def sample_path(
+    provider: str,
+    voice: str,
+    text: str,
+    *,
+    speed: float = 1.0,
+    pitch_semitones: float = 0.0,
+    instructions: str = "",
+) -> Path:
+    # Tone belongs in the key. Without it, nudging pitch and hitting
+    # Preview replays the previous sample — the control looks broken
+    # while actually being cached, which is the worst of both.
     key = hashlib.sha256(
-        f"{provider}\x00{voice}\x00{text}".encode()
+        "\x00".join(
+            [
+                provider,
+                voice,
+                text,
+                f"{float(speed):.3f}",
+                f"{float(pitch_semitones):.3f}",
+                instructions,
+            ]
+        ).encode()
     ).hexdigest()[:16]
     safe_voice = "".join(c if c.isalnum() or c in "-_" else "_" for c in voice)
     return sample_cache_dir() / f"{provider}-{safe_voice}-{key}.mp3"
@@ -51,13 +71,28 @@ def synthesize_sample(
     voice: str,
     *,
     text: str = DEFAULT_SAMPLE_TEXT,
+    speed: float = 1.0,
+    pitch_semitones: float = 0.0,
+    instructions: str = "",
     force: bool = False,
 ) -> Path:
-    """Return a playable mp3 for (provider, voice), synthesizing if needed.
+    """Return a playable mp3 for a voice AS CONFIGURED, synthesizing if
+    needed.
 
-    Raises `ClipwrightError` with a fix hint for the things that actually
-    go wrong here: an unknown provider, a missing API key, a voice the
-    account can't use.
+    Tone matters here. A preview that ignores speed and pitch auditions
+    a voice you're never going to hear — the point of the button is to
+    answer "what will this sound like", and the persona's controls are
+    part of the answer.
+
+    Applied the same way the render path applies them, so the preview
+    doesn't quietly differ from the output: native speed where the
+    provider has it (Kokoro, OpenAI), ffmpeg re-timing where it doesn't
+    (ElevenLabs, Piper), and pitch always in ffmpeg because nobody
+    offers it.
+
+    Raises `ClipwrightError` with a fix hint for the things that
+    actually go wrong: an unknown provider, a missing API key, a voice
+    the account can't use.
     """
     p = provider.strip().lower()
     if p not in PROVIDERS:
@@ -66,24 +101,45 @@ def synthesize_sample(
             fix=f"Use one of: {', '.join(PROVIDERS)}.",
         )
 
-    out = sample_path(p, voice, text)
+    out = sample_path(
+        p, voice, text,
+        speed=speed, pitch_semitones=pitch_semitones, instructions=instructions,
+    )
     if out.exists() and out.stat().st_size > 0 and not force:
         return out
 
     out.parent.mkdir(parents=True, exist_ok=True)
     impl = get_provider(p)
+    native_speed = p in ("kokoro", "openai")
     try:
         audio_only = getattr(impl, "synthesize_audio", None)
         if audio_only is not None:
-            audio_only(text, out, voice=voice or None)
+            kwargs: dict = {"voice": voice or None}
+            if p == "openai":
+                kwargs["speed"] = speed
+                if instructions.strip():
+                    kwargs["instructions"] = instructions.strip()
+            audio_only(text, out, **kwargs)
         else:
             # Kokoro and Piper only offer the full path. Their timings
             # are a byproduct we don't want, so they go to a temp file
             # that's discarded — still far cheaper than a real render.
             with tempfile.TemporaryDirectory() as td:
-                impl.synthesize(
-                    text, out, Path(td) / "timings.json", voice=voice or None
-                )
+                kwargs = {"voice": voice or None}
+                if p == "kokoro" and abs(speed - 1.0) > 1e-3:
+                    kwargs["speed"] = speed
+                impl.synthesize(text, out, Path(td) / "timings.json", **kwargs)
+
+        # Providers without a speed parameter get re-timed afterwards.
+        if not native_speed and abs(speed - 1.0) > 1e-3:
+            from .ffmpeg import change_speed
+
+            change_speed(out, speed)
+        # Pitch is always ours — no provider offers it.
+        if abs(pitch_semitones) > 1e-3:
+            from .ffmpeg import shift_pitch
+
+            shift_pitch(out, pitch_semitones)
     except Exception as e:
         # A partial write would be cached as if it were good.
         out.unlink(missing_ok=True)
